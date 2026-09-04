@@ -91,10 +91,6 @@ Tested live against the current game build with:
 2. Drop `CapBot.dll` into `PULSARLostColony\Mods\`
 3. In game (host): `/capbot`
 
-**Vortex**
-1. Install PML (requirement) as above
-2. Install the release zip via Vortex — the DLL maps automatically to the game's `Mods\` folder
-
 ## Building from source
 
 ```
