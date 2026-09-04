@@ -30,8 +30,10 @@ namespace CapBot
                 if (___cachedAIData == null) ___cachedAIData = new AIDataIndividual();
                 PLGlobal.Instance.SetupClassDefaultData(ref ___cachedAIData, __instance.GetClassID(), false);
             }
-            if (__instance.GetPawn() == null || !__instance.IsBot || __instance.GetClassID() != 0 || __instance.TeamID != 0 || !PhotonNetwork.isMasterClient || __instance.StartingShip == null) return;
-            Autonomy.OnTick(__instance); // Alpha 1.2.0: learning, talents, economy, research, campaign, extractor, watchdog
+            if (__instance.GetPawn() == null || !__instance.IsBot || __instance.TeamID != 0 || !PhotonNetwork.isMasterClient || __instance.StartingShip == null) return;
+            Autonomy.OnTick(__instance); // universal systems for ALL crew bots; ship-wide slow tick from executor only
+            // Everything below is captain-bot-only logic (orders, shop, course planning).
+            if (__instance.GetClassID() != 0) return;
             int botcounter = 0; //Counts to check if crew is bot (for bots only games)
             foreach (PLPlayer player in PLServer.Instance.AllPlayers)
             {

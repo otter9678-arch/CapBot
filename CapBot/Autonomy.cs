@@ -24,40 +24,60 @@ namespace CapBot
         {
             if (bot == null || !PhotonNetwork.isMasterClient || PLServer.Instance == null) return;
             if (bot.GetPawn() == null || !bot.IsBot || bot.TeamID != 0) return;
+            if (bot.StartingShip == null) return;
             if (Time.unscaledTime - LastTick < 0.5f) return;
             LastTick = Time.unscaledTime;
 
             bool capbotActive = SpawnBot.capisbot && Config.CaptainBotEnabled;
 
-            // Universal (all friendly bots): item use, stuck watchdog
+            // Universal (all crew bots, every class): smart item use, stuck watchdog,
+            // auto talent ranking. Previously these only ran for the class-0 bot.
             if (Config.SmartAIEnabled) SmartItemUse(bot);
             StuckWatchdog.Tick(bot);
-
-            // Auto talent management for EVERY crew bot of every class (captain,
-            // pilot, scientist, weapons, engineer) — per-class priority orders,
-            // not just the captain bot. Vanilla-spawned crew bots included.
             if (Config.CaptainBotEnabled) BotTalents.Tick(bot);
 
-            if (capbotActive)
+            // Ship-wide systems must run once per cycle, not once per bot. Run them
+            // from the captain bot; if no captain bot is spawned, the lowest-player-ID
+            // bot acts as the executor so mission auto-detection still works.
+            bool isExecutor = bot.GetClassID() == 0 || IsLowestBotID(bot);
+            if (!isExecutor) return;
+
+            if (capbotActive) BotInventory.Tick(bot);
+            if (Time.unscaledTime - LastSlowTick > 4f)
             {
-                BotInventory.Tick(bot);
-                if (Time.unscaledTime - LastSlowTick > 4f)
+                LastSlowTick = Time.unscaledTime;
+                // Crew research is ship-wide (not per-bot): run it whenever the
+                // talent system is enabled, even without the captain bot spawned.
+                if (Config.CaptainBotEnabled) BotResearch.Tick();
+                if (Config.MissionAutoDetectEnabled)
                 {
-                    LastSlowTick = Time.unscaledTime;
-                    // Crew research is ship-wide (not per-bot): run it whenever the
-                    // talent system is enabled, even without the captain bot spawned.
-                    if (Config.CaptainBotEnabled) BotResearch.Tick();
-                    if (Config.MissionAutoDetectEnabled)
-                    {
-                        BotEconomy.Tick();
-                        BotCampaign.Tick();
-                    }
-                    BotInstall.Tick();
-                    BotExtractor.Tick();
-                    BotUpgrades.Tick();
-                    Learning.PollMissions();
+                    BotEconomy.Tick();
+                    BotCampaign.Tick();
+                    BotMissions.TickDialogueWork(bot);
+                    BotMissions.TickObjectiveWork(bot);
                 }
+                BotInstall.Tick();
+                BotExtractor.Tick();
+                BotUpgrades.Tick();
+                Learning.PollMissions();
             }
+        }
+
+        // True for the team-0 bot with the smallest player ID (stable executor
+        // pick so exactly one bot drives ship-wide systems each tick).
+        private static bool IsLowestBotID(PLPlayer bot)
+        {
+            try
+            {
+                int myID = bot.GetPlayerID();
+                foreach (PLPlayer p in PLServer.Instance.AllPlayers)
+                {
+                    if (p == null || !p.IsBot || p.TeamID != 0 || p.GetPawn() == null) continue;
+                    if (p.GetPlayerID() < myID) return false;
+                }
+                return true;
+            }
+            catch { return false; }
         }
 
         internal static bool SafeHasTalent(PLPlayer player, int id, int minLevel = 1)
@@ -726,21 +746,32 @@ namespace CapBot
     // ---- Mission auto-detection + work (all missions, incl. side) ----------
     internal static class BotMissions
     {
-        // True when a pending mission objective targets the current sector
-        // (prevents SetNextDestiny from warping away mid-mission — issue #3).
+        // True when a pending mission objective can still be worked in the current
+        // sector (prevents SetNextDestiny from warping away mid-mission — issue #3).
+        // Covers ReachSector targets, plus objectives that live wherever the crew
+        // currently is: PickupComponent/PickupItem (cargo holds the item), TalkToNPC
+        // (NPC is here), EnterVolumeOfName, and pickup missions generally — their
+        // completion checks don't reference a sector, so treat "crew present in an
+        // encounter" as workable ground. Only ReachSector/OfType are location-bound.
         internal static bool PendingMissionWorkInCurrentSector()
         {
             try
             {
                 PLSectorInfo sector = PLServer.GetCurrentSector();
                 if (sector == null || PLServer.Instance == null) return false;
+                int hub = PLServer.Instance.GetCurrentHubID();
                 foreach (PLMissionBase m in PLServer.Instance.AllMissions)
                 {
                     if (m == null || m.Ended || m.Abandoned) continue;
                     foreach (PLMissionObjective obj in m.Objectives)
                     {
                         if (obj == null || obj.IsCompleted) continue;
-                        if (obj is PLMissionObjective_ReachSector reach && reach.SectorToReach == sector.ID) return true;
+                        if (obj is PLMissionObjective_ReachSector reach && reach.SectorToReach == hub) return true;
+                        if (obj is PLMissionObjective_ReachSectorOfType) return true;
+                        if (obj is PLMissionObjective_PickupComponent || obj is PLMissionObjective_PickupItem
+                            || obj is PLMissionObjective_TalkToNPC || obj is PLMissionObjective_EnterVolumeOfName)
+                            return true;
+                        if (m.IsPickupMission) return true;
                     }
                 }
             }
@@ -750,11 +781,179 @@ namespace CapBot
 
         // Any NPC with a mission to start or end, anywhere (fixes issue #2:
         // station NPCs were only handled in hardcoded hub sectors).
+        private static readonly Dictionary<int, float> LastDialogue = new Dictionary<int, float>();
+
+        // Walk to and interact with objects needed by OPEN objectives of ACTIVE
+        // missions: pickup components (warp coils etc.), pickup items, planet
+        // volumes, NPC report targets. Uses the same RPCs the vanilla talk/pickup
+        // buttons use, so objectives complete exactly as if a player did them.
+        private static readonly Dictionary<int, float> LastObjectiveWork = new Dictionary<int, float>();
+
+        internal static void TickObjectiveWork(PLPlayer bot)
+        {
+            try
+            {
+                if (bot == null || bot.MyBot == null || bot.GetPawn() == null || bot.StartingShip == null || bot.StartingShip.InWarp) return;
+                if (bot.GetClassID() != 0) return; // captain bot does the legwork
+                int pid = bot.GetPlayerID();
+                float last;
+                if (LastObjectiveWork.TryGetValue(pid, out last) && Time.unscaledTime - last < 3f) return;
+                LastObjectiveWork[pid] = Time.unscaledTime;
+
+                PLPawn pawn = bot.GetPawn();
+
+                // 1) Mission component pickups: find an un-picked PLPickupComponent
+                //    whose type matches an open PickupComponent objective. Only pick
+                //    up what the mission needs (never steal random planet loot).
+                List<PLPickupComponent> comps = new List<PLPickupComponent>(UnityEngine.Object.FindObjectsOfType<PLPickupComponent>());
+                foreach (PLMissionBase m in PLServer.Instance.AllMissions)
+                {
+                    if (m == null || m.Ended || m.Abandoned) continue;
+                    foreach (PLMissionObjective obj in m.Objectives)
+                    {
+                        PLMissionObjective_PickupComponent pc = obj as PLMissionObjective_PickupComponent;
+                        if (pc == null || pc.IsCompleted) continue;
+                        // Match via the objective's internal comp type/subtype.
+                        foreach (PLPickupComponent puc in comps)
+                        {
+                            if (puc == null || puc.PickedUp) continue;
+                            if ((int)puc.ItemType != GetPickupCompSlot(pc)) continue;
+                            if (puc.SubItemType != GetPickupCompSub(pc)) continue;
+                            if (puc.MyInterior == null || pawn.MyInterior == null || puc.MyInterior != pawn.MyInterior) continue;
+
+                            bot.MyBot.AI_TargetPos = puc.transform.position;
+                            bot.MyBot.AI_TargetPos_Raw = bot.MyBot.AI_TargetPos;
+                            if ((bot.MyBot.AI_TargetPos - pawn.transform.position).sqrMagnitude > 16f)
+                            {
+                                bot.MyBot.EnablePathing = true;
+                                return;
+                            }
+                            bot.photonView.RPC("AttemptToPickupComponentAtID", PhotonTargets.MasterClient, puc.PickupID);
+                            pawn.photonView.RPC("Anim_Pickup", PhotonTargets.Others);
+                            return;
+                        }
+                    }
+                }
+
+                // 2) Mission item pickups (pawn items on planets).
+                foreach (PLMissionBase m in PLServer.Instance.AllMissions)
+                {
+                    if (m == null || m.Ended || m.Abandoned) continue;
+                    foreach (PLMissionObjective obj in m.Objectives)
+                    {
+                        if (!(obj is PLMissionObjective_PickupItem) || obj.IsCompleted) continue;
+                        foreach (PLPickupObject po in UnityEngine.Object.FindObjectsOfType<PLPickupObject>())
+                        {
+                            if (po == null || po.PickedUp) continue;
+                            if (po.MyInterior == null || pawn.MyInterior == null || po.MyInterior != pawn.MyInterior) continue;
+                            bot.MyBot.AI_TargetPos = po.transform.position;
+                            bot.MyBot.AI_TargetPos_Raw = bot.MyBot.AI_TargetPos;
+                            if ((bot.MyBot.AI_TargetPos - pawn.transform.position).sqrMagnitude > 16f)
+                            {
+                                bot.MyBot.EnablePathing = true;
+                                return;
+                            }
+                            bot.photonView.RPC("AttemptToPickupObjectAtID", PhotonTargets.MasterClient, po.PickupID);
+                            pawn.photonView.RPC("Anim_Pickup", PhotonTargets.Others);
+                            return;
+                        }
+                    }
+                }
+
+                // 3) Planet volumes (EnterVolumeOfName objectives).
+                foreach (PLMissionBase m in PLServer.Instance.AllMissions)
+                {
+                    if (m == null || m.Ended || m.Abandoned) continue;
+                    foreach (PLMissionObjective obj in m.Objectives)
+                    {
+                        if (!(obj is PLMissionObjective_EnterVolumeOfName) || obj.IsCompleted) continue;
+                        string want = GetVolumeName(obj);
+                        if (want == null) continue;
+                        GameObject vol = GameObject.Find(want);
+                        if (vol == null) continue;
+                        bot.MyBot.AI_TargetPos = vol.transform.position;
+                        bot.MyBot.AI_TargetPos_Raw = bot.MyBot.AI_TargetPos;
+                        if ((bot.MyBot.AI_TargetPos - pawn.transform.position).sqrMagnitude > 25f)
+                        {
+                            bot.MyBot.EnablePathing = true;
+                        }
+                        // Volume completion is driven by vanilla trigger overlap when
+                        // the pawn physically enters — pathing there is enough.
+                        return;
+                    }
+                }
+
+                // 4) TalkToNPC objectives: find the NPC by actor name in this TLI and
+                //    walk to it; TickDialogueWork handles the actual talk RPC once close.
+                foreach (PLMissionBase m in PLServer.Instance.AllMissions)
+                {
+                    if (m == null || m.Ended || m.Abandoned) continue;
+                    foreach (PLMissionObjective obj in m.Objectives)
+                    {
+                        PLMissionObjective_TalkToNPC tt = obj as PLMissionObjective_TalkToNPC;
+                        if (tt == null || tt.IsCompleted) continue;
+                        string actor = GetTalkActor(tt);
+                        if (actor == null) continue;
+                        foreach (PLDialogueActorInstance npc in UnityEngine.Object.FindObjectsOfType<PLDialogueActorInstance>())
+                        {
+                            if (npc == null || (npc.ActorName ?? "") != actor) continue;
+                            if (bot.MyCurrentTLI == null || npc.TLIInParent == null || npc.TLIInParent != bot.MyCurrentTLI) continue;
+                            bot.MyBot.AI_TargetPos = npc.transform.position;
+                            bot.MyBot.AI_TargetPos_Raw = bot.MyBot.AI_TargetPos;
+                            if ((bot.MyBot.AI_TargetPos - pawn.transform.position).sqrMagnitude > 25f)
+                            {
+                                bot.MyBot.EnablePathing = true;
+                                return;
+                            }
+                            // Close enough — the dialogue tick will fire the RPC.
+                            return;
+                        }
+                        // NPC not in this TLI: the mission's ReachSector objective
+                        // (or course planning) handles getting there; nothing to do here.
+                    }
+                }
+            }
+            catch { }
+        }
+
+        // Reflection readers for objective internals (private fields).
+        private static System.Reflection.FieldInfo _pcCompType;
+        private static System.Reflection.FieldInfo _pcSubType;
+        private static System.Reflection.FieldInfo _volName;
+        private static System.Reflection.FieldInfo _ttActor;
+
+        private static int GetPickupCompSlot(PLMissionObjective pc)
+        {
+            if (_pcCompType == null) _pcCompType = AccessTools.Field(typeof(PLMissionObjective_PickupComponent), "CompType");
+            return _pcCompType != null ? (int)_pcCompType.GetValue(pc) : -1;
+        }
+
+        private static int GetPickupCompSub(PLMissionObjective pc)
+        {
+            if (_pcSubType == null) _pcSubType = AccessTools.Field(typeof(PLMissionObjective_PickupComponent), "SubType");
+            return _pcSubType != null ? (int)_pcSubType.GetValue(pc) : -1;
+        }
+
+        private static string GetVolumeName(PLMissionObjective obj)
+        {
+            if (_volName == null) _volName = AccessTools.Field(typeof(PLMissionObjective_EnterVolumeOfName), "VolumeName");
+            return _volName != null ? (string)_volName.GetValue(obj) : null;
+        }
+
+        private static string GetTalkActor(PLMissionObjective obj)
+        {
+            if (_ttActor == null) _ttActor = AccessTools.Field(typeof(PLMissionObjective_TalkToNPC), "ActorTypeID");
+            return _ttActor != null ? (string)_ttActor.GetValue(obj) : null;
+        }
+
         internal static void TickDialogueWork(PLPlayer bot)
         {
             try
             {
                 if (bot == null || bot.MyBot == null || bot.GetPawn() == null || bot.StartingShip == null || bot.StartingShip.InWarp) return;
+                int pid = bot.GetPlayerID();
+                float last;
+                if (LastDialogue.TryGetValue(pid, out last) && Time.unscaledTime - last < 6f) return;
 
                 List<PLDialogueActorInstance> npcs = new List<PLDialogueActorInstance>();
                 foreach (PLDialogueActorInstance npc in UnityEngine.Object.FindObjectsOfType<PLDialogueActorInstance>())
@@ -767,10 +966,14 @@ namespace CapBot
                 }
                 if (npcs.Count == 0) return;
 
+                // Only pursue NPCs in the same TLI as the bot — cross-TLI trips are
+                // handled by course planning; the game teleports crew via SetNextDestiny.
                 PLDialogueActorInstance target = null;
                 float best = float.MaxValue;
+                PLTeleportationLocationInstance botTLI = bot.MyCurrentTLI;
                 foreach (PLDialogueActorInstance npc in npcs)
                 {
+                    if (botTLI == null || npc.TLIInParent == null || npc.TLIInParent != botTLI) continue;
                     float d = (npc.transform.position - bot.GetPawn().transform.position).sqrMagnitude;
                     if (d < best) { best = d; target = npc; }
                 }
@@ -778,21 +981,21 @@ namespace CapBot
 
                 bot.MyBot.AI_TargetPos = target.transform.position;
                 bot.MyBot.AI_TargetPos_Raw = bot.MyBot.AI_TargetPos;
-                foreach (PLTeleportationLocationInstance teleport in UnityEngine.Object.FindObjectsOfType<PLTeleportationLocationInstance>())
-                {
-                    if (teleport != null && teleport.name == "PLGamePlanet")
-                    {
-                        bot.MyBot.AI_TargetTLI = teleport;
-                        break;
-                    }
-                }
                 if (best > 25f)
                 {
                     bot.MyBot.EnablePathing = true;
                     return;
                 }
 
-                if (target.HasMissionStartAvailable && target.AllAvailableChoices().Count > 0)
+                LastDialogue[pid] = Time.unscaledTime;
+
+                // The game only advances TalkToNPC objectives from the vanilla
+                // talk button (PLGameStatic → RPC "TalkToNPCOfActorType"). Bots
+                // must emit the same RPC after opening dialogue or "report to X"
+                // objectives never complete.
+                try { PLServer.Instance.photonView.RPC("TalkToNPCOfActorType", PhotonTargets.MasterClient, target.ActorName); } catch { }
+
+                if (target.HasMissionStartAvailable && target.AllAvailableChoices() != null && target.AllAvailableChoices().Count > 0)
                 {
                     LineData line = target.AllAvailableChoices()[0];
                     int guard = 0;
@@ -810,7 +1013,10 @@ namespace CapBot
                 }
                 else if (target.HasMissionEndAvailable)
                 {
-                    if (target.AllAvailableChoices().Count > 0) target.SelectChoice(target.AllAvailableChoices()[0], true, true);
+                    if (target.AllAvailableChoices() != null && target.AllAvailableChoices().Count > 0)
+                    {
+                        target.SelectChoice(target.AllAvailableChoices()[0], true, true);
+                    }
                     try { target.BeginDialogue(); } catch { }
                 }
             }
