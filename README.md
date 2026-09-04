@@ -84,11 +84,11 @@ Tested live against the current game build with:
 - **TalentsModPerformanceImprovement** — its unguarded UI helper is replaced with a safe version
 - **MoreBots** — its class-0 array crash is guarded (skip prefix for captain bots)
 
-## Installation (drag & drop)
+## Installation
 
-1. Install [Pulsar Mod Loader](https://github.com/PULSAR-Modders/pulsar-mod-loader/releases) into `PULSARLostColony\`
-2. Drop `CapBot.dll` into `PULSARLostColony\Mods\`
-3. In game (host): `/capbot`
+**Manual:** drop `CapBot.dll` into `PULSARLostColony\Mods\` (requires [PML](https://github.com/PULSAR-Modders/pulsar-mod-loader/releases))
+
+In game (host): `/capbot`
 
 ## Building from source
 
