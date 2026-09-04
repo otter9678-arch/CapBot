@@ -31,6 +31,7 @@ namespace CapBot
                 PLGlobal.Instance.SetupClassDefaultData(ref ___cachedAIData, __instance.GetClassID(), false);
             }
             if (__instance.GetPawn() == null || !__instance.IsBot || __instance.GetClassID() != 0 || __instance.TeamID != 0 || !PhotonNetwork.isMasterClient || __instance.StartingShip == null) return;
+            Autonomy.OnTick(__instance); // Alpha 1.2.0: learning, talents, economy, research, campaign, extractor, watchdog
             int botcounter = 0; //Counts to check if crew is bot (for bots only games)
             foreach (PLPlayer player in PLServer.Instance.AllPlayers)
             {
@@ -69,7 +70,7 @@ namespace CapBot
             }
             if (__instance.StartingShip != null && __instance.StartingShip.InWarp && PLServer.Instance.AllPlayersLoaded() && (__instance.StartingShip.MyShieldGenerator == null || __instance.StartingShip.MyStats.ShieldsCurrent / __instance.StartingShip.MyStats.ShieldsMax > 0.99)) //Skip warp when ready
                 PLInGameUI.Instance.WarpSkipButtonClicked();
-            if (__instance.MyBot.AI_TargetPos != __instance.StartingShip.CaptainsChairPivot.position && __instance.StartingShip.CaptainsChairPlayerID == __instance.GetPlayerID())//leave chair
+            if (__instance.MyBot != null && __instance.StartingShip != null && __instance.StartingShip.CaptainsChairPivot != null && __instance.MyBot.AI_TargetPos != __instance.StartingShip.CaptainsChairPivot.position && __instance.StartingShip.CaptainsChairPlayerID == __instance.GetPlayerID())//leave chair
             {
                 __instance.StartingShip.AttemptToSitInCaptainsChair(-1);
             }
@@ -89,6 +90,7 @@ namespace CapBot
                 return;
             }
             PLSectorInfo sector = PLServer.GetCurrentSector();
+            if (sector == null) return; // during warp / sector transition there is no current sector
             //In a sector with a store and/or repair depot
             if (sector.VisualIndication == ESectorVisualIndication.GENERAL_STORE || sector.VisualIndication == ESectorVisualIndication.EXOTIC1 || sector.VisualIndication == ESectorVisualIndication.EXOTIC2 || sector.VisualIndication == ESectorVisualIndication.EXOTIC3 || sector.VisualIndication == ESectorVisualIndication.EXOTIC4
                         || sector.VisualIndication == ESectorVisualIndication.EXOTIC5 || sector.VisualIndication == ESectorVisualIndication.EXOTIC6 || sector.VisualIndication == ESectorVisualIndication.EXOTIC7 || sector.VisualIndication == ESectorVisualIndication.AOG_HUB || sector.VisualIndication == ESectorVisualIndication.GENTLEMEN_START || sector.VisualIndication == ESectorVisualIndication.CORNELIA_HUB
@@ -103,7 +105,7 @@ namespace CapBot
                 if (Halt) return;
             }
             //Claim current ship if player ship was destroyed/captured
-            if (__instance.StartingShip == null && __instance.MyCurrentTLI.MyShipInfo != null) 
+            if (__instance.StartingShip == null && __instance.MyCurrentTLI != null && __instance.MyCurrentTLI.MyShipInfo != null)
             {
                 PLShipInfo targetEnemy = __instance.MyCurrentTLI.MyShipInfo;
                 int screensCaptured = 0;
@@ -213,7 +215,7 @@ namespace CapBot
                 __instance.StartingShip.AlertLevel = 2;
             }
             //Kill enemy ships if not currently boarding
-            else if (((__instance.StartingShip.TargetShip != null && __instance.StartingShip.TargetShip != __instance.StartingShip) || __instance.StartingShip.TargetSpaceTarget != null) && !__instance.StartingShip.TargetShip.IsAbandoned())
+            else if (((__instance.StartingShip.TargetShip != null && __instance.StartingShip.TargetShip != __instance.StartingShip) || __instance.StartingShip.TargetSpaceTarget != null) && (__instance.StartingShip.TargetShip == null || !__instance.StartingShip.TargetShip.IsAbandoned()))
             {
                 if (PLServer.Instance.CaptainsOrdersID != 4 && Time.time - LastOrder > 1f)
                 {
@@ -301,7 +303,7 @@ namespace CapBot
                 return;
             }
             //Get fragment from grey hunstman
-            else if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.GREY_HUNTSMAN_HQ && PLServer.Instance.HasActiveMissionWithID(104869) && !PLServer.Instance.GetMissionWithID(104869).Ended && !PLServer.Instance.IsFragmentCollected(7))
+            else if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.GREY_HUNTSMAN_HQ && PLServer.Instance.HasActiveMissionWithID(104869) && !PLServer.Instance.GetMissionWithID(104869).Abandoned && !PLServer.Instance.IsFragmentCollected(7))
             {
                 __instance.MyBot.AI_TargetPos = new Vector3(217, 111, -108);
                 __instance.MyBot.AI_TargetPos_Raw = __instance.MyBot.AI_TargetPos;
@@ -328,14 +330,14 @@ namespace CapBot
                 LastAction = Time.time;
                 return;
             }
-            else if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.HIGHROLLERS_STATION && !PLServer.Instance.IsFragmentCollected(3) && (PLServer.Instance.GetMissionWithID(103216).Ended || PLServer.Instance.CurrentCrewCredits >= 10000))//In the highroller
+            else if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.HIGHROLLERS_STATION && !PLServer.Instance.IsFragmentCollected(3) && (PLServer.Instance.HasCompletedMissionWithID(103216) || PLServer.Instance.CurrentCrewCredits >= 10000))//In the highroller
             {
                 HighRollers(__instance);
                 return;
             }
             __instance.CurrentlyInLiarsDiceGame = null;
-            //Updates the map destines
-            if ((PLServer.Instance.m_ShipCourseGoals.Count == 0 || Time.time - LastMapUpdate > 5) && (!IsRandomDestiny || (PLServer.Instance.m_ShipCourseGoals.Count > 0 && (PLServer.Instance.m_ShipCourseGoals[0] == PLServer.GetCurrentSector().ID || (PLGlobal.Instance.Galaxy.AllSectorInfos[PLServer.Instance.m_ShipCourseGoals[0]].Position - PLServer.GetCurrentSector().Position).magnitude > __instance.StartingShip.MyStats.WarpRange) && (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication != ESectorVisualIndication.STOP_ASTEROID_ENCOUNTER))))
+            //Updates the map destines (skip re-pathing while a mission objective still targets this sector — issue #3)
+            if ((PLServer.Instance.m_ShipCourseGoals.Count == 0 || Time.time - LastMapUpdate > 5) && !BotMissions.PendingMissionWorkInCurrentSector() && (!IsRandomDestiny || (PLServer.Instance.m_ShipCourseGoals.Count > 0 && (PLServer.Instance.m_ShipCourseGoals[0] == PLServer.GetCurrentSector().ID || (PLGlobal.Instance.Galaxy.AllSectorInfos[PLServer.Instance.m_ShipCourseGoals[0]].Position - PLServer.GetCurrentSector().Position).magnitude > __instance.StartingShip.MyStats.WarpRange) && (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication != ESectorVisualIndication.STOP_ASTEROID_ENCOUNTER))))
             {
                 if (PLServer.Instance.m_ShipCourseGoals.Count == 0) IsRandomDestiny = false;
                 PLServer.Instance.photonView.RPC("ClearCourseGoals", PhotonTargets.All, new object[0]);
@@ -456,7 +458,7 @@ namespace CapBot
                     };
                     while (possibleTargets.Count > 0)
                     {
-                        Vector3 pos = possibleTargets[Random.Range(0, possibleTargets.Count - 1)];
+                        Vector3 pos = possibleTargets[Random.Range(0, possibleTargets.Count)];
                         possibleTargets.Remove(pos);
                         targets.Add(pos);
                     }
@@ -505,7 +507,7 @@ namespace CapBot
                     };
                     while (possibleTargets.Count > 0)
                     {
-                        Vector3 pos = possibleTargets[Random.Range(0, possibleTargets.Count - 1)];
+                        Vector3 pos = possibleTargets[Random.Range(0, possibleTargets.Count)];
                         possibleTargets.Remove(pos);
                         targets.Add(pos);
                     }
@@ -743,7 +745,7 @@ namespace CapBot
                     }
                     while (keycards.Count > 0)
                     {
-                        GameObject obj = keycards[Random.Range(0, keycards.Count - 1)];
+                        GameObject obj = keycards[Random.Range(0, keycards.Count)];
                         keycards.Remove(obj);
                         targets.Add(obj.transform.position);
                     }
@@ -962,7 +964,7 @@ namespace CapBot
                     }
                     while (keycards.Count > 0)
                     {
-                        GameObject obj = keycards[Random.Range(0, keycards.Count - 1)];
+                        GameObject obj = keycards[Random.Range(0, keycards.Count)];
                         keycards.Remove(obj);
                         targets.Add(obj.transform.position);
                     }
@@ -1015,7 +1017,7 @@ namespace CapBot
                     }
                     while (keycards.Count > 0)
                     {
-                        GameObject obj = keycards[Random.Range(0, keycards.Count - 1)];
+                        GameObject obj = keycards[Random.Range(0, keycards.Count)];
                         keycards.Remove(obj);
                         targets.Add(obj.transform.position);
                     }
@@ -1661,7 +1663,7 @@ namespace CapBot
                                     }
                                 }
                             }
-                            else if (objective is PLMissionObjective_PickupItem && (SpawnBot.crewisbot || (PLServer.Instance.GetCachedFriendlyPlayerOfClass(2) != null && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).IsBot && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).Talents[34] == 1)))
+                            else if (objective is PLMissionObjective_PickupItem && (SpawnBot.crewisbot || (PLServer.Instance.GetCachedFriendlyPlayerOfClass(2) != null && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).IsBot && Autonomy.SafeHasTalent(PLServer.Instance.GetCachedFriendlyPlayerOfClass(2), 34))))
                             {
                                 foreach (PLPickupObject inObj in PLGameStatic.Instance.m_AllPickupObjects)
                                 {
@@ -1671,7 +1673,7 @@ namespace CapBot
                                     }
                                 }
                             }
-                            else if (objective is PLMissionObjective_PickupComponent && (SpawnBot.crewisbot || (PLServer.Instance.GetCachedFriendlyPlayerOfClass(2) != null && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).IsBot && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).Talents[34] == 1)))
+                            else if (objective is PLMissionObjective_PickupComponent && (SpawnBot.crewisbot || (PLServer.Instance.GetCachedFriendlyPlayerOfClass(2) != null && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).IsBot && Autonomy.SafeHasTalent(PLServer.Instance.GetCachedFriendlyPlayerOfClass(2), 34))))
                             {
                                 foreach (PLPickupComponent component in Object.FindObjectsOfType(typeof(PLPickupComponent)))
                                 {
@@ -1895,17 +1897,17 @@ namespace CapBot
                     LineData currentDiologue = targetNPC.AllAvailableChoices()[0];
                     if (targetNPC.DisplayName.ToLower().Contains("yiria"))
                     {
-                        if (targetNPC.AllAvailableChoices()[0].ChildLines.Count > 1)
+                        if (targetNPC.AllAvailableChoices()[0].ChildLines != null && targetNPC.AllAvailableChoices()[0].ChildLines.Count > 1)
                         {
-                            while ((currentDiologue.TextOptions.Count <= 0 || currentDiologue.TextOptions[0].ToLower() != "accept") && currentDiologue.ChildLines.Count > 0)
+                            while ((currentDiologue.TextOptions == null || currentDiologue.TextOptions.Count <= 0 || currentDiologue.TextOptions[0].ToLower() != "accept") && currentDiologue.ChildLines != null && currentDiologue.ChildLines.Count > 0)
                             {
                                 currentDiologue = currentDiologue.ChildLines[0];
                             }
                         }
-                        else
+                        else if (targetNPC.AllAvailableChoices().Count > 1)
                         {
                             currentDiologue = targetNPC.AllAvailableChoices()[1];
-                            while ((currentDiologue.TextOptions.Count <= 0 || currentDiologue.TextOptions[0].ToLower() != "accept") && currentDiologue.ChildLines.Count > 0)
+                            while ((currentDiologue.TextOptions == null || currentDiologue.TextOptions.Count <= 0 || currentDiologue.TextOptions[0].ToLower() != "accept") && currentDiologue.ChildLines != null && currentDiologue.ChildLines.Count > 0)
                             {
                                 currentDiologue = currentDiologue.ChildLines[0];
                             }
@@ -1918,7 +1920,7 @@ namespace CapBot
                     }
                     else if (targetNPC.DisplayName.ToLower().Contains("oskal"))
                     {
-                        while (currentDiologue.ChildLines.Count > 0)
+                        while (currentDiologue.ChildLines != null && currentDiologue.ChildLines.Count > 0)
                         {
                             currentDiologue = currentDiologue.ChildLines[0];
                         }
@@ -1926,11 +1928,11 @@ namespace CapBot
                     }
                     else
                     {
-                        while ((currentDiologue.TextOptions.Count <= 0 || currentDiologue.TextOptions[0].ToLower() != "accept") && currentDiologue.ChildLines.Count > 0)
+                        while ((currentDiologue.TextOptions == null || currentDiologue.TextOptions.Count <= 0 || currentDiologue.TextOptions[0].ToLower() != "accept") && currentDiologue.ChildLines != null && currentDiologue.ChildLines.Count > 0)
                         {
                             currentDiologue = currentDiologue.ChildLines[0];
                         }
-                        if (currentDiologue.TextOptions[0].ToLower() == "accept")
+                        if (currentDiologue.TextOptions != null && currentDiologue.TextOptions.Count > 0 && currentDiologue.TextOptions[0].ToLower() == "accept")
                         {
                             targetNPC.SelectChoice(currentDiologue, true, true);
                         }
@@ -1965,7 +1967,8 @@ namespace CapBot
             {
                 CapBot.CurrentlyInLiarsDiceGame = null;
             }
-            if (!PLServer.Instance.GetMissionWithID(103216).Ended)
+            PLMissionBase highRollerMission = PLServer.Instance.GetMissionWithID(103216);
+            if (highRollerMission != null && !highRollerMission.Ended)
             {
                 CapBot.MyBot.AI_TargetPos = new Vector3(64, -102, -34);
                 CapBot.MyBot.AI_TargetPos_Raw = CapBot.MyBot.AI_TargetPos;
@@ -1981,9 +1984,9 @@ namespace CapBot
                 {
                     CapBot.MyBot.EnablePathing = true;
                 }
-                else
+                else if (highRollerMission != null && highRollerMission.Objectives != null && highRollerMission.Objectives.Count > 0 && highRollerMission.Objectives[0] != null)
                 {
-                    PLServer.Instance.GetMissionWithID(103216).Objectives[0].AmountCompleted = 1;
+                    highRollerMission.Objectives[0].AmountCompleted = 1;
                 }
             }
             else if (highRoller != null && highRoller.CrewChips < 3)
@@ -2349,7 +2352,7 @@ namespace CapBot
                     }
                 }
                 if (random.Count == 0) return;
-                nearestDestiny = random[Random.Range(0, random.Count - 1)];
+                nearestDestiny = random[Random.Range(0, random.Count)];
                 if (nearestPlanet != null)
                 {
                     nearestDestiny = nearestPlanet;
@@ -2577,6 +2580,72 @@ namespace CapBot
             }
         }
     }
+    // Vanilla only initializes a bot's pawn appearance (race/gender + custom data
+    // + network broadcast) inside PLPlayer.Update when the LOCAL player is class 0
+    // (flag3 gate). If the human plays any other class, team-0 bots — including
+    // CapBot — never get custom pawn data and render as invisible. This postfix
+    // performs the same init for team-0 bots when vanilla skipped it.
+    [HarmonyPatch(typeof(PLPlayer), "Update")]
+    static class BotAppearanceFix
+    {
+        static void Postfix(PLPlayer __instance)
+        {
+            try
+            {
+                if (!__instance.IsBot || __instance.TeamID != 0) return;
+                if (__instance.StartedLocalUpdatesForCustomPawnData) return;
+                PLNetworkManager nm = PLNetworkManager.Instance;
+                if (nm == null || nm.LocalPlayer == null || nm.LocalPlayer.GetClassID() == 0) return; // vanilla handles it
+                if (PLNetworkManager.Instance.LocalPlayer == __instance) return;
+                if (__instance.GetPawn() == null) return;
+                if (PlayerLifeTimeTooLow(__instance)) return;
+
+                // Mirror PLPlayer.Update's bot branch (PLPlayer.cs ~2777).
+                if (!__instance.RaceAndGenderHaveBeenSet)
+                {
+                    PLShipInfo pShip = PLEncounterManager.Instance != null ? PLEncounterManager.Instance.PlayerShip as PLShipInfo : null;
+                    if (pShip != null && pShip.FactionID == 5)
+                    {
+                        __instance.Gender_IsMale = true;
+                        __instance.RaceID = 2;
+                    }
+                    else
+                    {
+                        __instance.Gender_IsMale = UnityEngine.Random.Range(0, 2) == 0;
+                        __instance.RaceID = UnityEngine.Random.Range(0, 3);
+                        if ((int)__instance.RaceID > 0) __instance.Gender_IsMale = true;
+                    }
+                    if (GetAIDataOf(__instance) != null)
+                    {
+                        __instance.RaceID = GetAIDataOf(__instance).RaceID;
+                        __instance.Gender_IsMale = GetAIDataOf(__instance).Gender_IsMale;
+                    }
+                }
+                if (!__instance.RaceAndGenderHaveBeenSet && __instance.GetPawn() != null)
+                {
+                    if (__instance.GetPawn().CustomPawnMale != null)
+                        __instance.RandomizeCustomPawnData(__instance.GetPawn().CustomPawnMale, __instance.MyCustomPawnData[__instance.GetPawnCosmeticType()]);
+                    if (__instance.GetPawn().CustomPawnFemale != null)
+                        __instance.RandomizeCustomPawnData(__instance.GetPawn().CustomPawnFemale, __instance.MyCustomPawnData[__instance.GetPawnCosmeticType()]);
+                }
+                __instance.RaceAndGenderHaveBeenSet = true;
+                __instance.StartedLocalUpdatesForCustomPawnData = true;
+                PulsarModLoader.Utilities.Logger.Info("[CapBot] Initialized pawn appearance for bot class " + __instance.GetClassID());
+            }
+            catch { }
+        }
+
+        private static bool PlayerLifeTimeTooLow(PLPlayer p)
+        {
+            try { return (float)p.PlayerLifeTime < 2f; } catch { return true; }
+        }
+
+        private static AIDataIndividual GetAIDataOf(PLPlayer p)
+        {
+            try { return p.GetAIData(); } catch { return null; }
+        }
+    }
+
     class SpawnBot : ChatCommand
     {
         public static bool capisbot = false;
@@ -2594,21 +2663,36 @@ namespace CapBot
 
         public override void Execute(string arguments)
         {
-            if(!PhotonNetwork.isMasterClient) 
+            if(!PhotonNetwork.isMasterClient)
             {
                 PulsarModLoader.Utilities.Messaging.Notification("Must be host to spawn CapBot!");
                 return;
             }
-            if (capisbot) 
+            if (capisbot)
             {
                 PulsarModLoader.Utilities.Messaging.Notification("CapBot is already here!");
                 return;
             }
+            if (PLNetworkManager.Instance.CurrentGame == null || PLEncounterManager.Instance.PlayerShip == null)
+            {
+                PulsarModLoader.Utilities.Messaging.Notification("Start a game first!");
+                return;
+            }
+            // Ship interior must be built or the pawn spawns at world origin (invisible).
+            PLShipInfo ship = PLEncounterManager.Instance.PlayerShip as PLShipInfo;
+            if (ship == null || ship.Spawners == null || ship.Spawners.Length == 0 || !(ship.Spawners[0] is GameObject))
+            {
+                PulsarModLoader.Utilities.Messaging.Notification("Ship interior still loading — try again in a moment.");
+                return;
+            }
             capisbot = true;
+            MoreBotsCompatPatch.Install();
             PLServer.Instance.ServerAddCrewBotPlayer(0);
             PLServer.Instance.GameHasStarted = true;
             PLServer.Instance.CrewPurchaseLimitsEnabled = false;
-            PLGlobal.Instance.LoadedAIData = PLGlobal.Instance.GenerateDefaultPriorities();
+            //Current game auto-loads/auto-saves LoadedAIData to stored.aidata (PLGlobal.Update + Steam Cloud).
+            //Overwriting it here would wipe the player's saved bot priorities, so CapBot gets its AI data
+            //from the GetAIData/UpdateAIPriorities postfixes instead.
             PLServer.Instance.SetCustomCaptainOrderText(0, "Use the WarpGate!", false);
             PLServer.Instance.SetCustomCaptainOrderText(1, "Engage Repair Protocols!", false);
             PLServer.Instance.SetCustomCaptainOrderText(2, "Align and Jump!", false);
@@ -2641,6 +2725,147 @@ namespace CapBot
             SpawnBot.crewisbot = false;
         }
     }
+
+    // MoreBots compatibility: MoreBots.GetAIDataPatch (prefix on PLPlayer.GetAIData)
+    // indexes ClassData[classID - 1] for every team-0 bot; class 0 (CapBot) produces
+    // index -1 and throws IndexOutOfRangeException every frame. When MoreBots is
+    // loaded we skip its prefix for class-0 bots so CapBot falls through to the
+    // vanilla GetAIData body (CapBot's own CapbotReciveAI postfix fills the data).
+    static class MoreBotsCompatPatch
+    {
+        private static bool _installed;
+        private static bool _triedInstall;
+
+        internal static void Install()
+        {
+            if (_installed || _triedInstall) return;
+            _triedInstall = true;
+            try
+            {
+                bool moreBotsLoaded = false;
+                try { moreBotsLoaded = PulsarModLoader.ModManager.Instance.IsModLoaded("MoreBots"); } catch { }
+                if (!moreBotsLoaded) return;
+
+                // MoreBots' types are internal; find the prefix by walking its assembly.
+                System.Reflection.MethodInfo prefixInfo = null;
+                foreach (PulsarModLoader.PulsarMod mod in PulsarModLoader.ModManager.Instance.GetAllMods())
+                {
+                    if (mod == null || mod.Name != "MoreBots") continue;
+                    foreach (System.Reflection.TypeInfo t in mod.GetType().Assembly.DefinedTypes)
+                    {
+                        if (t.Name != "GetAIDataPatch") continue;
+                        System.Reflection.MethodInfo mi = t.GetDeclaredMethod("Prefix");
+                        if (mi != null) { prefixInfo = mi; break; }
+                    }
+                    if (prefixInfo != null) break;
+                }
+                if (prefixInfo == null)
+                {
+                    PulsarModLoader.Utilities.Logger.Info("[CapBot] MoreBots detected but prefix not found; no compat patch applied");
+                    return;
+                }
+
+                // Patching a prefix-on-prefix fails IL compilation, so instead we
+                // remove MoreBots' prefix entirely and install a safe replacement
+                // (same behavior for classes 1-4, no crash for class 0).
+                CapBotHarmony.Instance.Unpatch(prefixInfo, HarmonyPatchType.Prefix, "Mest.MoreBots");
+                InstallSafePrefix();
+                _installed = true;
+                PulsarModLoader.Utilities.Logger.Info("[CapBot] MoreBots class-0 crash prefix removed; safe replacement installed");
+            }
+            catch (System.Exception e)
+            {
+                PulsarModLoader.Utilities.Logger.Info("[CapBot] MoreBots compat patch failed: " + e.Message);
+            }
+        }
+
+        // Re-implementation of MoreBots.GetAIDataPatch.Prefix with a class-0 guard.
+        // Applied as a prefix on PLPlayer.GetAIData after removing the broken one.
+        internal static void InstallSafePrefix()
+        {
+            if (_safePrefixInstalled) return;
+            _safePrefixInstalled = true;
+            try
+            {
+                var safe = new HarmonyMethod(typeof(MoreBotsCompatPatch).GetMethod(nameof(SafeAIDataPrefix), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static));
+                CapBotHarmony.Patch(AccessTools.Method(typeof(PLPlayer), "GetAIData"), prefix: safe);
+                PulsarModLoader.Utilities.Logger.Info("[CapBot] Safe AI-data prefix installed (replaces MoreBots GetAIDataPatch)");
+            }
+            catch (System.Exception e)
+            {
+                PulsarModLoader.Utilities.Logger.Info("[CapBot] Safe AI-data prefix install failed: " + e.Message);
+            }
+        }
+
+        private static bool _safePrefixInstalled;
+
+        private static bool SafeAIDataPrefix(PLPlayer __instance, ref AIDataIndividual __result)
+        {
+            if (__instance == null || !PhotonNetwork.isMasterClient) return true;
+            if (__instance.TeamID != 0 || !__instance.IsBot) return true;
+            if (__instance.GetClassID() == 0) return true; // CapBot: vanilla + our postfix
+
+            // Mirror MoreBots' binding logic, minus the crash: clamp class to 1-4.
+            try
+            {
+                int classID = Mathf.Clamp(__instance.GetClassID(), 1, 4);
+                var cfgType = AccessTools.TypeByName("MoreBots.Mod+Config");
+                if (cfgType == null) return true;
+                var bindingDict = AccessTools.Field(cfgType, "BindingAIData")?.GetValue(null) as System.Collections.IDictionary;
+                var loadedDict = AccessTools.Field(cfgType, "LoadedAIData")?.GetValue(null);
+                var selectedKeyField = AccessTools.Field(cfgType, "selectedKey");
+                if (bindingDict == null || loadedDict == null) return true;
+                int pid = __instance.GetPlayerID();
+                if (!bindingDict.Contains(pid))
+                {
+                    object key = selectedKeyField != null ? selectedKeyField.GetValue(null) : null;
+                    bool hasKey = false;
+                    // LoadedAIData is Dictionary<string, AIData>; use Contains via reflection.
+                    var containsMethod = loadedDict.GetType().GetMethod("ContainsKey", new[] { typeof(string) });
+                    if (key is string ks && containsMethod != null)
+                        hasKey = (bool)containsMethod.Invoke(loadedDict, new object[] { ks });
+                    if (!hasKey)
+                    {
+                        var firstKey = null as object;
+                        foreach (var k in (System.Collections.IEnumerable)loadedDict) { firstKey = k.GetType().GetProperty("Key").GetValue(k); break; }
+                        key = firstKey;
+                    }
+                    var kvpType = bindingDict.GetType().GetGenericArguments()[1];
+                    var kvp = System.Activator.CreateInstance(kvpType, key, classID);
+                    bindingDict.Add(pid, kvp);
+                }
+                // Fetch value.ClassData[class-1]
+                var binding = bindingDict[pid];
+                string aiKey = (string)binding.GetType().GetField("Key").GetValue(binding);
+                var tryGetValue = loadedDict.GetType().GetMethod("TryGetValue", new[] { typeof(string), loadedDict.GetType().GetGenericArguments()[1].MakeByRefType() });
+                var args = new object[] { aiKey, null };
+                if (tryGetValue != null && (bool)tryGetValue.Invoke(loadedDict, args))
+                {
+                    var classData = args[1].GetType().GetField("ClassData").GetValue(args[1]) as AIDataIndividual[];
+                    int idx = Mathf.Clamp((int)binding.GetType().GetField("Value").GetValue(binding) - 1, 0, classData != null ? classData.Length - 1 : 0);
+                    __result = classData != null && classData.Length > 0 ? classData[idx] : null;
+                    return false;
+                }
+                __result = null;
+                return false;
+            }
+            catch
+            {
+                return true; // fall through to vanilla on any reflection issue
+            }
+        }
+    }
+
+    internal static class CapBotHarmony
+    {
+        internal static readonly HarmonyLib.Harmony Instance = new HarmonyLib.Harmony("pokegustavo.CapBot.compat");
+
+        internal static void Patch(System.Reflection.MethodInfo original, HarmonyMethod prefix = null)
+        {
+            Instance.Patch(original, prefix: prefix);
+        }
+    }
+
     [HarmonyPatch(typeof(PLTabMenu), "BeginDrag_SCD")]
     class DragComp
     {
