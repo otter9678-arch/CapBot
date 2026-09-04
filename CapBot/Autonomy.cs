@@ -158,7 +158,8 @@ namespace CapBot
             return bot.GetPlayerName(false) + " (Experience " + lvl + ")";
         }
 
-        // Track mission end transitions (complete vs abandoned/fail).
+        // Track mission end transitions (complete vs abandoned/fail). XP goes to
+        // all crew classes — missions are a crew effort, not just the captain's.
         private static Dictionary<int, bool> MissionEnded = new Dictionary<int, bool>();
         internal static void PollMissions()
         {
@@ -177,8 +178,11 @@ namespace CapBot
                     }
                     if (!wasEnded && ended)
                     {
-                        if (m.Abandoned) Add(0, 0, -1f);
-                        else Add(0, 0, 2f * CombatSkill(0));
+                        for (int c = 0; c < CLASSES; c++)
+                        {
+                            if (m.Abandoned) Add(c, 0, -1f);
+                            else Add(c, 0, 2f * CombatSkill(c));
+                        }
                         MissionEnded[m.MissionTypeID] = true;
                     }
                     else if (wasEnded && !ended)
@@ -352,7 +356,7 @@ namespace CapBot
                     {
                         PLServer.Instance.ResearchMaterials[i] = (int)PLServer.Instance.ResearchMaterials[i] - info.ResearchCost[i];
                     }
-                    Learning.Add(0, 5, 1.5f);
+                    Learning.Add(2, 5, 1.5f); // scientist runs research
                     try { PulsarModLoader.Utilities.Messaging.Notification("CapBot started research: " + info.Name); } catch { }
                 }
             }
@@ -434,7 +438,7 @@ namespace CapBot
                     if (price <= 0) continue;
                     PendingSellNetIDs.Add(c.NetID);
                     trader.photonView.RPC("SellComponent", PhotonTargets.MasterClient, ship.ShipID, c.NetID, price, 0);
-                    Learning.Add(0, 3, price / 1000f);
+                    Learning.Add(3, 3, price / 1000f); // engineer handles cargo sales
                     LastTransaction = Time.unscaledTime;
                     return; // one transaction per tick
                 }
@@ -453,7 +457,7 @@ namespace CapBot
                         if (price <= 0) continue;
                         PendingSellNetIDs.Add(c.NetID);
                         trader.photonView.RPC("SellComponent", PhotonTargets.MasterClient, ship.ShipID, c.NetID, price, 0);
-                        Learning.Add(0, 3, price / 1000f);
+                        Learning.Add(3, 3, price / 1000f);
                         LastTransaction = Time.unscaledTime;
                         return;
                     }
@@ -495,7 +499,7 @@ namespace CapBot
 
                     PendingBuyHashes.Add(hash);
                     trader.photonView.RPC("BuyComponent", PhotonTargets.MasterClient, ship.ShipID, hash, price, kv.Key, 0);
-                    Learning.Add(0, 2, price / 2000f);
+                    Learning.Add(0, 2, price / 2000f); // captain does purchases (shop discounts apply)
                     LastTransaction = Time.unscaledTime;
                     return;
                 }
@@ -540,7 +544,7 @@ namespace CapBot
                     {
                         PLServer.Instance.CurrentUpgradeMats = mats - targetCost;
                         target.Level++;
-                        Learning.Add(0, 1, 1f);
+                        Learning.Add(4, 1, 1f); // engineer does component upgrades
                         try { PulsarModLoader.Utilities.Messaging.ShipLog("Upgraded " + target.Name + " to level " + (target.Level + 1), "CAP"); } catch { }
                         LastUpgrade = Time.unscaledTime;
                         return;
@@ -561,7 +565,7 @@ namespace CapBot
                         if (cost > mats) continue;
                         p.MyInventory.UpdateItem(PLServer.Instance.PawnInvItemIDCounter++, (int)item.PawnItemType, item.SubType, item.Level + 1, item.EquipID);
                         PLServer.Instance.CurrentUpgradeMats = mats - cost;
-                        Learning.Add(0, 1, 0.75f);
+                        Learning.Add(4, 1, 0.75f);
                         LastUpgrade = Time.unscaledTime;
                         return;
                     }

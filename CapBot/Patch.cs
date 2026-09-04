@@ -18,6 +18,8 @@ namespace CapBot
         static float LastAction = 0;
         static float LastMapUpdate = Time.time;
         static float LastBlindJump = 0;
+        static float LastCommsChoice = 0;
+        static float LastCommsSelect = 0;
         static float WeaponsTest = Time.time;
         static float LastOrder = Time.time;
         static void Postfix(PLPlayer __instance, ref AIDataIndividual ___cachedAIData)
@@ -284,6 +286,28 @@ namespace CapBot
             if (__instance.StartingShip.CurrentHailTargetSelection != null)//Handle ship comms
             {
                 HandleComms(__instance);
+            }
+            else if (Time.time - LastCommsSelect > 10f)//Proactively hail mission-bearing targets (long-range actors + pickup-mission givers)
+            {
+                LastCommsSelect = Time.time;
+                PLHailTarget best = null;
+                foreach (PLHailTarget t in __instance.StartingShip.GetAllHailTargets())
+                {
+                    if (t == null) continue;
+                    if (t is PLHailTarget_StartPickupMission ptm && ptm.PickupMissionID != -1 && !PLServer.Instance.HasActiveMissionWithID(ptm.PickupMissionID))
+                    {
+                        best = t;
+                        break;
+                    }
+                    if (t is PLHailTarget_BasicLongRangeActor) { best = t; break; }
+                }
+                if (best != null)
+                {
+                    __instance.StartingShip.photonView.RPC("OnHailTargetSelected", PhotonTargets.All, new object[]
+                    {
+                        best.GetHailTargetID()
+                    });
+                }
             }
             //Special behaviours based on current system
             if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.WD_MISSIONCHAIN_WEAPONS_DEMO && !PLServer.Instance.HasCompletedMissionWithID(59682)) //In the W.D. Weapons testing mission 
@@ -2073,7 +2097,38 @@ namespace CapBot
                     });
                 }
             }
-            //Does dialogue with ships
+            //Drives dialogue choices on ANY hailed target (ships + long-range actors).
+            //The comms UI advances missions purely via OnHailChoiceSelected RPCs on the
+            //available PLHailChoice list (index-based). We pick the first available
+            //player-line choice each pass; successive passes walk the tree, which starts
+            //missions (line action 3), completes objectives (5), and ends them (4) —
+            //so comms-offered missions and turn-ins no longer sit unanswered.
+            if (Time.time - LastCommsChoice > 2.5f && CapBot.StartingShip.CurrentHailTargetSelection != null)
+            {
+                LastCommsChoice = Time.time;
+                List<PLHailChoice> choices = CapBot.StartingShip.CurrentHailTargetSelection.GetAvailableChoices();
+                if (choices != null && choices.Count > 0)
+                {
+                    // Prefer a choice whose text indicates a mission hook, else take the first.
+                    int best = 0;
+                    for (int i = 0; i < choices.Count; i++)
+                    {
+                        string lower = (choices[i].GetText() ?? "").ToLower();
+                        if (lower.Contains("mission") || lower.Contains("job") || lower.Contains("help") || lower.Contains("deliver") || lower.Contains("accept") || lower.Contains("biscuit") || lower.Contains("cargo") || lower.Contains("passenger"))
+                        {
+                            best = i;
+                            break;
+                        }
+                    }
+                    CapBot.StartingShip.photonView.RPC("OnHailChoiceSelected", PhotonTargets.All, new object[]
+                    {
+                        best,
+                        true,
+                        false
+                    });
+                }
+            }
+            //Does dialogue with ships (hostile + fuel-delivery special cases keep priority)
             if (CapBot.StartingShip.CurrentHailTargetSelection is PLHailTarget_Ship && Time.time - LastAction > 3f)
             {
                 PLHailTarget_Ship ship = CapBot.StartingShip.CurrentHailTargetSelection as PLHailTarget_Ship;
@@ -2594,11 +2649,11 @@ namespace CapBot
         {
             try
             {
-                if (!__instance.IsBot || __instance.TeamID != 0) return;
+                if (!__instance.IsBot || __instance.TeamID != 0 || __instance.GetClassID() == -1) return;
                 if (__instance.StartedLocalUpdatesForCustomPawnData) return;
                 PLNetworkManager nm = PLNetworkManager.Instance;
                 if (nm == null || nm.LocalPlayer == null || nm.LocalPlayer.GetClassID() == 0) return; // vanilla handles it
-                if (PLNetworkManager.Instance.LocalPlayer == __instance) return;
+                if (nm.LocalPlayer == __instance) return;
                 if (__instance.GetPawn() == null) return;
                 if (PlayerLifeTimeTooLow(__instance)) return;
 
@@ -2617,10 +2672,11 @@ namespace CapBot
                         __instance.RaceID = UnityEngine.Random.Range(0, 3);
                         if ((int)__instance.RaceID > 0) __instance.Gender_IsMale = true;
                     }
-                    if (GetAIDataOf(__instance) != null)
+                    AIDataIndividual ai = GetAIDataOf(__instance);
+                    if (ai != null)
                     {
-                        __instance.RaceID = GetAIDataOf(__instance).RaceID;
-                        __instance.Gender_IsMale = GetAIDataOf(__instance).Gender_IsMale;
+                        __instance.RaceID = ai.RaceID;
+                        __instance.Gender_IsMale = ai.Gender_IsMale;
                     }
                 }
                 if (!__instance.RaceAndGenderHaveBeenSet && __instance.GetPawn() != null)
@@ -2630,8 +2686,24 @@ namespace CapBot
                     if (__instance.GetPawn().CustomPawnFemale != null)
                         __instance.RandomizeCustomPawnData(__instance.GetPawn().CustomPawnFemale, __instance.MyCustomPawnData[__instance.GetPawnCosmeticType()]);
                 }
+                // Vanilla (non-master branch) tells the master the bot's race/gender
+                // so every machine agrees on the cosmetic-type slot.
+                if (!PhotonNetwork.isMasterClient)
+                {
+                    __instance.photonView.RPC("SetAIGender", PhotonTargets.MasterClient, (bool)__instance.Gender_IsMale);
+                    __instance.photonView.RPC("SetAIRace", PhotonTargets.MasterClient, (int)__instance.RaceID);
+                }
                 __instance.RaceAndGenderHaveBeenSet = true;
                 __instance.StartedLocalUpdatesForCustomPawnData = true;
+                // THE critical piece vanilla does after init: broadcast the custom
+                // pawn data to all other players (loop until game over). Without
+                // this, remote clients never receive the bot's appearance data and
+                // render invisible/default bots.
+                for (int n = 0; n < __instance.MyCustomPawnData.Length; n++)
+                {
+                    if (__instance.MyCustomPawnData[n] != null)
+                        __instance.StartCoroutine(__instance.SendCustomPawnDataToOtherPlayers(__instance.MyCustomPawnData[n], n, true));
+                }
                 PulsarModLoader.Utilities.Logger.Info("[CapBot] Initialized pawn appearance for bot class " + __instance.GetClassID());
             }
             catch { }
@@ -2725,6 +2797,27 @@ namespace CapBot
         {
             SpawnBot.capisbot = false;
             SpawnBot.crewisbot = false;
+        }
+    }
+
+    // Adaptive learning: count every completed sector warp as navigation
+    // experience. Hook is PLShipInfoBase.SetInWarp: the player ship calls it with
+    // inWarp=false exactly once when a warp completes (PLGameShip.Update, travel
+    // percent >= 1). OnNewSector was the wrong signal — it fires at warp START
+    // (and on initial game load), not on arrival.
+    [HarmonyPatch(typeof(PLShipInfoBase), "SetInWarp")]
+    class SectorJumpTracker
+    {
+        static void Postfix(PLShipInfoBase __instance, bool inWarp)
+        {
+            try
+            {
+                if (inWarp) return; // begin-warp transition, not arrival
+                if (PLEncounterManager.Instance == null || PLEncounterManager.Instance.PlayerShip == null) return;
+                if (PLEncounterManager.Instance.PlayerShip != __instance) return; // only the player ship counts
+                Learning.RecordJump();
+            }
+            catch { }
         }
     }
 
