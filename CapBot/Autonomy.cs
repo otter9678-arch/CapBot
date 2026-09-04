@@ -752,11 +752,10 @@ namespace CapBot
     {
         // True when a pending mission objective can still be worked in the current
         // sector (prevents SetNextDestiny from warping away mid-mission — issue #3).
-        // Covers ReachSector targets, plus objectives that live wherever the crew
-        // currently is: PickupComponent/PickupItem (cargo holds the item), TalkToNPC
-        // (NPC is here), EnterVolumeOfName, and pickup missions generally — their
-        // completion checks don't reference a sector, so treat "crew present in an
-        // encounter" as workable ground. Only ReachSector/OfType are location-bound.
+        // Only pins the ship when the objective is actually WORKABLE here: pickups
+        // must still be unsatisfied, TalkToNPC actors must be in the bot's TLI,
+        // EnterVolumeOfName volumes must exist in this scene. Unreachable objectives
+        // don't trap the ship in a sector forever.
         internal static bool PendingMissionWorkInCurrentSector()
         {
             try
@@ -764,17 +763,62 @@ namespace CapBot
                 PLSectorInfo sector = PLServer.GetCurrentSector();
                 if (sector == null || PLServer.Instance == null) return false;
                 int hub = PLServer.Instance.GetCurrentHubID();
+                PLPlayer cap = PLServer.Instance.GetCachedFriendlyPlayerOfClass(0);
+                PLPawn capPawn = cap != null ? cap.GetPawn() : null;
+
                 foreach (PLMissionBase m in PLServer.Instance.AllMissions)
                 {
                     if (m == null || m.Ended || m.Abandoned) continue;
                     foreach (PLMissionObjective obj in m.Objectives)
                     {
                         if (obj == null || obj.IsCompleted) continue;
-                        if (obj is PLMissionObjective_ReachSector reach && reach.SectorToReach == hub) return true;
+
+                        if (obj is PLMissionObjective_ReachSector reach)
+                        {
+                            if (reach.SectorToReach == hub) return true;
+                            continue;
+                        }
                         if (obj is PLMissionObjective_ReachSectorOfType) return true;
-                        if (obj is PLMissionObjective_PickupComponent || obj is PLMissionObjective_PickupItem
-                            || obj is PLMissionObjective_TalkToNPC || obj is PLMissionObjective_EnterVolumeOfName)
-                            return true;
+
+                        // Pickup objectives: complete from anywhere the item ends up in
+                        // crew inventories — pin the ship only while still unsatisfied.
+                        if (obj is PLMissionObjective_PickupComponent pc)
+                        {
+                            if (GetPickupCompRemaining(pc) < GetObjectiveNeeded(pc)) return true;
+                            continue;
+                        }
+                        if (obj is PLMissionObjective_PickupItem pi)
+                        {
+                            if (GetPickupItemRemaining(pi) < GetObjectiveNeeded(pi)) return true;
+                            continue;
+                        }
+
+                        // TalkToNPC: pin only if the target actor is actually present
+                        // in the same TLI as the captain bot (or bot has no TLI yet).
+                        if (obj is PLMissionObjective_TalkToNPC tt)
+                        {
+                            string actor = GetTalkActor(tt);
+                            if (actor == null) continue;
+                            foreach (PLDialogueActorInstance npc in UnityEngine.Object.FindObjectsOfType<PLDialogueActorInstance>())
+                            {
+                                if (npc == null || (npc.ActorName ?? "") != actor) continue;
+                                if (capPawn == null || cap.MyCurrentTLI == null || npc.TLIInParent == cap.MyCurrentTLI) return true;
+                            }
+                            continue;
+                        }
+
+                        // EnterVolumeOfName: pin only if the volume exists in the
+                        // current scene and hasn't been entered yet.
+                        if (obj is PLMissionObjective_EnterVolumeOfName ev)
+                        {
+                            if (obj.AmountCompleted > 0) continue;
+                            string vol = GetVolumeName(ev);
+                            if (vol != null && GameObject.Find(vol) != null) return true;
+                            continue;
+                        }
+
+                        // Generic pickup missions with custom objectives: pin while
+                        // the mission itself is a pickup mission (its data drives the flow).
                         if (m.IsPickupMission) return true;
                     }
                 }
@@ -921,10 +965,19 @@ namespace CapBot
         }
 
         // Reflection readers for objective internals (private fields).
+        private static System.Reflection.FieldInfo _pcNeeded;
         private static System.Reflection.FieldInfo _pcCompType;
         private static System.Reflection.FieldInfo _pcSubType;
+        private static System.Reflection.FieldInfo _piItemType;
+        private static System.Reflection.FieldInfo _piSubType;
         private static System.Reflection.FieldInfo _volName;
         private static System.Reflection.FieldInfo _ttActor;
+
+        private static int GetObjectiveNeeded(PLMissionObjective obj)
+        {
+            if (_pcNeeded == null) _pcNeeded = AccessTools.Field(typeof(PLMissionObjective), "m_AmountNeeded");
+            return _pcNeeded != null ? (int)_pcNeeded.GetValue(obj) : 1;
+        }
 
         private static int GetPickupCompSlot(PLMissionObjective pc)
         {
@@ -948,6 +1001,58 @@ namespace CapBot
         {
             if (_ttActor == null) _ttActor = AccessTools.Field(typeof(PLMissionObjective_TalkToNPC), "ActorTypeID");
             return _ttActor != null ? (string)_ttActor.GetValue(obj) : null;
+        }
+
+        // How many of the component (slot+subtype) the crew currently holds.
+        private static int GetPickupCompRemaining(PLMissionObjective pc)
+        {
+            try
+            {
+                ESlotType slot = (ESlotType)GetPickupCompSlot(pc);
+                int sub = GetPickupCompSub(pc);
+                int need = GetObjectiveNeeded(pc);
+                if (PLEncounterManager.Instance == null || PLEncounterManager.Instance.PlayerShip == null) return need;
+                int have = 0;
+                foreach (PLShipComponent c in PLEncounterManager.Instance.PlayerShip.MyStats.AllComponents)
+                {
+                    if (c != null && c.ActualSlotType == slot && c.SubType == sub) have++;
+                }
+                return have;
+            }
+            catch { return 999; }
+        }
+
+        // How many of the pawn item (type+subtype) the crew currently holds
+        // (inventories + class lockers — mirrors the vanilla completion count).
+        private static int GetPickupItemRemaining(PLMissionObjective pi)
+        {
+            try
+            {
+                if (_piItemType == null) _piItemType = AccessTools.Field(typeof(PLMissionObjective_PickupItem), "ItemTypeToPickup");
+                if (_piSubType == null) _piSubType = AccessTools.Field(typeof(PLMissionObjective_PickupItem), "SubItemType");
+                int type = (int)_piItemType.GetValue(pi);
+                int sub = (int)_piSubType.GetValue(pi);
+                int need = GetObjectiveNeeded(pi);
+                if (PLServer.Instance == null) return need;
+                int have = 0;
+                foreach (PLPlayer p in PLServer.Instance.AllPlayers)
+                {
+                    if (p == null || (int)p.TeamID != 0) continue;
+                    foreach (PLPawnItem item in p.MyInventory.AllItems)
+                    {
+                        if (item != null && (int)item.PawnItemType == type && item.SubType == sub) have++;
+                    }
+                    if (p.GetClassID() >= 0 && p.GetClassID() < PLServer.Instance.ClassInfos.Count)
+                    {
+                        foreach (PLPawnItem item in PLServer.Instance.ClassInfos[p.GetClassID()].ClassLockerInventory.AllItems)
+                        {
+                            if (item != null && (int)item.PawnItemType == type && item.SubType == sub) have++;
+                        }
+                    }
+                }
+                return have;
+            }
+            catch { return 999; }
         }
 
         internal static void TickDialogueWork(PLPlayer bot)

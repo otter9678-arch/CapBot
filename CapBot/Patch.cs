@@ -22,6 +22,58 @@ namespace CapBot
         static float LastCommsSelect = 0;
         static float WeaponsTest = Time.time;
         static float LastOrder = Time.time;
+        static int PendingOrderID = -1;
+        static float PendingOrderSince = 0f;
+        static float LastOrderSetTime = 0f;
+
+        // Priority-order evaluation, extracted from the old inline if/else chain.
+        // orderIsPriority: combat/intruder/board orders may interrupt the anti-spam
+        // dwell immediately (safety-relevant), everything else waits out the hold.
+        static int ComputeDesiredOrder(PLPlayer cap, bool hasIntruders, out bool isPriority)
+        {
+            isPriority = false;
+            try
+            {
+                if (cap.StartingShip.MyFlightAI.cachedRepairDepotList.Count > 0 && cap.StartingShip.MyStats.HullCurrent / cap.StartingShip.MyStats.HullMax < 0.99f)
+                {
+                    isPriority = true;
+                    return 9; // repair protocols
+                }
+                if (cap.StartingShip.MyFlightAI.cachedWarpStationList.Count > 0 && cap.StartingShip.MyFlightAI.cachedWarpStationList[0].IsAligned)
+                {
+                    return 8; // use warp gate
+                }
+                if (hasIntruders)
+                {
+                    isPriority = true;
+                    return 6; // board/repel intruders
+                }
+                if (cap.StartingShip.TargetShip != null && cap.StartingShip.TargetShip != cap.StartingShip && cap.StartingShip.TargetShip is PLShipInfo && cap.StartingShip.TargetShip.TeamID > 0 && (!cap.StartingShip.TargetShip.IsQuantumShieldActive || cap.MyCurrentTLI == cap.StartingShip.TargetShip.MyTLI))
+                {
+                    isPriority = true;
+                    return 6; // board enemy
+                }
+                if (((cap.StartingShip.TargetShip != null && cap.StartingShip.TargetShip != cap.StartingShip) || cap.StartingShip.TargetSpaceTarget != null) && (cap.StartingShip.TargetShip == null || !cap.StartingShip.TargetShip.IsAbandoned()))
+                {
+                    isPriority = true;
+                    return 4; // offensive attack
+                }
+                if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().MySPI.HasPlanet && HasActiveMissionInCurrentSector())
+                {
+                    return 13; // complete mission on planet
+                }
+                if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().MySPI.HasPlanet && PLEncounterManager.Instance.GetCPEI() != null && !PLEncounterManager.Instance.GetCPEI().MyPersistantData.MiscPersistantData.ContainsKey("CypherLoss") && !PLEncounterManager.Instance.GetCPEI().MyPersistantData.MiscPersistantData.ContainsKey("CypherWon") && CurrentSectorHasCypher())
+                {
+                    return 12; // explore planet (cypher)
+                }
+                if (PLStarmap.Instance != null && PLStarmap.Instance.CurrentShipPath.Count > 0 && (cap.StartingShip.MyFlightAI.cachedWarpStationList.Count == 0 || (!cap.StartingShip.MyFlightAI.cachedWarpStationList[0].IsAligned && cap.StartingShip.MyFlightAI.cachedWarpStationList[0].TargetedWarpSectorID == -1)))
+                {
+                    return 10; // align and jump
+                }
+                return 1; // at attention
+            }
+            catch { return 1; }
+        }
         static void Postfix(PLPlayer __instance, ref AIDataIndividual ___cachedAIData)
         {
             if ((___cachedAIData == null || ___cachedAIData.Priorities.Count == 0) && SpawnBot.capisbot && __instance.TeamID == 0 && __instance.IsBot) //Give default AI priorities
@@ -159,122 +211,91 @@ namespace CapBot
             //Disables ship autotarget when racing
             if (__instance.StartingShip.CurrentRace != null) __instance.StartingShip.AutoTarget = false; 
             else __instance.StartingShip.AutoTarget = true;
-            //Set captain orders and special actions
+            //Set captain orders and special actions.
+            //Anti-spam: require a candidate order to persist 2s before switching, and
+            //hold each order at least 8s — every CaptainSetOrderID flip replays the
+            //order banner+sound (OnNewCaptainOrderID), so rapid oscillation spams it.
             //Yellow alert if took damage recently and doesn't have a target
             if (Time.time - __instance.StartingShip.LastTookDamageTime() < 10f && __instance.StartingShip.AlertLevel == 0)
             {
                 __instance.StartingShip.AlertLevel = 1;
             }
-            //Repair procedures on repair station
-            if (__instance.StartingShip.MyFlightAI.cachedRepairDepotList.Count > 0 && __instance.StartingShip.MyStats.HullCurrent / __instance.StartingShip.MyStats.HullMax < 0.99f)
+            int desiredOrder = ComputeDesiredOrder(__instance, HasIntruders, out bool orderIsPriority);
+            if (desiredOrder != (int)PLServer.Instance.CaptainsOrdersID)
             {
-                if (PLServer.Instance.CaptainsOrdersID != 9 && Time.time - LastOrder > 1f)
+                if (desiredOrder != PendingOrderID)
                 {
-                    LastOrder = Time.time;
-                    PLServer.Instance.CaptainSetOrderID(9);
+                    PendingOrderID = desiredOrder;
+                    PendingOrderSince = Time.time;
                 }
-                __instance.StartingShip.AlertLevel = 0;
-                PLRepairDepot repair = __instance.StartingShip.MyFlightAI.cachedRepairDepotList[0];
-                if (repair.TargetShip == __instance.StartingShip && !__instance.StartingShip.ShieldIsActive && Time.time - LastAction > 1f)//Uses repair station if possible
+                bool priorityJump = orderIsPriority && PendingOrderID != 1 && (int)PLServer.Instance.CaptainsOrdersID == 1;
+                bool stable = Time.time - PendingOrderSince > 2f;
+                bool held = Time.time - LastOrderSetTime > 8f;
+                if ((stable && held) || priorityJump)
                 {
-                    int ammount = 0;
-                    int price = 0;
-                    PLRepairDepot.GetAutoPurchaseInfo(__instance.StartingShip, out ammount, out price, 2);
-                    PLServer.Instance.ServerRepairHull(__instance.StartingShip.ShipID, ammount, price);
-                    repair.photonView.RPC("OnRepairTargetShip", PhotonTargets.All, new object[]
-                    {
-                        __instance.StartingShip.ShipID
-                    });
-                    LastAction = Time.time;
+                    LastOrderSetTime = Time.time;
+                    PLServer.Instance.CaptainSetOrderID(desiredOrder);
                 }
             }
-            //Asks to use the warp gate
-            else if (__instance.StartingShip.MyFlightAI.cachedWarpStationList.Count > 0 && __instance.StartingShip.MyFlightAI.cachedWarpStationList[0].IsAligned)
-            {
-                if (PLServer.Instance.CaptainsOrdersID != 8 && Time.time - LastOrder > 1f)
-                {
-                    LastOrder = Time.time;
-                    PLServer.Instance.CaptainSetOrderID(8);
-                }
-                __instance.StartingShip.AlertLevel = 0;
-            }
-            //Repel any intruders
-            else if (__instance.StartingShip != null && HasIntruders)
-            {
-                if (PLServer.Instance.CaptainsOrdersID != 6 && Time.time - LastOrder > 1f)
-                {
-                    LastOrder = Time.time;
-                    PLServer.Instance.CaptainSetOrderID(6);
-                }
-                __instance.StartingShip.AlertLevel = 2;
-            }
-            //Board Enemies
-            else if (__instance.StartingShip.TargetShip != null && __instance.StartingShip.TargetShip != __instance.StartingShip && __instance.StartingShip.TargetShip is PLShipInfo && __instance.StartingShip.TargetShip.TeamID > 0 && (!__instance.StartingShip.TargetShip.IsQuantumShieldActive || __instance.MyCurrentTLI == __instance.StartingShip.TargetShip.MyTLI))
-            {
-                if (PLServer.Instance.CaptainsOrdersID != 6 && Time.time - LastOrder > 1f)
-                {
-                    LastOrder = Time.time;
-                    PLServer.Instance.CaptainSetOrderID(6);
-                }
-                __instance.StartingShip.AlertLevel = 2;
-            }
-            //Kill enemy ships if not currently boarding
-            else if (((__instance.StartingShip.TargetShip != null && __instance.StartingShip.TargetShip != __instance.StartingShip) || __instance.StartingShip.TargetSpaceTarget != null) && (__instance.StartingShip.TargetShip == null || !__instance.StartingShip.TargetShip.IsAbandoned()))
-            {
-                if (PLServer.Instance.CaptainsOrdersID != 4 && Time.time - LastOrder > 1f)
-                {
-                    LastOrder = Time.time;
-                    PLServer.Instance.CaptainSetOrderID(4);
-                }
-                __instance.StartingShip.AlertLevel = 2;
-            }
-            //Complete Mission in current planet/station
-            else if (PLServer.GetCurrentSector().MySPI.HasPlanet && HasActiveMissionInCurrentSector()) 
-            {
-                if (PLServer.Instance.CaptainsOrdersID != 13 && Time.time - LastOrder > 1f)
-                {
-                    LastOrder = Time.time;
-                    PLServer.Instance.CaptainSetOrderID(13);
-                }
-                if (SpawnBot.crewisbot || (PLServer.Instance.GetCachedFriendlyPlayerOfClass(2) != null && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).IsBot))
-                {
-                    PlanetExploration(__instance, out bool halt);
-                    if (halt) return;
-                }
-            }
-            //Explore planet
-            else if (PLServer.GetCurrentSector().MySPI.HasPlanet && __instance.StartingShip != null && (!PLEncounterManager.Instance.GetCPEI().MyPersistantData.MiscPersistantData.ContainsKey("CypherLoss") && !PLEncounterManager.Instance.GetCPEI().MyPersistantData.MiscPersistantData.ContainsKey("CypherWon")) && CurrentSectorHasCypher())
-            {
-                if (PLServer.Instance.CaptainsOrdersID != 12 && Time.time - LastOrder > 1f)
-                {
-                    LastOrder = Time.time;
-                    PLServer.Instance.CaptainSetOrderID(12);
-                }
-                if (SpawnBot.crewisbot || (PLServer.Instance.GetCachedFriendlyPlayerOfClass(2) != null && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).IsBot))
-                {
-                    PlanetExploration(__instance, out bool halt);
-                    if (halt) return;
-                }
-            }
-            //Align the ship
-            else if (PLStarmap.Instance.CurrentShipPath.Count > 0 && (__instance.StartingShip.MyFlightAI.cachedWarpStationList.Count == 0 || (!__instance.StartingShip.MyFlightAI.cachedWarpStationList[0].IsAligned && __instance.StartingShip.MyFlightAI.cachedWarpStationList[0].TargetedWarpSectorID == -1)))
-            {
-                if (PLServer.Instance.CaptainsOrdersID != 10 && Time.time - LastOrder > 1f)
-                {
-                    LastOrder = Time.time;
-                    PLServer.Instance.CaptainSetOrderID(10);
-                }
-                __instance.StartingShip.AlertLevel = 0;
-            }
-            //Just be at attention
             else
             {
-                if (PLServer.Instance.CaptainsOrdersID != 1 && Time.time - LastOrder > 1f)
-                {
-                    LastOrder = Time.time;
-                    PLServer.Instance.CaptainSetOrderID(1);
-                }
-                __instance.StartingShip.AlertLevel = 0;
+                PendingOrderID = -1;
+            }
+            switch ((int)PLServer.Instance.CaptainsOrdersID)
+            {
+                //Repair procedures on repair station
+                case 9:
+                    __instance.StartingShip.AlertLevel = 0;
+                    PLRepairDepot repair = __instance.StartingShip.MyFlightAI.cachedRepairDepotList[0];
+                    if (repair.TargetShip == __instance.StartingShip && !__instance.StartingShip.ShieldIsActive && Time.time - LastAction > 1f)//Uses repair station if possible
+                    {
+                        int ammount = 0;
+                        int price = 0;
+                        PLRepairDepot.GetAutoPurchaseInfo(__instance.StartingShip, out ammount, out price, 2);
+                        PLServer.Instance.ServerRepairHull(__instance.StartingShip.ShipID, ammount, price);
+                        repair.photonView.RPC("OnRepairTargetShip", PhotonTargets.All, new object[]
+                        {
+                            __instance.StartingShip.ShipID
+                        });
+                        LastAction = Time.time;
+                    }
+                    break;
+                //At the warp gate
+                case 8:
+                    __instance.StartingShip.AlertLevel = 0;
+                    break;
+                //Repel / board intruders
+                case 6:
+                    __instance.StartingShip.AlertLevel = 2;
+                    break;
+                //Offensive attack
+                case 4:
+                    __instance.StartingShip.AlertLevel = 2;
+                    break;
+                //Complete mission on planet
+                case 13:
+                    if (SpawnBot.crewisbot || (PLServer.Instance.GetCachedFriendlyPlayerOfClass(2) != null && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).IsBot))
+                    {
+                        PlanetExploration(__instance, out bool halt);
+                        if (halt) return;
+                    }
+                    break;
+                //Explore planet (cypher)
+                case 12:
+                    if (SpawnBot.crewisbot || (PLServer.Instance.GetCachedFriendlyPlayerOfClass(2) != null && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).IsBot))
+                    {
+                        PlanetExploration(__instance, out bool halt);
+                        if (halt) return;
+                    }
+                    break;
+                //Align the ship
+                case 10:
+                    __instance.StartingShip.AlertLevel = 0;
+                    break;
+                //At attention
+                default:
+                    __instance.StartingShip.AlertLevel = 0;
+                    break;
             }
             //Board enemy to remove claim
             if (PLServer.Instance.CaptainsOrdersID == 6 && __instance.StartingShip.TargetShip != null)
@@ -399,8 +420,10 @@ namespace CapBot
                 }
                 LastAction = Time.time;
             }
-            //Sit in chair if no action in the last 20 seconds
-            if (__instance.StartingShip != null && __instance.StartingShip.MyStats.GetShipComponent<PLCaptainsChair>(ESlotType.E_COMP_CAPTAINS_CHAIR, false) != null && Time.time - LastAction > 20f) 
+            //Sit in chair if no action in the last 20 seconds — BUT not while a
+            //mission objective is being worked in this sector (walking to pickups/
+            //NPCs/volumes counts as action; the chair return would stomp it).
+            if (__instance.StartingShip != null && __instance.StartingShip.MyStats.GetShipComponent<PLCaptainsChair>(ESlotType.E_COMP_CAPTAINS_CHAIR, false) != null && Time.time - LastAction > 20f && !BotMissions.PendingMissionWorkInCurrentSector()) 
             {
                 __instance.MyBot.AI_TargetPos = __instance.StartingShip.CaptainsChairPivot.position;
                 __instance.MyBot.AI_TargetPos_Raw = __instance.MyBot.AI_TargetPos;
@@ -2114,7 +2137,8 @@ namespace CapBot
                     for (int i = 0; i < choices.Count; i++)
                     {
                         string lower = (choices[i].GetText() ?? "").ToLower();
-                        if (lower.Contains("mission") || lower.Contains("job") || lower.Contains("help") || lower.Contains("deliver") || lower.Contains("accept") || lower.Contains("biscuit") || lower.Contains("cargo") || lower.Contains("passenger"))
+                        if (lower.Contains("mission") || lower.Contains("job") || lower.Contains("help") || lower.Contains("deliver") || lower.Contains("accept") || lower.Contains("biscuit") || lower.Contains("cargo") || lower.Contains("passenger")
+                            || lower.Contains("supplies") || lower.Contains("contract") || lower.Contains("work") || lower.Contains("colony") || lower.Contains("medical") || lower.Contains("reward"))
                         {
                             best = i;
                             break;
@@ -2206,6 +2230,53 @@ namespace CapBot
                     }
                 }
             }
+        }
+        // Faction hub for a mission, derived from the faction requirement baked into
+        // its campaign data: 0 = Colonial Union (Colonial Hub), 3 = Fluffy Biscuit
+        // (nearest factory sectors are added separately), 1 = A.O.G. (hideout).
+        // Only PickupMissionData carries StartingRequirements.
+        static PLSectorInfo FactionHubForMission(PLMissionBase mission)
+        {
+            try
+            {
+                if (mission == null || !(mission.MyMissionData is PickupMissionData pmd) || pmd.StartingRequirements == null) return null;
+                int faction = -1;
+                foreach (RequirementData req in pmd.StartingRequirements)
+                {
+                    if (req == null) continue;
+                    if (req.ReqType == 12) { faction = int.Parse(req.GetValueFromKey("CrewFactionEquals_Value")); break; }
+                }
+                if (faction == 0) return PLGlobal.Instance.Galaxy.GetSectorOfVisualIndication(ESectorVisualIndication.COLONIAL_HUB);
+                if (faction == 3) return PLGlobal.Instance.Galaxy.GetSectorOfVisualIndication(ESectorVisualIndication.FLUFFY_FACTORY_01);
+                if (faction == 1) return PLGlobal.Instance.Galaxy.GetSectorOfVisualIndication(ESectorVisualIndication.AOG_HUB);
+            }
+            catch { }
+            return null;
+        }
+        // True when any active, unended pickup mission belongs to the given crew
+        // faction (per its campaign requirement) — used to route to that faction's hub.
+        static bool FactionMissionActive(int crewFaction)
+        {
+            try
+            {
+                if (PLServer.Instance == null || (int)PLServer.Instance.CrewFactionID != crewFaction) return false;
+                foreach (PLMissionBase m in PLServer.Instance.AllMissions)
+                {
+                    if (m == null || m.Ended || m.Abandoned) continue;
+                    if (m.MyMissionData is PickupMissionData pmd && pmd.StartingRequirements != null)
+                    {
+                        foreach (RequirementData req in pmd.StartingRequirements)
+                        {
+                            if (req != null && req.ReqType == 12 && int.Parse(req.GetValueFromKey("CrewFactionEquals_Value")) == crewFaction)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
         }
         static void SetNextDestiny()
         {
@@ -2308,6 +2379,19 @@ namespace CapBot
                                     destines.Add(WDHub);
                                 }
                                 break;
+                            default:
+                            {
+                                // Faction campaigns (Colonial Union / Fluffy Biscuit / A.O.G.):
+                                // when a faction mission's sector-specific objective is done,
+                                // route to that faction's hub to hand in. MissionData tells us
+                                // the faction via the crew requirement baked into the campaign.
+                                PLSectorInfo factionHub = FactionHubForMission(mission);
+                                if (factionHub != null && mission.Objectives[0].IsCompleted)
+                                {
+                                    destines.Add(factionHub);
+                                }
+                                break;
+                            }
                         }
                     }
                 }
@@ -2347,6 +2431,38 @@ namespace CapBot
                         }
                         //Add high rollers
                         if (PLServer.Instance.HasActiveMissionWithID(102403) && !PLServer.Instance.IsFragmentCollected(3) && plsectorInfo.VisualIndication == ESectorVisualIndication.HIGHROLLERS_STATION && PLServer.Instance.CurrentCrewCredits >= 10000)
+                        {
+                            destines.Add(plsectorInfo);
+                        }
+                        //Colonial Union campaign: medical-supply mission planet, colony, farm
+                        if (plsectorInfo.MissionSpecificID != -1 && PLServer.Instance.HasActiveMissionWithID(plsectorInfo.MissionSpecificID) && (plsectorInfo.VisualIndication == ESectorVisualIndication.MS_MEDICAL_SUPPLY_MISSION_CU || plsectorInfo.VisualIndication == ESectorVisualIndication.UNION_COLONY_01 || plsectorInfo.VisualIndication == ESectorVisualIndication.CU_FARM))
+                        {
+                            destines.Add(plsectorInfo);
+                        }
+                        //Colonial Union hub (hand-in / new contracts) when any CU mission active
+                        if (plsectorInfo.VisualIndication == ESectorVisualIndication.COLONIAL_HUB && FactionMissionActive(0))
+                        {
+                            destines.Add(plsectorInfo);
+                        }
+                        //Fluffy Biscuit campaign: factories (deliver crates) while an FB mission
+                        //is active or the biscuit contest is running
+                        if ((plsectorInfo.VisualIndication == ESectorVisualIndication.FLUFFY_FACTORY_01 || plsectorInfo.VisualIndication == ESectorVisualIndication.FLUFFY_FACTORY_02 || plsectorInfo.VisualIndication == ESectorVisualIndication.FLUFFY_FACTORY_03)
+                            && FactionMissionActive(3))
+                        {
+                            destines.Add(plsectorInfo);
+                        }
+                        //A.O.G. campaign: hideout planet + steal-WD-tech sector + prison break
+                        if (plsectorInfo.VisualIndication == ESectorVisualIndication.AOG_HIDEOUT_PLANET && FactionMissionActive(1))
+                        {
+                            destines.Add(plsectorInfo);
+                        }
+                        if (plsectorInfo.MissionSpecificID != -1 && PLServer.Instance.HasActiveMissionWithID(plsectorInfo.MissionSpecificID)
+                            && (plsectorInfo.VisualIndication == ESectorVisualIndication.AOG_MISSIONCHAIN_STEAL_WD_TECH || plsectorInfo.VisualIndication == ESectorVisualIndication.AOG_MISSIONCHAIN_PRISONBREAK || plsectorInfo.VisualIndication == ESectorVisualIndication.AOG_MISSIONCHAIN_BANDITFACTORY || plsectorInfo.VisualIndication == ESectorVisualIndication.AOG_MISSIONCHAIN_MADMANS_MANSION))
+                        {
+                            destines.Add(plsectorInfo);
+                        }
+                        //A.O.G. hub (hand-in / new contracts) when any AOG mission active
+                        if (plsectorInfo.VisualIndication == ESectorVisualIndication.AOG_HUB && FactionMissionActive(1))
                         {
                             destines.Add(plsectorInfo);
                         }
