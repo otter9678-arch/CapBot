@@ -1,5 +1,6 @@
 using HarmonyLib;
 using PulsarModLoader.SaveData;
+using CapBot.Core.Logging;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -77,7 +78,7 @@ namespace CapBot
                 }
                 return true;
             }
-            catch { return false; }
+            catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.CREW, "Executor election check failed", ex); return false; }
         }
 
         internal static bool SafeHasTalent(PLPlayer player, int id, int minLevel = 1)
@@ -127,7 +128,7 @@ namespace CapBot
                     ctrl.AI_ShouldUseActiveItem = true;
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.CREW, "Smart item use tick failed", ex); }
         }
     }
 
@@ -191,12 +192,12 @@ namespace CapBot
                     }
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Mission tracking update failed", ex); }
         }
 
         internal static void RecordJump()
         {
-            try { Add(0, 4, 1f); } catch { }
+            try { Add(0, 4, 1f); } catch (System.Exception ex) { CapBotLog.Error(CapBotLog.PERSISTENCE, "Jump learning record failed", ex); }
         }
     }
 
@@ -299,7 +300,7 @@ namespace CapBot
                     return; // one point per tick
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.CREW, "Bot talent spend tick failed", ex); }
         }
     }
 
@@ -357,10 +358,10 @@ namespace CapBot
                         PLServer.Instance.ResearchMaterials[i] = (int)PLServer.Instance.ResearchMaterials[i] - info.ResearchCost[i];
                     }
                     Learning.Add(2, 5, 1.5f); // scientist runs research
-                    try { PulsarModLoader.Utilities.Messaging.Notification("CapBot started research: " + info.Name); } catch { }
+                    try { PulsarModLoader.Utilities.Messaging.Notification("CapBot started research: " + info.Name); } catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.RESEARCH, "Research notification failed", ex); }
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.RESEARCH, "Bot research tick failed", ex); }
         }
     }
 
@@ -504,7 +505,7 @@ namespace CapBot
                     return;
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.ECONOMY, "Bot economy tick failed", ex); }
         }
     }
 
@@ -545,7 +546,7 @@ namespace CapBot
                         PLServer.Instance.CurrentUpgradeMats = mats - targetCost;
                         target.Level++;
                         Learning.Add(4, 1, 1f); // engineer does component upgrades
-                        try { PulsarModLoader.Utilities.Messaging.ShipLog("Upgraded " + target.Name + " to level " + (target.Level + 1), "CAP"); } catch { }
+                        try { PulsarModLoader.Utilities.Messaging.ShipLog("Upgraded " + target.Name + " to level " + (target.Level + 1), "CAP"); } catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.CREW, "Upgrade ship-log notification failed", ex); }
                         LastUpgrade = Time.unscaledTime;
                         return;
                     }
@@ -571,7 +572,7 @@ namespace CapBot
                     }
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.CREW, "Bot upgrade tick failed", ex); }
         }
     }
 
@@ -607,11 +608,11 @@ namespace CapBot
                     if (current != null) ship.MyStats.RemoveShipComponent(current);
                     ship.MyStats.AddShipComponent(spare, -1, st);
                     Learning.Add(0, 1, 0.4f);
-                    try { PulsarModLoader.Utilities.Messaging.ShipLog("Installed a " + spare.Name + " from cargo", "CAP"); } catch { }
+                    try { PulsarModLoader.Utilities.Messaging.ShipLog("Installed a " + spare.Name + " from cargo", "CAP"); } catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.CREW, "Install ship-log notification failed", ex); }
                     return;
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.CREW, "Bot component install tick failed", ex); }
         }
     }
 
@@ -660,7 +661,7 @@ namespace CapBot
                     && CanAttempt(59682))
                 {
                     StartMission(59682);
-                    try { PulsarModLoader.Utilities.Messaging.Notification("CapBot: starting W.D. weapons demo"); } catch { }
+                    try { PulsarModLoader.Utilities.Messaging.Notification("CapBot: starting W.D. weapons demo"); } catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.MISSION, "Campaign notification failed", ex); }
                     return;
                 }
 
@@ -671,7 +672,7 @@ namespace CapBot
                     && CanAttempt(104869))
                 {
                     StartMission(104869);
-                    try { PulsarModLoader.Utilities.Messaging.Notification("CapBot: accepted a bounty contract"); } catch { }
+                    try { PulsarModLoader.Utilities.Messaging.Notification("CapBot: accepted a bounty contract"); } catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.MISSION, "Campaign notification failed", ex); }
                     return;
                 }
 
@@ -685,7 +686,7 @@ namespace CapBot
                         && CanAttempt(102403))
                     {
                         StartMission(102403);
-                        try { PulsarModLoader.Utilities.Messaging.Notification("CapBot: heading to the High Rollers"); } catch { }
+                        try { PulsarModLoader.Utilities.Messaging.Notification("CapBot: heading to the High Rollers"); } catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.MISSION, "Campaign notification failed", ex); }
                         return;
                     }
                     if (sector.VisualIndication == ESectorVisualIndication.HIGHROLLERS_STATION
@@ -698,7 +699,7 @@ namespace CapBot
                     }
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Bot campaign tick failed", ex); }
         }
     }
 
@@ -743,7 +744,7 @@ namespace CapBot
                 Autonomy.LastExtract = Time.unscaledTime;
                 ship.photonView.RPC("AttemptExtraction", PhotonTargets.MasterClient, new object[0]);
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.ECONOMY, "Salvage extraction tick failed", ex); }
         }
     }
 
@@ -823,7 +824,7 @@ namespace CapBot
                     }
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.MISSION, "Mission-work scan failed", ex); }
             return false;
         }
 
@@ -961,7 +962,7 @@ namespace CapBot
                     }
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.MISSION, "Objective work tick failed", ex); }
         }
 
         // Reflection readers for objective internals (private fields).
@@ -1019,7 +1020,7 @@ namespace CapBot
                 }
                 return have;
             }
-            catch { return 999; }
+            catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.MISSION, "Component count read failed", ex); return 999; }
         }
 
         // How many of the pawn item (type+subtype) the crew currently holds
@@ -1052,7 +1053,7 @@ namespace CapBot
                 }
                 return have;
             }
-            catch { return 999; }
+            catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.MISSION, "Item count read failed", ex); return 999; }
         }
 
         internal static void TickDialogueWork(PLPlayer bot)
@@ -1102,7 +1103,7 @@ namespace CapBot
                 // talk button (PLGameStatic → RPC "TalkToNPCOfActorType"). Bots
                 // must emit the same RPC after opening dialogue or "report to X"
                 // objectives never complete.
-                try { PLServer.Instance.photonView.RPC("TalkToNPCOfActorType", PhotonTargets.MasterClient, target.ActorName); } catch { }
+                try { PLServer.Instance.photonView.RPC("TalkToNPCOfActorType", PhotonTargets.MasterClient, target.ActorName); } catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.MISSION, "Talk-to-NPC RPC failed", ex); }
 
                 if (target.HasMissionStartAvailable && target.AllAvailableChoices() != null && target.AllAvailableChoices().Count > 0)
                 {
@@ -1126,10 +1127,10 @@ namespace CapBot
                     {
                         target.SelectChoice(target.AllAvailableChoices()[0], true, true);
                     }
-                    try { target.BeginDialogue(); } catch { }
+                    try { target.BeginDialogue(); } catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.MISSION, "Mission NPC dialogue failed", ex); }
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Dialogue work tick failed", ex); }
         }
     }
 
@@ -1168,7 +1169,7 @@ namespace CapBot
                 if (swapped) LastCheck[pid] = Time.unscaledTime + 20f;
                 else LastCheck[pid] = Time.unscaledTime;
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.CREW, "Bot inventory tick failed", ex); }
         }
 
         private static bool SwapIfMissing<T>(PLPlayer bot, PLPawnInventoryBase locker, ref int equipSlot) where T : PLPawnItem
@@ -1189,7 +1190,7 @@ namespace CapBot
                 bot.MyInventory.photonView.RPC("ServerEquip", PhotonTargets.All, best.NetID, equipSlot++);
                 return true;
             }
-            catch { return false; }
+            catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.CREW, "Locker swap failed", ex); return false; }
         }
     }
 
@@ -1292,7 +1293,7 @@ namespace CapBot
                         }
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.CREW, "Stuck watchdog tick failed", ex); }
         }
     }
 }

@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Linq;
 using System.Text;
+using CapBot.Core.Logging;
 
 namespace CapBot
 {
@@ -43,12 +44,19 @@ namespace CapBot
                         File.Move(staged, target);
                         applied.Add(Path.GetFileName(target));
                     }
-                    catch { /* locked or transient; try next launch */ }
+                    catch (Exception ex)
+                    {
+                        // locked or transient; try next launch
+                        CapBotLog.Warning(CapBotLog.UPDATER, "Staged update apply failed: " + Path.GetFileName(staged), ex);
+                    }
                 }
                 if (applied.Count > 0)
-                    PulsarModLoader.Utilities.Logger.Info("CapBot applied staged mod updates: " + string.Join(", ", applied.ToArray()));
+                    CapBotLog.Info(CapBotLog.UPDATER, "Applied staged mod updates: " + string.Join(", ", applied.ToArray()));
             }
-            catch { }
+            catch (Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.UPDATER, "Staged update scan failed", ex);
+            }
         }
 
         // /updateall — check every loaded mod for a newer version and update it.
@@ -107,6 +115,7 @@ namespace CapBot
                     }
                     catch (Exception e)
                     {
+                        CapBotLog.Warning(CapBotLog.UPDATER, "Mod update check failed: " + (mod != null ? mod.Name : "?"), e);
                         report.AppendLine("[fail] " + (mod != null ? mod.Name : "?") + ": " + e.Message);
                         failed++;
                     }
@@ -127,7 +136,10 @@ namespace CapBot
                         report.AppendLine("PML " + pmlInfo.FileVersion + " is current.");
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    CapBotLog.Trace(CapBotLog.UPDATER, "PML version check failed", ex);
+                }
             }
             catch (Exception e)
             {

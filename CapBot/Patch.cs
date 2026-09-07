@@ -1,5 +1,6 @@
 ﻿using PulsarModLoader;
 using HarmonyLib;
+using CapBot.Core.Logging;
 using UnityEngine;
 using System.Collections.Generic;
 using System.Reflection.Emit;
@@ -72,9 +73,23 @@ namespace CapBot
                 }
                 return 1; // at attention
             }
-            catch { return 1; }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.CAPTAIN, "Order evaluation failed; defaulting to attention", ex); return 1; }
         }
         static void Postfix(PLPlayer __instance, ref AIDataIndividual ___cachedAIData)
+        {
+            // Phase 1 (finding C2): the entire captain tick is guarded here so no
+            // scripted-sector handler or null-deref failure can kill the patched
+            // PLPlayer.UpdateAIPriorities.
+            try
+            {
+                PostfixCore(__instance, ref ___cachedAIData);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Critical(CapBotLog.CAPTAIN, "Captain tick failed; skipping this tick", ex);
+            }
+        }
+        static void PostfixCore(PLPlayer __instance, ref AIDataIndividual ___cachedAIData)
         {
             if ((___cachedAIData == null || ___cachedAIData.Priorities.Count == 0) && SpawnBot.capisbot && __instance.TeamID == 0 && __instance.IsBot) //Give default AI priorities
             {
@@ -130,19 +145,22 @@ namespace CapBot
             {
                 __instance.StartingShip.AttemptToSitInCaptainsChair(-1);
             }
-            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.TOPSEC)//Inside the colony 
+            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.TOPSEC)//Inside the colony
             {
-                AtColony(__instance);
+                try { AtColony(__instance); }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Colony handler failed; skipping tick section", ex); }
                 return;
             }
-            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.LCWBATTLE)//In the warp guardian battle 
+            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.LCWBATTLE)//In the warp guardian battle
             {
-                WarpGuardianBattle(__instance);
+                try { WarpGuardianBattle(__instance); }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Warp guardian battle handler failed; skipping tick section", ex); }
                 return;
             }
             if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.WASTEDWING)//In the wasted wing
             {
-                WastedWing(__instance);
+                try { WastedWing(__instance); }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Wasted wing handler failed; skipping tick section", ex); }
                 return;
             }
             PLSectorInfo sector = PLServer.GetCurrentSector();
@@ -152,13 +170,18 @@ namespace CapBot
                         || sector.VisualIndication == ESectorVisualIndication.EXOTIC5 || sector.VisualIndication == ESectorVisualIndication.EXOTIC6 || sector.VisualIndication == ESectorVisualIndication.EXOTIC7 || sector.VisualIndication == ESectorVisualIndication.AOG_HUB || sector.VisualIndication == ESectorVisualIndication.GENTLEMEN_START || sector.VisualIndication == ESectorVisualIndication.CORNELIA_HUB
                         || sector.VisualIndication == ESectorVisualIndication.COLONIAL_HUB || sector.VisualIndication == ESectorVisualIndication.WD_START || sector.VisualIndication == ESectorVisualIndication.SPACE_SCRAPYARD || sector.VisualIndication == ESectorVisualIndication.FLUFFY_FACTORY_01 || sector.VisualIndication == ESectorVisualIndication.FLUFFY_FACTORY_02 || sector.VisualIndication == ESectorVisualIndication.FLUFFY_FACTORY_03 || sector.VisualIndication == ESectorVisualIndication.SPACE_CAVE_2)
             {
-                HandleShop();
+                try { HandleShop(); }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.ECONOMY, "Shop handler failed; skipping tick section", ex); }
             }
             //Get Missions from main hubs/stations
             if (PLServer.GetCurrentSector() != null && (PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.COLONIAL_HUB || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.WD_START || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.AOG_HUB || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.CORNELIA_HUB || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.CYPHER_LAB || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.FLUFFY_FACTORY_01))
             {
-                GetMissionFromHub(__instance, out bool Halt);
-                if (Halt) return;
+                try
+                {
+                    GetMissionFromHub(__instance, out bool Halt);
+                    if (Halt) return;
+                }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Hub mission handler failed; skipping tick section", ex); }
             }
             //Claim current ship if player ship was destroyed/captured
             if (__instance.StartingShip == null && __instance.MyCurrentTLI != null && __instance.MyCurrentTLI.MyShipInfo != null)
@@ -276,16 +299,16 @@ namespace CapBot
                 case 13:
                     if (SpawnBot.crewisbot || (PLServer.Instance.GetCachedFriendlyPlayerOfClass(2) != null && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).IsBot))
                     {
-                        PlanetExploration(__instance, out bool halt);
-                        if (halt) return;
+                        try { PlanetExploration(__instance, out bool halt); if (halt) return; }
+                        catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Planet exploration handler failed; skipping tick section", ex); }
                     }
                     break;
                 //Explore planet (cypher)
                 case 12:
                     if (SpawnBot.crewisbot || (PLServer.Instance.GetCachedFriendlyPlayerOfClass(2) != null && PLServer.Instance.GetCachedFriendlyPlayerOfClass(2).IsBot))
                     {
-                        PlanetExploration(__instance, out bool halt);
-                        if (halt) return;
+                        try { PlanetExploration(__instance, out bool halt); if (halt) return; }
+                        catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Cypher exploration handler failed; skipping tick section", ex); }
                     }
                     break;
                 //Align the ship
@@ -301,12 +324,13 @@ namespace CapBot
             if (PLServer.Instance.CaptainsOrdersID == 6 && __instance.StartingShip.TargetShip != null)
             {
                 LastAction = Time.time;
-                BoardEnemy(__instance, out bool halt);
-                if (halt) return;
+                try { BoardEnemy(__instance, out bool halt); if (halt) return; }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.COMBAT, "Board-enemy handler failed; skipping tick section", ex); }
             }
             if (__instance.StartingShip.CurrentHailTargetSelection != null)//Handle ship comms
             {
-                HandleComms(__instance);
+                try { HandleComms(__instance); }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.NETWORK, "Comms handler failed; skipping tick section", ex); }
             }
             else if (Time.time - LastCommsSelect > 10f)//Proactively hail mission-bearing targets (long-range actors + pickup-mission givers)
             {
@@ -331,22 +355,25 @@ namespace CapBot
                 }
             }
             //Special behaviours based on current system
-            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.WD_MISSIONCHAIN_WEAPONS_DEMO && !PLServer.Instance.HasCompletedMissionWithID(59682)) //In the W.D. Weapons testing mission 
+            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.WD_MISSIONCHAIN_WEAPONS_DEMO && !PLServer.Instance.HasCompletedMissionWithID(59682)) //In the W.D. Weapons testing mission
             {
-                AtWDWeapons(__instance);
+                try { AtWDWeapons(__instance); }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "W.D. weapons handler failed; skipping tick section", ex); }
                 return;
             }
             //In the burrow
             else if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.DESERT_HUB && !PLServer.Instance.IsFragmentCollected(1))
             {
-                Burrow(__instance);
+                try { Burrow(__instance); }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Burrow handler failed; skipping tick section", ex); }
                 LastAction = Time.time;
                 return;
             }
             //In any of the races
             else if (PLServer.GetCurrentSector() != null && (PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.RACING_SECTOR || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.RACING_SECTOR_2 || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.RACING_SECTOR_3))
             {
-                AtRaces(__instance);
+                try { AtRaces(__instance); }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Race handler failed; skipping tick section", ex); }
                 return;
             }
             //Get fragment from grey hunstman
@@ -379,7 +406,8 @@ namespace CapBot
             }
             else if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.HIGHROLLERS_STATION && !PLServer.Instance.IsFragmentCollected(3) && (PLServer.Instance.HasCompletedMissionWithID(103216) || PLServer.Instance.CurrentCrewCredits >= 10000))//In the highroller
             {
-                HighRollers(__instance);
+                try { HighRollers(__instance); }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "High rollers handler failed; skipping tick section", ex); }
                 return;
             }
             __instance.CurrentlyInLiarsDiceGame = null;
@@ -388,7 +416,8 @@ namespace CapBot
             {
                 if (PLServer.Instance.m_ShipCourseGoals.Count == 0) IsRandomDestiny = false;
                 PLServer.Instance.photonView.RPC("ClearCourseGoals", PhotonTargets.All, new object[0]);
-                SetNextDestiny();
+                try { SetNextDestiny(); }
+                catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.NAVIGATION, "Course planning failed; skipping tick section", ex); }
                 if (PLServer.Instance.m_ShipCourseGoals.Count > 0 && PLServer.Instance.m_ShipCourseGoals[0] == PLServer.GetCurrentSector().ID)
                 {
                     PLServer.Instance.photonView.RPC("RemoveCourseGoal", PhotonTargets.All, new object[]
@@ -1295,7 +1324,9 @@ namespace CapBot
         }
         static void AtRaces(PLPlayer CapBot)
         {
-            PLRace race = (Object.FindObjectOfType(typeof(PLRaceStartScreen)) as PLRaceStartScreen).MyRace;
+            PLRaceStartScreen raceScreen = Object.FindObjectOfType(typeof(PLRaceStartScreen)) as PLRaceStartScreen;
+            if (raceScreen == null) return; // Phase 1 (finding C2): race screen not spawned yet
+            PLRace race = raceScreen.MyRace;
             PLPickupComponent prize = Object.FindObjectOfType(typeof(PLPickupComponent)) as PLPickupComponent;
             if (PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.RACING_SECTOR && race != null)
             {
@@ -1639,6 +1670,7 @@ namespace CapBot
             CapBot.MyBot.AI_TargetPos = new Vector3(165, -124, -64);
             CapBot.MyBot.AI_TargetPos_Raw = CapBot.MyBot.AI_TargetPos;
             PLBurrowArena arena = Object.FindObjectOfType<PLBurrowArena>();
+            if (arena == null) return; // Phase 1 (finding C2): arena not spawned yet
             foreach (PLTeleportationLocationInstance teleport in Object.FindObjectsOfType(typeof(PLTeleportationLocationInstance)))
             {
                 if (teleport.name == "PLGamePlanet")
@@ -1652,7 +1684,9 @@ namespace CapBot
             if (!arena.ArenaIsActive && Time.time - WeaponsTest > 90)
             {
                 arena.StartArena_NoCredits(0);
-                PLServer.Instance.GetMissionWithID(59682).Objectives[1].AmountCompleted = 1;
+                PLMissionBase wdMission = PLServer.Instance.GetMissionWithID(59682);
+                if (wdMission != null && wdMission.Objectives != null && wdMission.Objectives.Count > 1)
+                    wdMission.Objectives[1].AmountCompleted = 1;
                 WeaponsTest = Time.time;
             }
             if (CapBot.GetPawn().SpawnedInArena)
@@ -1835,6 +1869,7 @@ namespace CapBot
         {
             ShouldHalt = false;
             PLShipInfo targetEnemy = CapBot.StartingShip.TargetShip as PLShipInfo;
+            if (targetEnemy == null) return; // Phase 1 (finding C2): target cleared between check and handler
             int screensCaptured = 0;
             int num2 = 0;
             bool CaptainScreenCaptured = false;
@@ -1999,7 +2034,7 @@ namespace CapBot
                     {
                         targetNPC.BeginDialogue();
                     }
-                    catch { }
+                    catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Mission NPC dialogue failed", ex); }
                 }
                 ShouldHalt = true;
                 return;
@@ -2250,7 +2285,7 @@ namespace CapBot
                 if (faction == 3) return PLGlobal.Instance.Galaxy.GetSectorOfVisualIndication(ESectorVisualIndication.FLUFFY_FACTORY_01);
                 if (faction == 1) return PLGlobal.Instance.Galaxy.GetSectorOfVisualIndication(ESectorVisualIndication.AOG_HUB);
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Faction hub lookup failed", ex); }
             return null;
         }
         // True when any active, unended pickup mission belongs to the given crew
@@ -2275,7 +2310,7 @@ namespace CapBot
                     }
                 }
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Warning(CapBotLog.MISSION, "Faction mission scan failed", ex); }
             return false;
         }
         static void SetNextDestiny()
@@ -2820,19 +2855,21 @@ namespace CapBot
                     if (__instance.MyCustomPawnData[n] != null)
                         __instance.StartCoroutine(__instance.SendCustomPawnDataToOtherPlayers(__instance.MyCustomPawnData[n], n, true));
                 }
-                PulsarModLoader.Utilities.Logger.Info("[CapBot] Initialized pawn appearance for bot class " + __instance.GetClassID());
+                CapBotLog.Info(CapBotLog.COMPAT, "Initialized pawn appearance for bot class " + __instance.GetClassID());
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Error(CapBotLog.COMPAT, "Pawn appearance init failed; remote clients may show default look", ex); }
         }
 
         private static bool PlayerLifeTimeTooLow(PLPlayer p)
         {
-            try { return (float)p.PlayerLifeTime < 2f; } catch { return true; }
+            try { return (float)p.PlayerLifeTime < 2f; }
+            catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.CREW, "Player lifetime read failed; treating as new", ex); return true; }
         }
 
         private static AIDataIndividual GetAIDataOf(PLPlayer p)
         {
-            try { return p.GetAIData(); } catch { return null; }
+            try { return p.GetAIData(); }
+            catch (System.Exception ex) { CapBotLog.Trace(CapBotLog.CREW, "AI data read failed", ex); return null; }
         }
     }
 
@@ -2933,7 +2970,7 @@ namespace CapBot
                 if (PLEncounterManager.Instance.PlayerShip != __instance) return; // only the player ship counts
                 Learning.RecordJump();
             }
-            catch { }
+            catch (System.Exception ex) { CapBotLog.Error(CapBotLog.PERSISTENCE, "Sector-jump learning record failed", ex); }
         }
     }
 
@@ -2954,7 +2991,8 @@ namespace CapBot
             try
             {
                 bool moreBotsLoaded = false;
-                try { moreBotsLoaded = PulsarModLoader.ModManager.Instance.IsModLoaded("MoreBots"); } catch { }
+                try { moreBotsLoaded = PulsarModLoader.ModManager.Instance.IsModLoaded("MoreBots"); }
+                catch (System.Exception ex) { CapBotLog.Error(CapBotLog.COMPAT, "Mod-list check failed during MoreBots compat install", ex); }
                 if (!moreBotsLoaded) return;
 
                 // MoreBots' types are internal; find the prefix by walking its assembly.
@@ -2972,7 +3010,7 @@ namespace CapBot
                 }
                 if (prefixInfo == null)
                 {
-                    PulsarModLoader.Utilities.Logger.Info("[CapBot] MoreBots detected but prefix not found; no compat patch applied");
+                    CapBotLog.Info(CapBotLog.COMPAT, "MoreBots detected but prefix not found; no compat patch applied");
                     return;
                 }
 
@@ -2982,11 +3020,11 @@ namespace CapBot
                 CapBotHarmony.Instance.Unpatch(prefixInfo, HarmonyPatchType.Prefix, "Mest.MoreBots");
                 InstallSafePrefix();
                 _installed = true;
-                PulsarModLoader.Utilities.Logger.Info("[CapBot] MoreBots class-0 crash prefix removed; safe replacement installed");
+                CapBotLog.Info(CapBotLog.COMPAT, "MoreBots class-0 crash prefix removed; safe replacement installed");
             }
             catch (System.Exception e)
             {
-                PulsarModLoader.Utilities.Logger.Info("[CapBot] MoreBots compat patch failed: " + e.Message);
+                CapBotLog.Error(CapBotLog.COMPAT, "MoreBots compat patch failed", e);
             }
         }
 
@@ -3000,11 +3038,11 @@ namespace CapBot
             {
                 var safe = new HarmonyMethod(typeof(MoreBotsCompatPatch).GetMethod(nameof(SafeAIDataPrefix), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static));
                 CapBotHarmony.Patch(AccessTools.Method(typeof(PLPlayer), "GetAIData"), prefix: safe);
-                PulsarModLoader.Utilities.Logger.Info("[CapBot] Safe AI-data prefix installed (replaces MoreBots GetAIDataPatch)");
+                CapBotLog.Info(CapBotLog.COMPAT, "Safe AI-data prefix installed (replaces MoreBots GetAIDataPatch)");
             }
             catch (System.Exception e)
             {
-                PulsarModLoader.Utilities.Logger.Info("[CapBot] Safe AI-data prefix install failed: " + e.Message);
+                CapBotLog.Error(CapBotLog.COMPAT, "Safe AI-data prefix install failed", e);
             }
         }
 
@@ -3060,8 +3098,9 @@ namespace CapBot
                 __result = null;
                 return false;
             }
-            catch
+            catch (System.Exception ex)
             {
+                CapBotLog.Debug(CapBotLog.COMPAT, "MoreBots reflection failed; falling through to vanilla", ex);
                 return true; // fall through to vanilla on any reflection issue
             }
         }

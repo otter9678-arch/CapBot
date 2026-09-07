@@ -1,4 +1,5 @@
 using PulsarModLoader.Chat.Commands.CommandRouter;
+using CapBot.Core.Logging;
 
 namespace CapBot
 {
@@ -14,7 +15,20 @@ namespace CapBot
 
         public override void Execute(string arguments)
         {
-            PulsarModLoader.Utilities.Messaging.Echo(PLNetworkManager.Instance.LocalPlayer.GetPhotonPlayer(), ModUpdater.UpdateAll());
+            // The chat router can invoke this before the local player exists (finding M7).
+            if (PLNetworkManager.Instance == null || PLNetworkManager.Instance.LocalPlayer == null)
+            {
+                CapBotLog.Warning(CapBotLog.UPDATER, "/updateall ignored: no local player yet");
+                return;
+            }
+            try
+            {
+                PulsarModLoader.Utilities.Messaging.Echo(PLNetworkManager.Instance.LocalPlayer.GetPhotonPlayer(), ModUpdater.UpdateAll());
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.UPDATER, "/updateall failed", ex);
+            }
         }
     }
 }

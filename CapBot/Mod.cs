@@ -1,5 +1,6 @@
 ﻿using PulsarModLoader;
 using PulsarModLoader.Chat.Commands.CommandRouter;
+using CapBot.Core.Logging;
 [assembly: System.Runtime.CompilerServices.IgnoresAccessChecksTo("Assembly-CSharp")]
 namespace CapBot
 {
@@ -28,9 +29,12 @@ namespace CapBot
                 try
                 {
                     string report = ModUpdater.UpdateAll();
-                    PulsarModLoader.Utilities.Logger.Info("[CapBot] Auto-update report:\n" + report);
+                    CapBotLog.Info(CapBotLog.UPDATER, "Auto-update report:\n" + report);
                 }
-                catch { }
+                catch (System.Exception ex)
+                {
+                    CapBotLog.Error(CapBotLog.UPDATER, "Auto-update check failed", ex);
+                }
             }
         }
     }

@@ -14,6 +14,7 @@ namespace CapBot
         public static SaveValue<bool> MissionAutoDetectEnabled = new SaveValue<bool>("MissionAutoDetectEnabled", true);
         public static SaveValue<bool> AutoAssignCaptain = new SaveValue<bool>("AutoAssignCaptain", true);
         public static SaveValue<bool> ModUpdaterEnabled = new SaveValue<bool>("ModUpdaterEnabled", false);
+        public static SaveValue<bool> VerboseLogging = new SaveValue<bool>("VerboseLogging", false);
         public static SaveValue<float> AIReactionSpeed = new SaveValue<float>("AIReactionSpeed", 0.1f);
         public static SaveValue<float> AIAccuracy = new SaveValue<float>("AIAccuracy", 0.85f);
         public static SaveValue<float> CombatEngageRange = new SaveValue<float>("CombatEngageRange", 50f);
@@ -82,6 +83,8 @@ namespace CapBot
                 Config.AutoAssignCaptain.Value = !Config.AutoAssignCaptain;
             if (GUILayout.Button("Mod Auto-Updater (every launch): " + (Config.ModUpdaterEnabled ? "Enabled" : "Disabled")))
                 Config.ModUpdaterEnabled.Value = !Config.ModUpdaterEnabled;
+            if (GUILayout.Button("Verbose Logging (debug detail): " + (Config.VerboseLogging.Value ? "Enabled" : "Disabled")))
+                Config.VerboseLogging.Value = !Config.VerboseLogging.Value;
 
             GUI.skin.label.alignment = TextAnchor.UpperLeft;
             GUILayout.Label("AI Reaction Speed: " + Config.AIReactionSpeed.Value.ToString("0.0") + "s");
