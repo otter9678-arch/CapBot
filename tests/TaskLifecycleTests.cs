@@ -12,6 +12,8 @@ namespace CapBot.TaskTests
         private static int s_Passed;
         private static int s_Failed;
 
+        internal static int LastPassed { get { return s_Passed; } }
+
         private static void Check(bool condition, string name)
         {
             if (condition) { s_Passed++; Console.WriteLine("PASS " + name); }
@@ -23,7 +25,9 @@ namespace CapBot.TaskTests
             return CapBotTask.Create("TEST_TYPE", "CAPTAIN", "unit test", 5, maxRetries, timeoutMs, "SECTOR", "opaque-ref-1", deps);
         }
 
-        private static int Main()
+        // Phase 3 note: entry point moved to TestMain (TaskRecoveryTests.cs),
+        // which runs this suite first, then the recovery suite.
+        internal static int Run()
         {
             // ---- creation / validation -------------------------------------
             Check(CapBotTask.Create(null, "CAPTAIN", "", 1, 0, -1, null, null, null) == null, "create rejects null type");
@@ -227,7 +231,7 @@ namespace CapBot.TaskTests
             TaskRegistry.ResetForTests();
             Console.WriteLine("");
             Console.WriteLine("SUMMARY passed=" + s_Passed + " failed=" + s_Failed);
-            return s_Failed == 0 ? 0 : 1;
+            return s_Failed;
         }
 
         private static bool ContainsLive(CapBotTask task)

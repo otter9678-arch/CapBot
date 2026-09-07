@@ -1,6 +1,7 @@
-﻿# Dev-side test runner for the Phase 2 task lifecycle domain.
-# Compiles the 3 pure task-domain files + the test main with Roslyn csc
-# (no game/PML references) into a temp exe, runs it, reports the summary.
+﻿# Dev-side test runner for the Phase 2 task lifecycle + Phase 3 task recovery
+# domains. Compiles the 5 pure task-domain files + both test suites with
+# Roslyn csc (no game/PML references) into a temp exe, runs it, reports the
+# combined summary. Gates on the TOTAL line containing failed=0.
 $ErrorActionPreference = 'Stop'
 $repo = 'D:\Vortex Downloads & Mods\LoversLab Mods\CapBot-Alpha-1.2.2-Vortex (1)\CapBot-repo'
 $cscCandidates = @(
@@ -19,7 +20,10 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'CapBot\Core\Tasks\TaskState.cs') `
   (Join-Path $repo 'CapBot\Core\Tasks\CapBotTask.cs') `
   (Join-Path $repo 'CapBot\Core\Tasks\TaskRegistry.cs') `
-  (Join-Path $repo 'tests\TaskLifecycleTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
+  (Join-Path $repo 'CapBot\Core\Tasks\TaskRecovery.cs') `
+  (Join-Path $repo 'CapBot\Core\Tasks\TaskRecoveryManager.cs') `
+  (Join-Path $repo 'tests\TaskLifecycleTests.cs') `
+  (Join-Path $repo 'tests\TaskRecoveryTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
 if ($LASTEXITCODE -ne 0) { Write-Output 'COMPILE FAILED'; exit 3 }
 
 $output = & $exe 2>&1

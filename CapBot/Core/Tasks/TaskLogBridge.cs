@@ -13,8 +13,12 @@ namespace CapBot.Core.Tasks
         {
             if (m_Attached) return;
             m_Attached = true;
+            // One registry listener total: logs every transition AND feeds the
+            // Phase 3 recovery manager's per-task bookkeeping (Track on
+            // registration; terminal tasks are dropped by the manager itself).
             TaskRegistry.SetTransitionListener(delegate (CapBotTask task, string label)
             {
+                if (label == "Registered") TaskRecoveryManager.Track(task);
                 CapBotLog.Info(CapBotLog.TASK, "Task " + label + ": " + task.ToStatusLine(TaskClock.NowMs));
             });
         }

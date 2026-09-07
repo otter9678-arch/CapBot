@@ -94,7 +94,10 @@
     <Compile Include="Core\Tasks\TaskState.cs" />
     <Compile Include="Core\Tasks\CapBotTask.cs" />
     <Compile Include="Core\Tasks\TaskRegistry.cs" />
+    <Compile Include="Core\Tasks\TaskRecovery.cs" />
+    <Compile Include="Core\Tasks\TaskRecoveryManager.cs" />
     <Compile Include="Core\Tasks\TaskLogBridge.cs" />
+    <Compile Include="Core\Tasks\RecoveryLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

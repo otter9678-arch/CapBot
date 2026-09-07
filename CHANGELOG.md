@@ -3,6 +3,51 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 3 — Task recovery foundation] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Tasks/TaskRecovery.cs` — recovery policy: `RecoveryActionType`
+  (None/Retry/Pause/Resume/Fail/Cancel/Expire), `ITaskWorldProbe` (the single
+  seam through which recovery observes current authoritative world state),
+  `NullWorldProbe` (correct-but-inert default until Phase 6 supplies a real
+  probe), and `TaskRecoveryPolicy.Decide` — a pure, deterministic decision
+  function with fixed rule precedence (timeout → world-invalidated →
+  target-invalid → owner-loss → capability → stuck → retry/abandon).
+- `Core/Tasks/TaskRecoveryManager.cs` — per-task recovery bookkeeping (bounded:
+  one record per registered task, ≤ 64, dropped on terminal), 1 s recheck gate
+  per task, bounded exponential retry backoff (2 s base, ×2, 30 s cap),
+  lifetime recovery budget (12 non-terminal actions → forced terminal abandon),
+  capability-pause ceiling (60 s), pluggable action-listener hook (fired
+  outside the manager's lock).
+- `Core/Tasks/RecoveryLogBridge.cs` — attaches the Phase 1 `CapBotLog` (TASK
+  subsystem) as the manager's action listener at mod boot; recovery outcomes
+  log as `Recovery applied/rejected <Action> on <task status line> (reason)`.
+- `Core/Tasks/TaskLogBridge.cs` (modified) — the single registry listener now
+  also feeds `TaskRecoveryManager.Track` on task registration (records exist
+  only for registry-tracked tasks).
+- `docs/TASK_RECOVERY.md` — full contract documentation: recovery state
+  machine, rule precedence table, retry/backoff/budget semantics, stale-world
+  handling (research constraints: no reliance on transient vanilla AI state,
+  host-migration-safe), cadence rules, explicit not-in-scope list.
+- `tests/TaskRecoveryTests.cs` — 57 dev-side assertions (not shipped):
+  backoff curve, every recovery rule incl. precedence, retry exhaustion,
+  capability pause/resume/abandon, external-pause non-interference, stuck
+  detection with progress-refresh, budget backstop, recheck gate, disabled
+  manager, null-probe safety, record lifecycle, status snapshot. Combined with
+  the Phase 2 suite: **TOTAL passed=154 failed=0**.
+
+### Notes
+- Policy layer only: recovery never creates, queues, selects, or executes
+  gameplay work — every mutation flows through Phase 2's idempotent lifecycle
+  transitions, and the manager is inert until Phase 6 provides a real
+  `ITaskWorldProbe` and a tick driver. No Harmony/RPC/gameplay behavior
+  touched; no new PULSAR/PML API usage.
+- Research constraints honored (PULSAR_GAMEAI_RESEARCH.md): recovery caches
+  no world state, holds no Unity/path/Behave references, re-derives decisions
+  from current probe answers only (host-migration-safe by construction); ~1 s
+  decision cadence matching vanilla's decision gates; hostility semantics are
+  probe-owned (QualityImprover-safe).
+
 ## [Phase 2 — Task lifecycle infrastructure] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

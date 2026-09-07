@@ -25,6 +25,10 @@ namespace CapBot
             // Phase 2: attach task-lifecycle logging (infrastructure only; no
             // gameplay routes through the task system yet).
             TaskLogBridge.Ensure();
+            // Phase 3: attach recovery logging (policy layer only; the recovery
+            // manager stays inert until Phase 6 supplies a real world probe and
+            // a tick driver — no gameplay routes through recovery yet).
+            RecoveryLogBridge.Ensure();
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).
