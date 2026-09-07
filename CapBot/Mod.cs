@@ -1,6 +1,7 @@
 ﻿using PulsarModLoader;
 using PulsarModLoader.Chat.Commands.CommandRouter;
 using CapBot.Core.Logging;
+using CapBot.Core.Tasks;
 [assembly: System.Runtime.CompilerServices.IgnoresAccessChecksTo("Assembly-CSharp")]
 namespace CapBot
 {
@@ -21,6 +22,9 @@ namespace CapBot
 
         public Mod()
         {
+            // Phase 2: attach task-lifecycle logging (infrastructure only; no
+            // gameplay routes through the task system yet).
+            TaskLogBridge.Ensure();
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

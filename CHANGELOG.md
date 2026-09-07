@@ -3,6 +3,45 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 2 — Task lifecycle infrastructure] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Tasks/TaskState.cs` — `TaskState` enum (Created/Queued/Running/Paused/
+  Completed/Failed/Cancelled/Expired), `TaskIds` monotonic identity counter,
+  `TaskClock` wrap-safe millisecond clock, and `TaskTransitions` — the single
+  legal-transition table (terminal states have no outgoing transitions).
+- `Core/Tasks/CapBotTask.cs` — the task model: immutable identity/owner/priority/
+  retries/timeout/dependencies/target data; guarded, idempotent transitions
+  (`TryQueue/TryStart/TryPause/TryResume/TryComplete/TryFail/TryCancel/
+  TryExpire/TryRetry`); bounded metadata; deterministic `ToStatusLine` reporting.
+  Pure C# (System-only) — no Unity/PULSAR/PML references, holds no game objects.
+- `Core/Tasks/TaskRegistry.cs` — bounded registry (≤ 64 live tasks, registration
+  fails at the cap — no eviction; ≤ 128 history entries, ring drop) that mirrors
+  task state automatically and exposes a transition-listener hook plus
+  deterministic `StatusLines` reporting.
+- `Core/Tasks/TaskLogBridge.cs` — attaches the Phase 1 `CapBotLog` (TASK
+  subsystem) as the registry's transition listener at mod boot; the only file
+  connecting the task domain to logging, keeping the domain pure/testable.
+- `docs/TASK_LIFECYCLE.md` — full contract documentation: states, complete
+  transition table, 10 invariants, ownership/cancellation/failure/retry
+  semantics, dependency representation, lifecycle logging, explicit
+  not-in-scope list for later phases.
+- `tests/TaskLifecycleTests.cs` + `tests/run_tests.ps1` — dev-side unit tests
+  (not shipped in the mod): 97 assertions covering validation, every legal/
+  illegal transition, idempotence, retry/exhaustion semantics, expiry sweep,
+  registry bounds (live cap, history ring), identity/equality, metadata caps
+  and deterministic status reporting. Result: **97 passed / 0 failed**.
+- Boot wiring: `Mod()` constructor calls `TaskLogBridge.Ensure()`.
+
+### Notes
+- Infrastructure only: no gameplay routes through the task system yet; the
+  existing captain AI, Harmony patches, RPC patterns and PML save format are
+  untouched. Scheduler (P4), recovery (P3), duplicate-execution protection (P5),
+  directors and Captain Brain 2.0 (P15–P18) are explicitly out of scope and
+  must build on the contracts documented in `docs/TASK_LIFECYCLE.md`.
+- No new PULSAR/PML API usage — the domain invented none and calls nothing
+  game-facing.
+
 ## [Phase 1 — Logging & error hardening] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added
