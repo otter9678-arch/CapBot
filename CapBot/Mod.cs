@@ -29,6 +29,10 @@ namespace CapBot
             // manager stays inert until Phase 6 supplies a real world probe and
             // a tick driver — no gameplay routes through recovery yet).
             RecoveryLogBridge.Ensure();
+            // Phase 4: attach scheduler logging (orchestration only; the
+            // scheduler stays inert until Phase 8 drives Tick host-side — it
+            // executes nothing and decides nothing about gameplay).
+            SchedulerLogBridge.Ensure();
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

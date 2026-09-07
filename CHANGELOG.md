@@ -3,6 +3,70 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 4 — Task scheduler (orchestration-only)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Tasks/TaskScheduler.cs` — deterministic grant/lease scheduler over the
+  Phase 2 registry's `Queued` pool (the queue IS the registry — no parallel
+  queue structure). One pass (`Tick(nowMs)`): 1 s global re-check gate
+  (vanilla decision cadence), lease-expiry hygiene, preemption-record prune +
+  auto-resume of scheduler-initiated pauses, deterministic candidate ordering
+  (effective priority desc with bounded aging +1/30 s capped +5 → FCFS →
+  TaskId; insertion sort, no LINQ in the tick path), gated grant loop
+  (deadline-elapsed refused; dependencies must resolve to `Completed`;
+  one grant per owner — leases AND Running tasks both count as busy;
+  `MaxGrantsPerTick` = 8, `LeaseDurationMs` = 5000), and a policy-gated
+  preemption pass (explicit `Preemptible=="true"` metadata opt-in,
+  `PreemptMargin` > 2, ≥ 3 s min runtime, < 2 lifetime preemptions — tally
+  survives auto-resume as a dormant record —, owner not leased elsewhere;
+  victim paused through the lifecycle-enforced `TryPause`). Scheduler state
+  is two bounded dictionaries (leases, preemption records, both ≤ live cap,
+  dropped when the task leaves the live registry). Grants are suggestions,
+  not execution: the P8 executor claims via `TryTakeLease` (consumes the
+  lease; double claims fail). `Enabled` switch, decision-listener hook,
+  `ActiveGrantCount`, `HasLease`, `SchedulerStatusLines` diagnostics. The
+  scheduler never retries, expires, fails, or resumes recovery-paused tasks —
+  refusal-only interaction with Phase 3 recovery, and it resumes ONLY its own
+  preemption-pauses.
+- `Core/Tasks/SchedulerLogBridge.cs` — attaches the Phase 1 `CapBotLog`
+  (TASK subsystem) as the scheduler's decision listener at mod boot; the
+  scheduler itself contains zero logging calls.
+- `Core/Tasks/TaskRegistry.cs` (modified) — added `LiveSnapshot()`: bounded
+  point-in-time list of live tasks so scheduler/recovery passes never touch
+  registry internals (additive, no behavior change).
+- `Mod.cs` (modified) — boot wiring: `SchedulerLogBridge.Ensure()` next to
+  the lifecycle/recovery bridges.
+- `CapBot.csproj` (modified) — compile entries for the two new files.
+- `docs/TASK_SCHEDULER.md` — full contract: queue-is-registry model, pass
+  description, gates table (incl. why there is deliberately no
+  retry-headroom gate), deterministic ordering, preemption policy (all
+  conditions + record lifecycle), no-starvation properties, recovery-state
+  interaction, multiplayer/authority constraints for the future P8 driver,
+  logging, security posture, explicit not-in-scope list.
+- `tests/TaskSchedulerTests.cs` — 89 dev-side assertions (not shipped):
+  deterministic ordering (equal-priority FCFS/TaskId, priority precedence,
+  bounded aging), dependency gating (Completed/history/unresolvable/expired
+  deps; scheduler never expires), terminal-task invisibility, deadline
+  refusal without expiry, recovery interaction (backoff-pending and
+  final-retry attempts grantable; scheduler never touches recovery pauses),
+  owner gates (lease + Running busy), bounded behavior (8 grants/pass, 1 s
+  gate, lease cap), lease model (claim seam, double-claim rejection,
+  expiry/re-grant), and the full preemption path (pause, auto-resume,
+  re-preemption, lifetime cap, dormant tally, foreign-pause non-interference,
+  margin/min-run/opt-in/cross-owner/victim-selection gates). Combined TOTAL:
+  **passed=243 failed=0** (97 lifecycle + 57 recovery + 89 scheduler).
+
+### Notes
+- Orchestration only: the scheduler selects/orders existing registered tasks
+  and issues bounded grants; it executes no gameplay code, writes no nav
+  fields, touches no vanilla priority/behavior-tree system, makes no LLM
+  decisions, and holds no world/transient vanilla state (records reference
+  tasks by id + string owners). `Tick` is not wired to any game loop this
+  phase — the scheduler is dormant by construction; the future P8 driver must
+  additionally gate on `PhotonNetwork.isMasterClient`.
+- Existing gameplay untouched: no changes to Patch.cs, Autonomy.cs, any
+  Harmony patch, RPC pattern, or PML save format. No new PULSAR/PML API usage.
+
 ## [Phase 3 — Task recovery foundation] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

@@ -118,6 +118,19 @@ namespace CapBot.Core.Tasks
             return count;
         }
 
+        // Point-in-time snapshot of all live tasks (bounded: ≤ MaxLiveTasks).
+        // Scheduler Phase 4 reads this instead of enumerating the dictionary
+        // itself, so registry internals stay private. Callers must treat the
+        // returned list as read-only; tasks themselves are immutable outside
+        // their own ApplyTransition mutators.
+        public static List<CapBotTask> LiveSnapshot()
+        {
+            lock (m_Lock)
+            {
+                return new List<CapBotTask>(m_Live.Values);
+            }
+        }
+
         // Deterministic snapshot for status reporting (Phase 29 will reuse).
         // Sorted by TaskId ascending. Bounded by live+history caps.
         public static List<string> StatusLines(int nowMs)

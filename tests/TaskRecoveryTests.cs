@@ -272,17 +272,18 @@ namespace CapBot.TaskTests
         }
     }
 
-    // Runs both suites in sequence; run_tests.ps1 gates on the exit code and
-    // the final TOTAL line containing failed=0.
+    // Runs all three suites in sequence; run_tests.ps1 gates on the exit code
+    // and the final TOTAL line containing failed=0.
     internal static class TestMain
     {
         private static int Main()
         {
             int f1 = TaskLifecycleTests.Run();
             int f2 = TaskRecoveryTests.Run();
+            int f3 = TaskSchedulerTests.Run();
             Console.WriteLine("");
-            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed) + " failed=" + (f1 + f2));
-            return (f1 + f2) == 0 ? 0 : 1;
+            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed) + " failed=" + (f1 + f2 + f3));
+            return (f1 + f2 + f3) == 0 ? 0 : 1;
         }
     }
 }
