@@ -282,6 +282,19 @@ namespace CapBot
             CapBot.Core.Adjustment.AdjustmentDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Adjustment.AdjustmentDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Adjustment.AdjustmentDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            // ---- Phase 25: adaptive learning (trait maturation) ----
+            // The "adjust/adaptive" phase the contracts assign: adjusts
+            // personality trait VALUES through the P11 SetPersonality write
+            // path (the sole sanctioned channel), using CrewExperience
+            // Level/ExperiencePoints as inputs, triggered by level crossings
+            // off the P10 ClearTask funnel (one additive fail-safe hook after
+            // the P12/P13 hooks — no Harmony patch, no tick driver, no
+            // WorldTick block). Traits remain DATA until a consumer phase
+            // reads them; the deny-by-default authority seam keeps clients
+            // inert. No config toggle (the P18-P24 deterministic-director
+            // precedent).
+            CapBot.Core.Learning.LearningLogBridge.Ensure();
+            CapBot.Core.Learning.AdaptiveLearningDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

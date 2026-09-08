@@ -230,6 +230,34 @@ namespace CapBot.Core.Crew
             return r == null ? 0 : r.Level;
         }
 
+        // Phase 25: defensive snapshot readback (additive). Returns a COPY of
+        // the record taken under the registry lock — no torn reads for
+        // consumers that read outside their own lock (the learning layer's
+        // one-way lock order). null when absent or invalid id; never a live
+        // reference, never a fabricated record.
+        public static CrewExperienceRecord SnapshotOf(string agentId)
+        {
+            if (string.IsNullOrEmpty(agentId)) return null;
+            lock (m_Lock)
+            {
+                CrewExperienceRecord r;
+                if (!S.Records.TryGetValue(agentId, out r)) return null;
+                CrewExperienceRecord copy = new CrewExperienceRecord(r.AgentId, r.CreatedTimeMs);
+                copy.TasksCompleted = r.TasksCompleted;
+                copy.TasksCancelled = r.TasksCancelled;
+                copy.TasksExpired = r.TasksExpired;
+                copy.TasksVanished = r.TasksVanished;
+                copy.TasksFailed = r.TasksFailed;
+                copy.TotalOutcomes = r.TotalOutcomes;
+                copy.ExperiencePoints = r.ExperiencePoints;
+                copy.Level = r.Level;
+                copy.LastOutcome = r.LastOutcome;
+                copy.LastResultMs = r.LastResultMs;
+                copy.UpdateCount = r.UpdateCount;
+                return copy;
+            }
+        }
+
         // Removes an experience record (future-phase lifecycle integration).
         public static bool Remove(string agentId)
         {

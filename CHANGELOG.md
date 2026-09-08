@@ -3,6 +3,72 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 25 — Adaptive learning (bounded trait maturation)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Learning/AdaptiveLearningDirector.cs` — bounded, deterministic
+  trait maturation: the "adjust/adaptive" phase the deferral trail assigns
+  to P25 (inputs = CrewExperience Level/XP; write path = the P11
+  `SetPersonality` sole-sanctioned channel; trigger = level crossings off
+  the P10 ClearTask funnel). One bounded adjustment per level crossing,
+  direction picked deterministically from the agent's OWN outcome mix at
+  the crossing moment (completion-dominant => +1 Diligence; adversity-
+  dominant => +1 Adaptability; neutral mix => crossing consumed silently,
+  never fabricated). Baseline armed on the first readable pass (the P22
+  premise-capture analogue — no adjustment on the arm pass). EVENT-DRIVEN:
+  one additive fail-safe hook in `CrewAgentRegistry.ClearTask` after the
+  P12/P13 hooks — NO new Harmony patch class (11-class ceiling untouched),
+  no tick driver, no WorldTick block. Deny-by-default authority (null/
+  faulting/non-authoritative probe => complete no-op; clients inert).
+  Anti-churn structural: one decision per call, one crossing per level,
+  levels bounded 1..10 (max 9 adjustments per agent career); 1 s
+  evaluation gate absorbs outcome storms with the crossing persisting;
+  hygiene decay at `ActiveExpiryMs=30000` with bounded history (≤16);
+  bounded record set (≤32 == agent cap); ≤4 pending lines/pass. Clamp
+  bound honored: a crossing whose trait sits at the bound is consumed
+  with NO write (counted `Clamped`, never fabricated). Traits remain DATA
+  until a consumer phase reads them (data-layer-before-consumer, the
+  P15→P18 / P22→P23 pattern). Experience is READ-ONLY here
+  (`SnapshotOf` defensive copy); the layer never accrues, removes, or
+  fabricates experience. No config toggle (P18–P24 precedent).
+- `Core/Learning/LearningLogBridge.cs` + `CapBotLog.LEARNING` — boot attach
+  of the new `LEARNING` log subsystem (additive).
+- `CrewExperienceRegistry.SnapshotOf` additive defensive-copy readback
+  (under-lock copy; no torn reads for the one-way lock order; the P28
+  persistence / P29 status consumption surface).
+- `Mod.cs` P25 boot block (bridge + authority seam only — event-driven,
+  no world/now seams needed) and `CapBot.csproj` +2 Compile entries.
+- `tests/AdaptiveLearningTests.cs` (LEARN01–LEARN10, ~120 assertions) +
+  suite registration (24 domain files, 15 suites).
+- `docs/ADAPTIVE_LEARNING.md` — the P25 contract (rule table, NotifyOutcome
+  flow, ownership argument, additive edits table, reproducibility contract
+  gap — matured personalities are explicit-source and process-local with
+  cross-session persistence assigned to P28 — LEARN01–LEARN10 inventory,
+  test-design gotchas).
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2396 failed=0` ×3 consecutive (suite now 24 domain
+  files, 15 suites). Run-1 findings fixed in-suite: one `task.Type` →
+  `task.TaskType` compile fix; 4 assertion fixes all test-authoring bugs
+  vs. documented semantics (cumulative CrossingCount across sub-scenarios
+  sharing a FreshSetup; hygiene sweep-before-refresh counting; re-arm
+  level = current experience level).
+- Reflection (`verify_build_p25.ps1`): 76/0 — static class + nested
+  `LearningRecord` + bridge; members/properties probed; 7 consts exact;
+  IL ownership scans (zero forbidden refs: lifecycle mutators, scheduler/
+  recovery/executor/claims/validator/dispatcher, Photon, scene scans,
+  capability RPCs; sanctioned surface = SetPersonality write + SnapshotOf
+  read + FromValues/IsValidAgentId); `ClearTask` IL references
+  `AdaptiveLearningDirector.NotifyOutcome` (funnel hook); WorldTick
+  postfix does NOT tick the learning director (event-driven by design);
+  Harmony patch classes == 11; prior-phase surfaces intact. Mod ctor
+  wiring compile-gated (type not loadable in the reduced-preload stage —
+  probe limitation, documented).
+- Phase-25 gate: P11 write path honored (sole sanctioned channel); P12
+  inputs honored (Level/XP via the same funnel); deny-by-default held;
+  zero new Harmony patches; zero new PULSAR APIs; 11-class ceiling held.
+
 ## [Phase 24 — Adjustment observer (bounded outcome readback)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

@@ -301,9 +301,10 @@ namespace CapBot.TaskTests
             int f21 = PlanningDirectorTests.Run();
             int f22 = MissionWorkDirectorTests.Run();
             int f23 = AdjustmentDirectorTests.Run();
+            int f24 = AdaptiveLearningTests.Run();
             Console.WriteLine("");
-            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed + WorldStateTests.LastPassed + CapabilityTests.LastPassed + ExecutionTests.LastPassed + EmergencyTests.LastPassed + CrewAgentTests.LastPassed + PersonalityTests.LastPassed + ExperienceTests.LastPassed + MemoryTests.LastPassed + NavigationTests.LastPassed + MissionTests.LastPassed + EconomyTests.LastPassed + CombatTests.LastPassed + CaptainTests.LastPassed + DecisionValidatorTests.LastPassed + OllamaAdvisorTests.LastPassed + CrewAdvisorTests.LastPassed + PlanningDirectorTests.LastPassed + MissionWorkDirectorTests.LastPassed + AdjustmentDirectorTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14 + f15 + f16 + f17 + f18 + f19 + f20 + f21 + f22 + f23));
-            return (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14 + f15 + f16 + f17 + f18 + f19 + f20 + f21 + f22 + f23) == 0 ? 0 : 1;
+            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed + WorldStateTests.LastPassed + CapabilityTests.LastPassed + ExecutionTests.LastPassed + EmergencyTests.LastPassed + CrewAgentTests.LastPassed + PersonalityTests.LastPassed + ExperienceTests.LastPassed + MemoryTests.LastPassed + NavigationTests.LastPassed + MissionTests.LastPassed + EconomyTests.LastPassed + CombatTests.LastPassed + CaptainTests.LastPassed + DecisionValidatorTests.LastPassed + OllamaAdvisorTests.LastPassed + CrewAdvisorTests.LastPassed + PlanningDirectorTests.LastPassed + MissionWorkDirectorTests.LastPassed + AdjustmentDirectorTests.LastPassed + AdaptiveLearningTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14 + f15 + f16 + f17 + f18 + f19 + f20 + f21 + f22 + f23 + f24));
+            return (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14 + f15 + f16 + f17 + f18 + f19 + f20 + f21 + f22 + f23 + f24) == 0 ? 0 : 1;
         }
     }
 }
