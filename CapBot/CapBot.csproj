@@ -150,6 +150,8 @@
     <Compile Include="Core\Ollama\AdvisorLogBridge.cs" />
     <Compile Include="Core\Qwen\CrewAdvisor.cs" />
     <Compile Include="Core\Qwen\CrewAdvisorLogBridge.cs" />
+    <Compile Include="Core\Planning\PlanningDirector.cs" />
+    <Compile Include="Core\Planning\PlanningLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

@@ -2968,6 +2968,21 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.QWEN, "Crew advisor tick failed", ex);
             }
+            // ---- Phase 22: planning director (deterministic situation assessment) ----
+            // Bounded snapshot assessment: premise-drift detection + the
+            // calm-gated mission-work episode as DATA ONLY. No task is
+            // authored here (P23 owns dynamic task creation); the director
+            // never RPCs and never mutates lifecycle state. Always-on
+            // (P18 deterministic-director precedent); deny-by-default
+            // authority keeps clients silent.
+            try
+            {
+                CapBot.Core.Planning.PlanningDirector.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.PLANNING, "Planning director tick failed", ex);
+            }
         }
     }
     [HarmonyPatch(typeof(PLBotController), "HandleMovement")]

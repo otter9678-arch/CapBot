@@ -237,6 +237,21 @@ namespace CapBot
             CapBot.Core.Qwen.CrewAdvisor.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             CapBot.Core.Qwen.CrewAdvisor.SetTransport(new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value));
             CapBot.Core.Qwen.CrewAdvisor.ApplyConfig(Config.QwenAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
+            // ---- Phase 22: planning director (deterministic situation assessment) ----
+            // Ownership scope: a bounded deterministic CONSUMER of the P6
+            // snapshot that tracks planning situations as data (premise drift,
+            // calm-gated mission-work episode) and emits bounded decision
+            // lines. It authors NOTHING in Phase 22 — no CapBotTask.Create /
+            // Try* / Register calls, no scheduler/recovery/claims/validator
+            // invocations; it reads the same public readbacks the P18 calm
+            // gate already reads. Always-on by construction (no config
+            // toggle — the P18 deterministic-director precedent); the
+            // deny-by-default authority seam keeps clients silent, and P23
+            // (dynamic task creation) builds on this layer.
+            CapBot.Core.Planning.PlanningLogBridge.Ensure();
+            CapBot.Core.Planning.PlanningDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Planning.PlanningDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Planning.PlanningDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

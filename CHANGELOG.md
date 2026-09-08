@@ -3,6 +3,62 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 22 — Planning director (deterministic situation assessment)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Planning/PlanningDirector.cs` — the first stage of the planning arc
+  the contracts sketched (P6 names `planning` as an intended snapshot
+  consumer; P4/P3/P10 explicitly-not lists defer "dynamic planning" to later
+  phases): a bounded deterministic CONSUMER of the P6 snapshot that tracks
+  planning situations as data and emits bounded decision lines. Two rules:
+  **PREMISE_DRIFT** (planning-granularity mirror of the P19 stale-premise
+  screens — premise = sector+warp captured at arm; divergence emits
+  `PlanningPremiseDrift` and re-arms; warp end is not drift; unknown
+  sentinels never arm/fire; anti-churn `DriftRecheckBlockMs`=15000 report
+  rate-limit) and the **MISSIONWORK episode** (the trigger surface P23 will
+  author tasks from: incomplete mission present + P18 calm-gate family —
+  no P9 emergency, no P14 plan, no P17 record, no hostiles/boarders/warp —
+  plus registry live-capacity headroom `LiveCount < MaxLiveTasks`=64; opens
+  `PlanningIntentOpened PLAN:MISSIONWORK` exactly once after a one-cadence
+  dwell; refreshes silent). DATA ONLY: **no task authored in Phase 22** —
+  reflection-verified zero lifecycle methods declared on the type. Gate
+  order (P18 house shape): authority deny-by-default ⇒ cadence 5 s ⇒
+  snapshot fail-safe (null/never-captured/stale>20s/future/not-started ⇒
+  `PlanningUncertain`) ⇒ bounded rules ⇒ ≤4 lines/pass. No config toggle
+  (P18 deterministic-director precedent). Same-snapshot ⇒ same decisions
+  (test-verified).
+- `Core/Planning/PlanningLogBridge.cs` — boot attach of the new `PLANNING`
+  log subsystem. `CapBotLog.cs` +`PLANNING` const (additive).
+- `Mod.cs` boot wiring (bridge + authority/now/world seams — always-on by
+  construction), `Patch.cs` WorldTick postfix guarded planning block after
+  the P21 advisor block (still 11 Harmony patch classes — ceiling held,
+  Postfix extended in place inside its own try/catch).
+- `docs/PLANNING_DIRECTOR.md` — full contract incl. the design-basis note
+  (no master-plan doc in the workspace; P22 shape [INFERRED] from the
+  deferral trail + P18 template + P19 screen vocabulary; re-alignment
+  candidate if the external PART 0–68 plan differs).
+- `tests/PlanningDirectorTests.cs` — PD01–PD10 (~55 assertions): premise
+  capture + sector drift (+reverse drift after the recheck window), warp
+  start/end semantics, anti-churn block with premise re-capture, unknown-
+  sentinel accounting, episode open/refresh/decay/re-open, real-P9/P14/P17
+  calm-gate blocks + hostiles + warp, capacity gate (registry filled to the
+  live cap blocks; frees ⇒ opens), fail-safe inputs, cadence, authority
+  deny-by-default, Lines/StatusLines/GetIntent determinism, data-only proof
+  (registry untouched), post-reset inert.
+
+### Changed
+- `CapBot.csproj` — +2 Compile entries (PlanningDirector, PlanningLogBridge).
+- `run_tests.ps1` compiles 21 domain files + 12 test suites; suite runner
+  sums f1..f21 (21 suites).
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors; reflection (`verify_build_p22.ps1`):
+  211 types (180 named), PlanningDirector 65 members all probed, nested
+  PlanningIntent/PlanningPremise, data-only scan clean, `CapBotLog.PLANNING`,
+  11 patch classes, WorldTick postfix IL 673 → 708, `CapBot.Core.Planning`
+  namespace present. Tests: `TOTAL passed=1997 failed=0` ×3 consecutive
+  (suite 21 files).
+
 ## [Phase 21 — Crew advisor (Qwen integration, recommend-only)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added
