@@ -540,23 +540,36 @@ namespace CapBot.Core.Crew
         public static bool ClearTask(string agentId, string outcome, int nowMs)
         {
             if (string.IsNullOrEmpty(agentId)) return false;
+            bool cleared;
             lock (m_Lock)
             {
                 CrewAgent a;
-                if (!S.Agents.TryGetValue(agentId, out a)) return false;
-                if (a.CurrentTaskId <= 0) return false;
-                long taskId = a.CurrentTaskId;
-                a.CurrentTaskId = 0;
-                a.CurrentTaskType = null;
-                a.CurrentTaskCapabilityId = null;
-                a.CurrentTaskAssignedMs = -1;
-                a.LastTaskOutcome = outcome;
-                a.LastTaskResultMs = nowMs;
-                a.LastChangeReason = "task " + (outcome ?? "cleared");
-                a.UpdateCount++;
-                Emit("AgentTaskResolved " + agentId + " task=" + taskId + " outcome=" + (outcome ?? "UNSPECIFIED"));
-                return true;
+                if (!S.Agents.TryGetValue(agentId, out a)) { cleared = false; }
+                else if (a.CurrentTaskId <= 0) { cleared = false; }
+                else
+                {
+                    long taskId = a.CurrentTaskId;
+                    a.CurrentTaskId = 0;
+                    a.CurrentTaskType = null;
+                    a.CurrentTaskCapabilityId = null;
+                    a.CurrentTaskAssignedMs = -1;
+                    a.LastTaskOutcome = outcome;
+                    a.LastTaskResultMs = nowMs;
+                    a.LastChangeReason = "task " + (outcome ?? "cleared");
+                    a.UpdateCount++;
+                    Emit("AgentTaskResolved " + agentId + " task=" + taskId + " outcome=" + (outcome ?? "UNSPECIFIED"));
+                    cleared = true;
+                }
             }
+            if (cleared)
+            {
+                // Phase 12: experience accrual — additive and fail-safe, fired
+                // OUTSIDE the agent-registry lock so a faulting experience
+                // listener can never affect agent state or task resolution.
+                try { CrewExperienceRegistry.RecordOutcome(agentId, outcome, nowMs); }
+                catch (Exception) { }
+            }
+            return cleared;
         }
 
         private static void Refused()

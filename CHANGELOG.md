@@ -3,6 +3,63 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 12 — Crew experience] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Crew/CrewExperience.cs` — the experience layer (DATA ONLY): bounded
+  `CrewExperienceRecord` per agent (per-outcome counters, ExperiencePoints,
+  deterministic Level 1..10 via fixed cumulative thresholds 0/50/120/220/350/
+  510/710/950/1230/1550, LastOutcome/LastResultMs stamps, UpdateCount);
+  `CrewExperienceRegistry` (≤32 = MaxRecords, lazy record creation on first
+  accrued outcome, existing records keep accruing at cap, Remove lifecycle
+  hook, LevelOf/Get lookups that never fabricate, bounded diagnostics,
+  listener outside the lock, ResetForTests); points vocabulary = Phase 10
+  static outcomes (COMPLETED=10, others=2, unknown refused −1). No game
+  references, no tick driver, no world reads, no scheduler/claims/executor/
+  personality influence.
+- `Core/Crew/ExperienceLogBridge.cs` — attaches CapBotLog (CREW) as the
+  experience registry's decision listener at boot (same pattern as
+  CrewAgentLogBridge/PersonalityLogBridge).
+- `docs/CREW_EXPERIENCE.md` — full contract: funnel, points/levels, registry
+  rules, authority, performance, verified-API table (none used), security,
+  future integration points, failure modes, tests.
+- `tests/ExperienceTests.cs` — 108 assertions covering the Phase 12
+  scenarios (X01–X12): end-to-end accrual through the real Sync funnel,
+  deterministic level math and level crossing, points vocabulary with
+  unknown-outcome refusal, per-outcome counters, registry stability +
+  remove lifecycle, no cross-agent contamination, bounded registry (cap
+  refusal, accrual-at-cap, slot freeing), invalid-input refusal,
+  scheduler/claims/priority/personality isolation under churn, fail-safe
+  funnel (throwing listener and full-registry refusal leave agent state and
+  task resolution untouched), and ClearTask funnel regression with
+  exactly-once accrual.
+
+### Changed
+- `Core/Crew/CrewAgentRegistry.cs` — ClearTask extended additively: after
+  the agent lock is released, a fail-safe experience accrual
+  (`CrewExperienceRegistry.RecordOutcome`) runs in try/catch — a faulting
+  experience layer can never affect agent state or task resolution; accrual
+  happens only when the clear actually happened (exactly-once). Agent state
+  shape and P10 semantics unchanged.
+- `CapBot.csproj` — +2 Compile entries (`Core\Crew\CrewExperience.cs`,
+  `Core\Crew\ExperienceLogBridge.cs`).
+- `Mod.cs` — Phase 12 boot block: `ExperienceLogBridge.Ensure()` only.
+- `tests/run_tests.ps1` — compiles the experience domain file and
+  `tests\ExperienceTests.cs` (eleven suites).
+- `tests/TaskRecoveryTests.cs` — TestMain runs `ExperienceTests.Run()` as
+  f11; TOTAL aggregates eleven suites.
+
+### Notes
+- Zero PULSAR APIs used (pure C# over the Phase 10 funnel).
+- No new Harmony patch and no change to the WorldTick postfix (verified
+  byte-identical, 256 IL bytes; 11 patch classes unchanged).
+- No in-game behavior change beyond the data accrual itself: experience is
+  read by nothing yet; scheduling, claims, priorities, task state, and
+  personality records are proven unchanged under experience churn (test X10).
+- Phase 25 (adaptive learning) owns trait adjustment; `SetPersonality`
+  remains the only personality write path. Phase 28 (persistence) may
+  serialize the bounded counters.
+
 ## [Phase 11 — Crew personalities] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

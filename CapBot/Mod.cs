@@ -101,6 +101,11 @@ namespace CapBot
             // stable agent identity (no tick driver, no world reads, no task /
             // claim / execution influence). Consumers are later phases.
             CapBot.Core.Crew.PersonalityLogBridge.Ensure();
+            // Phase 12: attach experience-registry logging. Experience accrues
+            // only from the agent registry's ClearTask funnel (fail-safe, fired
+            // outside the agent lock) and stays DATA ONLY — it never influences
+            // scheduling, claims, execution, or personalities.
+            CapBot.Core.Crew.ExperienceLogBridge.Ensure();
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).
