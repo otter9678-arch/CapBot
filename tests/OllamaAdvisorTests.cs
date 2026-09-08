@@ -33,7 +33,8 @@ namespace CapBot.TaskTests
         // Fake transport: records the last request, returns a scripted body
         // (or null = transport fault). Optional signal for worker-completion
         // synchronization. No real network anywhere in the suite.
-        private sealed class FakeTransport : OllamaAdvisor.ITransport
+        // internal (Phase 21): CrewAdvisorTests reuses it unchanged.
+        internal sealed class FakeTransport : OllamaAdvisor.ITransport
         {
             public string LastRequestJson;
             public int CallCount;

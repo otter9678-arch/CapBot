@@ -3,6 +3,72 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 21 — Crew advisor (Qwen integration, recommend-only)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Qwen/CrewAdvisor.cs` — the crew-domain completion of the P20 Ollama
+  advisor (the Qwen integration): asks the SAME local server (loopback-only,
+  shared port/model config) for ONE advisory line about the crew picture,
+  built from the P10 crew agent hooks reserved since CREW_AGENTS.md
+  (Role/RoleName, LastTaskOutcome, LastKnownTLIName) through the additive
+  `CrewAgentRegistry.AgentViews()` readback. Structural mirror of P20:
+  authority deny-by-default ⇒ enabled+transport ⇒ consume (lines fire
+  immediately) ⇒ back-off ⇒ cadence (**8000 ms** — slower than P20's 5 s;
+  crew picture changes slowly) ⇒ snapshot fail-safe (null/never-captured/
+  stale>20s/future/not-started ⇒ uncertain) ⇒ single-flight (Interlocked
+  CAS) ⇒ dispatch (crew prompt on the game thread ≤4000 chars, dedicated
+  worker thread `CapBot-CrewAdvisor` runs HTTP, single-slot buffer
+  `PendingResponseSet` marker, game thread consumes). Same shared advisory
+  data contract: `OllamaAdvisor.ExtractContent` + `ValidateAdvice` (≥8 chars,
+  ≤240, `ADVICE:` prefix, zero control chars), same `keep_alive:"30m"`
+  `stream:false` `num_predict:48` `temperature:0.2`. Advice = DATA: one
+  bounded log line `CrewAdvice`/`CrewAdviceInvalid`; never assigns tasks
+  (no registry handles — only copied AgentViews), never mutates task
+  pipeline state, never feeds the deterministic directors. Crew-specific
+  MUST-NOT addition: no `AssignTask`/`ClearTask`/`AddCapabilityReference`
+  calls. Back-off ladder (3 consecutive ⇒ 120 s); no auto-retry (consume-eval
+  opens next cadence window — exactly one follow-up, asserted via the
+  race-free `RequestsSent` counter).
+- `Core/Qwen/CrewAdvisorLogBridge.cs` — boot attach of the new `QWEN` log
+  subsystem. `CapBotLog.cs` +`QWEN` const (additive).
+- `CrewAgentRegistry.AgentView`/`AgentViews()` — additive point-in-time
+  readback (copied fields, deterministic AgentId order; never live agent
+  references). No registry behavior change.
+- `Config.cs` — `QwenAdvisorEnabled` (bool, **default false** =
+  deny-by-default). Shares the P20 loopback host (hard-anchored), port and
+  bounded model vocabulary; only the toggle is independent. Menu: one toggle
+  button, no new text inputs.
+- `Mod.cs` boot wiring (seams + shared `OllamaHttpTransport` + ApplyConfig),
+  `Patch.cs` WorldTick postfix guarded crew-advisor block after the P20
+  block (still 11 Harmony patch classes — ceiling held, Postfix extended in
+  place inside its own try/catch).
+- `docs/CREW_ADVISOR.md` — full contract incl. the design-basis note (no
+  master-plan doc exists in the workspace; P21 shape inferred from the P20
+  contract + audit constraints + CREW_AGENTS.md reserved hooks).
+- `tests/CrewAdvisorTests.cs` — CA01–CA10 (~70 assertions): inert-by-
+  construction, dispatch with a REAL P10-synced registry (assignment
+  round-trip seeds LastTaskOutcome into the prompt), single-flight, advice
+  consumed/validated, newline injection, soft-fault handling, snapshot
+  fail-safe, prompt bounds + unknown-sentinel degradation (null-TLI agent ⇒
+  `lastLoc=unknown`), readbacks + reset determinism. P20 race lessons
+  carried over (`WaitForCall` vs `WaitForPark`; `RequestsSent` for retry
+  invariants).
+
+### Changed
+- `tests/OllamaAdvisorTests.cs` — `FakeTransport` visibility `private` →
+  `internal` (reused unchanged by the CA suite; same assembly).
+- `run_tests.ps1` compiles 20 domain files + 11 test suites; suite runner
+  `TaskRecoveryTests.cs` sums f1..f20.
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: TOTAL passed=1920 failed=0, three consecutive runs (raw-output
+  FAIL grep = 0).
+- Reflection (verify_build_p21.ps1): 205 types / 175 named; CrewAdvisor
+  surface complete; AgentViews/AgentView present; internal reuse proven;
+  Config seam + CapBotLog.QWEN; 11 Harmony patch classes intact;
+  WorldTick postfix IL 603 → 673 bytes; namespace CapBot.Core.Qwen present.
+
 ## [Phase 20 — Ollama advisor (recommend-only, local)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

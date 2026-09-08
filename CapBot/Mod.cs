@@ -220,6 +220,23 @@ namespace CapBot
             CapBot.Core.Ollama.OllamaAdvisor.SetTransport(new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value));
             CapBot.Core.Ollama.OllamaAdvisor.ApplyConfig(
                 Config.OllamaAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
+            // ---- Phase 21: crew advisor (Qwen integration, RECOMMEND-ONLY) ----
+            // Crew-domain completion of the P20 advisor: reads the P10 crew
+            // agent hooks (Role/RoleName, LastTaskOutcome, LastKnownTLIName)
+            // through the additive AgentViews() readback and asks the SAME
+            // local server (loopback-only, shared port/model config) for one
+            // advisory line about the crew picture. The advice is DATA ONLY:
+            // it never assigns tasks (CrewAgentRegistry assignment APIs are
+            // untouched), never mutates any task pipeline state, never feeds
+            // the deterministic directors. Off by default
+            // (Config.QwenAdvisorEnabled=false); inert with no transport;
+            // deterministic rules always override the advisor.
+            CapBot.Core.Qwen.CrewAdvisorLogBridge.Ensure();
+            CapBot.Core.Qwen.CrewAdvisor.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Qwen.CrewAdvisor.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Qwen.CrewAdvisor.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            CapBot.Core.Qwen.CrewAdvisor.SetTransport(new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value));
+            CapBot.Core.Qwen.CrewAdvisor.ApplyConfig(Config.QwenAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

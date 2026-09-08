@@ -2954,6 +2954,20 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.OLLAMA, "Ollama advisor tick failed", ex);
             }
+            // ---- Phase 21: crew advisor (Qwen integration, recommend-only) ----
+            // Same shape as the P20 block: consume + dispatch, single-flight,
+            // advice is logged only. Config-gated off by default; inert with
+            // no transport or disabled config; deterministic rules override.
+            try
+            {
+                CapBot.Core.Qwen.CrewAdvisor.ApplyConfig(
+                    Config.QwenAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
+                CapBot.Core.Qwen.CrewAdvisor.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.QWEN, "Crew advisor tick failed", ex);
+            }
         }
     }
     [HarmonyPatch(typeof(PLBotController), "HandleMovement")]

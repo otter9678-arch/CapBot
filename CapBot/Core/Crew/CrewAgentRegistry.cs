@@ -193,6 +193,55 @@ namespace CapBot.Core.Crew
             return lines;
         }
 
+        // Phase 21 (additive readback): bounded point-in-time view of the
+        // registry for advisory consumers (CrewAdvisor). Copies the fields an
+        // advisor may read — never the live CrewAgent references (the
+        // registry mediates all mutation; advisors hold no registry handles).
+        public sealed class AgentView
+        {
+            public string AgentId;
+            public int PlayerId;
+            public bool IsBot;
+            public bool IsCaptain;
+            public CrewRole Role;
+            public string RoleName;
+            public string Name;
+            public string LastKnownTLIName;
+            public string LastTaskOutcome;
+            public int LastTaskResultMs;
+            public CrewAgentLifecycle Lifecycle;
+        }
+
+        public static List<AgentView> AgentViews()
+        {
+            List<AgentView> views = new List<AgentView>();
+            lock (m_Lock)
+            {
+                foreach (KeyValuePair<string, CrewAgent> kv in S.Agents)
+                {
+                    CrewAgent a = kv.Value;
+                    AgentView v = new AgentView();
+                    v.AgentId = a.AgentId;
+                    v.PlayerId = a.PlayerId;
+                    v.IsBot = a.IsBot;
+                    v.IsCaptain = a.IsCaptain;
+                    v.Role = a.Role;
+                    v.RoleName = a.RoleName;
+                    v.Name = a.Name;
+                    v.LastKnownTLIName = a.LastKnownTLIName;
+                    v.LastTaskOutcome = a.LastTaskOutcome;
+                    v.LastTaskResultMs = a.LastTaskResultMs;
+                    v.Lifecycle = a.Lifecycle;
+                    views.Add(v);
+                }
+            }
+            views.Sort(delegate (AgentView x, AgentView y)
+            {
+                return string.CompareOrdinal(x.AgentId, y.AgentId);
+            });
+            return views;
+        }
+
         // ---- the sync pass -----------------------------------------------------------
         //
         // Pulls the authoritative snapshot through the world seam (production:

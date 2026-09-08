@@ -25,6 +25,12 @@ namespace CapBot
         public static SaveValue<bool> OllamaAdvisorEnabled = new SaveValue<bool>("OllamaAdvisorEnabled", false);
         public static SaveValue<int> OllamaModel = new SaveValue<int>("OllamaModel", 0);
         public static SaveValue<int> OllamaPort = new SaveValue<int>("OllamaPort", 11434);
+        // Phase 21: crew advisor (Qwen integration, recommend-only, loopback-
+        // only). Off by default; QwenAdvisorEnabled gates ALL crew-advisor
+        // behavior. Shares the P20 loopback host (hard-anchored), port and
+        // bounded model vocabulary (same local server); only the toggle is
+        // independent.
+        public static SaveValue<bool> QwenAdvisorEnabled = new SaveValue<bool>("QwenAdvisorEnabled", false);
         public static SaveValue<float> AIReactionSpeed = new SaveValue<float>("AIReactionSpeed", 0.1f);
         public static SaveValue<float> AIAccuracy = new SaveValue<float>("AIAccuracy", 0.85f);
         public static SaveValue<float> CombatEngageRange = new SaveValue<float>("CombatEngageRange", 50f);
@@ -105,6 +111,11 @@ namespace CapBot
             }
             GUILayout.Label("Ollama Port (loopback 127.0.0.1 only): " + Config.OllamaPort.Value);
             Config.OllamaPort.Value = (int)GUILayout.HorizontalSlider(Config.OllamaPort, 1024, 65535);
+
+            // Phase 21: crew advisor control (off by default; shares the P20
+            // loopback host/port/model — only the toggle is independent).
+            if (GUILayout.Button("Crew Advisor (Qwen, recommend-only, local): " + (Config.QwenAdvisorEnabled ? "Enabled" : "Disabled")))
+                Config.QwenAdvisorEnabled.Value = !Config.QwenAdvisorEnabled;
 
             GUI.skin.label.alignment = TextAnchor.UpperLeft;
             GUILayout.Label("AI Reaction Speed: " + Config.AIReactionSpeed.Value.ToString("0.0") + "s");
