@@ -3,6 +3,80 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 5 — Duplicate execution protection (claims/leases/idempotency)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Tasks/ActionIdentity.cs` — deterministic, data-only action identity
+  for future executors: `ActionIdentity.MakeActionId(taskId, actionKind,
+  attemptEpoch, targetKey)` → `"<taskId>:<kind>:<epoch>:<hash8>"`, hashed
+  with session-stable FNV-1a 32-bit (never `string.GetHashCode`, which is
+  not stable). `actionKind` is validated to a bounded static ASCII
+  vocabulary (`[A-Za-z0-9_]`, ≤ 32 chars); the opaque `targetKey` is hashed,
+  never embedded. `ActionOutcome` enum + `ActionLedger`: bounded (256-entry
+  FIFO) idempotency memory — sticky `Succeeded` (never downgraded),
+  `Failed→Succeeded` upgrade allowed, duplicate/repeated outcomes are
+  no-ops. Identity is compared or logged, never parsed or dispatched on.
+- `Core/Tasks/ExecutionClaims.cs` — single-owner execution claims with
+  bounded 5 s leases (`ClaimLeaseDurationMs`), one claim per live task
+  (≤ 64 = registry cap), attempt epoch default = task `RetryCount`
+  (retried task = new logical action; duplicate request = same action).
+  `TryClaim` is a deterministic gate ladder (invalid args → not
+  authoritative → task missing → terminal → recovery-owned Failed/Paused →
+  owned-by-other → duplicate-active → expired-takeover → ledger
+  already-succeeded → Granted); `GrantedTakeover` makes stale-lease recovery
+  explicit and logged (`LeaseExpired` + `OwnershipReleased`), so stale owners
+  never retain ownership. Idempotency two-sided: claim side refuses actions
+  already `Succeeded` in the ledger (`DuplicateExecutionRejected`); result
+  side (`RecordExecutionResult`) records the first result, releases the
+  claim, and ignores duplicate/stale callbacks (`DuplicateIgnored` /
+  `StaleCallbackIgnored`). `ReleaseClaim` verifies the owner — mismatch is
+  logged `InvariantViolation` and refused. `Tick` hygiene drops
+  expired/missing/terminal-task claims. **Deny-by-default authority seam**
+  `SetAuthorityPolicy(Func<bool>)`: with no policy, nothing can claim or
+  record (fail-closed); Phase 8 wires it to `PhotonNetwork.isMasterClient`.
+  Per-claim 1 s rejection-log throttle; no RPCs, no Photon targets, no
+  process-external state; bounded memory throughout; no LINQ.
+- `Core/Tasks/ClaimLogBridge.cs` — attaches the Phase 1 `CapBotLog` (TASK
+  subsystem) as the claims decision listener at mod boot; the domain
+  contains zero logging calls.
+- `CapBot.csproj` (modified) — compile entries for the three new files.
+- `Mod.cs` (modified) — boot wiring: `ClaimLogBridge.Ensure()` next to the
+  lifecycle/recovery/scheduler bridges.
+- `docs/EXECUTION_SAFETY.md` — full contract: claim model (record shape,
+  identity format + FNV-1a rationale, attempt epochs, lease + takeover
+  semantics), deterministic claim-rules table (orders 0–10), the two-sided
+  idempotency guard (claim side + result side, sticky success, upgrade rule,
+  explicit release + invariant logging), Tick hygiene, authority model
+  (deny-by-default seam, P8 wiring to `isMasterClient`, process-local
+  bookkeeping, no RPCs, host-migration-safe), scheduler interaction (grant
+  vs claim separate lifetimes), recovery interaction (Failed/Paused refuse
+  claims; claims persist through capability-pause; failure results release;
+  fresh epoch after retry; no retry loops), logging examples, security
+  posture, explicit not-in-phase list.
+- `tests/ExecutionClaimTests.cs` — 106 dev-side assertions (not shipped)
+  covering all 15 required scenarios: deterministic identity, deny-by-default
+  authority gating, duplicate/same-owner/different-owner claims, lease
+  expiry + stale takeover, duplicate completion/failure, stale callbacks,
+  release ownership invariants, task cancelled/completed while claimed,
+  recovery interaction (owner-down fail → release → recovery-owned refusal →
+  fresh-epoch re-claim; capability-pause persistence), scheduler pass
+  repeated twice (re-grant vs duplicate-execution refusal), bounded ledger
+  eviction + live-claim cleanup, `MakeDefaultActionId` epoch determinism,
+  null-reason release, status snapshot. Harness `run_tests.ps1` + TestMain
+  wired for four suites. Combined TOTAL: **passed=349 failed=0** (97
+  lifecycle + 57 recovery + 89 scheduler + 106 claims).
+
+### Notes
+- Protection layer only: claims/leases/idempotency for future executors
+  (P7/P8). It executes nothing, holds no world state, and is deny-by-default
+  inert until the authority policy is wired (P8 → `isMasterClient`).
+  No gameplay routes through it; the scheduler and recovery behavior are
+  unchanged. No new PULSAR/PML/Photon API usage (pure System* domain), no
+  RPC/Harmony/vanilla-AI changes, no MoreBots-compat or save-format impact.
+- Not implemented (later phases): capability registry, executor, world
+  state, directors, Captain Brain 2.0, Decision Validator, Ollama/Qwen,
+  dynamic task generation, persistence, UI, updater security, performance.
+
 ## [Phase 4 — Task scheduler (orchestration-only)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

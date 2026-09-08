@@ -33,6 +33,10 @@ namespace CapBot
             // scheduler stays inert until Phase 8 drives Tick host-side — it
             // executes nothing and decides nothing about gameplay).
             SchedulerLogBridge.Ensure();
+            // Phase 5: attach execution-claim logging (protection layer only;
+            // claims are deny-by-default until Phase 8 wires the authority
+            // policy to master-client state — nothing can claim or execute).
+            ClaimLogBridge.Ensure();
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

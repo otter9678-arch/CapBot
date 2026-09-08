@@ -97,9 +97,12 @@
     <Compile Include="Core\Tasks\TaskRecovery.cs" />
     <Compile Include="Core\Tasks\TaskRecoveryManager.cs" />
     <Compile Include="Core\Tasks\TaskScheduler.cs" />
+    <Compile Include="Core\Tasks\ActionIdentity.cs" />
+    <Compile Include="Core\Tasks\ExecutionClaims.cs" />
     <Compile Include="Core\Tasks\TaskLogBridge.cs" />
     <Compile Include="Core\Tasks\RecoveryLogBridge.cs" />
     <Compile Include="Core\Tasks\SchedulerLogBridge.cs" />
+    <Compile Include="Core\Tasks\ClaimLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />
