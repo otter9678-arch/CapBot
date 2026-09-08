@@ -3,6 +3,47 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 30 — Secure updater (verification chain, atomic staging)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Update/UpdatePolicy.cs` — pure C# verification policy for the mod
+  updater (audit C1): HTTPS-only URL gate with a bounded 5-host
+  GitHub-family allowlist (exact case-insensitive host match; userinfo
+  spoofing refused; malformed refused); payload shape gate (non-null,
+  1KB–32MB, MZ header — JSON/HTML error pages never install); SHA-256
+  digest gate (mismatch/malformed digest REFUSES, never bypasses; absent
+  digest = documented residual risk, publish digests with version
+  files); strict file-name defense (ONLY bare `<name>.dll` accepted —
+  path-shaped input refused, never flattened; never throws). IL-verified
+  purity: zero PML/game/Harmony/WebClient/File references.
+- `ModUpdater.cs` hardening: both fetch URLs gated BEFORE any connection;
+  payload verified (shape + digest) BEFORE any write; `[blocked]`
+  report lines + `blocked` tally for policy refusals; staged/installed
+  target names sanitized; honest user-agent replaces the Chrome spoof
+  (L3).
+- `docs/SECURE_UPDATER.md` — the P30 contract (findings §1, policy §2,
+  wiring §3, not-in-phase §4, tests §5, gotchas §6, verification §7).
+
+### Fixed
+- Staged update application is now ATOMIC (audit M5):
+  `File.Replace(staged, target, backup)` replaces the delete-then-move
+  pair that could leave a mod DLL deleted on a mid-operation failure;
+  backup cleanup is best-effort; first-install path stays `File.Move`.
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2669 failed=0` ×3 consecutive (suite now 29 domain
+  files, 20 suites; UPD01–UPD10, 55 assertions). Run-1 caught 1 REAL
+  product bug before any release: the file-name sanitizer used
+  `Path.GetFileName`, which THROWS ArgumentException on some `..`
+  traversal shapes under .NET Framework — rewritten as never-throw
+  strict refusal. SHA-256 reference vector (SHA-256("abc")) asserted.
+- Reflection (`verify_build_p30.ps1`): 34/0 — policy surface/consts;
+  UpdateAll IL gates through ALL five policy functions; staged-apply IL
+  ORDER proof (File.Replace@147 → File.Delete@154 = backup cleanup only,
+  M5); honest UA; policy IL purity (no network/file refs); 11 patch
+  classes; prior-phase types intact.
+
 ## [Phase 29 — Status diagnostics (StatusHub, /capbotstatus, menu summary)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

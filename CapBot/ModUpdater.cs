@@ -5,17 +5,26 @@ using System.Net;
 using System.Linq;
 using System.Text;
 using CapBot.Core.Logging;
+using CapBot.Core.Update;
 
 namespace CapBot
 {
     // In-game auto-updater. Walks every loaded PML mod, fetches each mod's
-    // VersionLink JSON ({ "Version": "...", "DownloadLink": "..." }) exactly like
-    // PML's own ModUpdateCheck, and downloads newer DLLs. Loaded DLLs are file-locked
-    // by the OS, so a download that cannot overwrite is staged as "<name>.dll.update"
-    // and applied by the boot-time swap below on a later launch.
+    // VersionLink JSON ({ "Version": "...", "DownloadLink": "...", "Sha256":
+    // "..." }) exactly like PML's own ModUpdateCheck, and downloads newer DLLs.
+    // Loaded DLLs are file-locked by the OS, so a download that cannot overwrite
+    // is staged as "<name>.dll.update" and applied atomically (File.Replace) by
+    // the boot-time swap below on a later launch.
+    //
+    // Phase 30 (audit C1/M5/L3): every download decision routes through the
+    // UpdatePolicy verification chain — HTTPS-only + host allowlist, payload
+    // shape (MZ + size bounds), SHA-256 digest when the version file publishes
+    // one (a garbage/mismatched digest REFUSES, never bypasses), and staged
+    // file-name sanitization (path traversal refused). Staged apply is atomic.
+    // User-agent is honest (no browser spoofing).
     internal static class ModUpdater
     {
-        private const string UA = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.71 Safari/537.36";
+        private const string UA = "CapBot-Updater/1.0 (PULSAR: Lost Colony PML mod updater)";
 
         private class VersionFile
         {
@@ -34,14 +43,26 @@ namespace CapBot
                 List<string> applied = new List<string>();
                 foreach (string staged in Directory.GetFiles(modsDir, "*.update"))
                 {
+                    // Phase 30 (audit M5): atomic replacement. File.Replace swaps
+                    // staged -> target in one operation with a backup; delete-
+                    // then-move is gone (a failure between the old pair could
+                    // leave the mod DLL deleted).
                     string target = Path.Combine(Path.GetDirectoryName(staged), Path.GetFileNameWithoutExtension(staged));
                     // Path.GetFileNameWithoutExtension strips only the last ext; staged name is "X.dll.update".
                     if (!target.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                         target = Path.Combine(Path.GetDirectoryName(staged), Path.GetFileNameWithoutExtension(staged) + ".dll");
                     try
                     {
-                        if (File.Exists(target)) File.Delete(target);
-                        File.Move(staged, target);
+                        if (File.Exists(target))
+                        {
+                            string backup = target + ".old";
+                            File.Replace(staged, target, backup, true);
+                            try { File.Delete(backup); } catch { /* backup cleanup best-effort */ }
+                        }
+                        else
+                        {
+                            File.Move(staged, target);
+                        }
                         applied.Add(Path.GetFileName(target));
                     }
                     catch (Exception ex)
@@ -63,7 +84,7 @@ namespace CapBot
         internal static string UpdateAll()
         {
             StringBuilder report = new StringBuilder();
-            int updated = 0, failed = 0, staged = 0, current = 0, noLink = 0;
+            int updated = 0, failed = 0, staged = 0, current = 0, noLink = 0, blocked = 0;
             try
             {
                 var mods = PulsarModLoader.ModManager.Instance.GetAllMods().ToList();
@@ -75,6 +96,14 @@ namespace CapBot
                         if (mod == null) continue;
                         string link = mod.VersionLink;
                         if (string.IsNullOrEmpty(link)) { noLink++; continue; }
+                        // Phase 30: URL gate BEFORE any connection.
+                        UpdatePolicy.UrlVerdict verdict = UpdatePolicy.CheckDownloadUrl(link);
+                        if (verdict != UpdatePolicy.UrlVerdict.Allowed)
+                        {
+                            report.AppendLine("[blocked] " + mod.Name + ": version-file url refused (" + UpdatePolicy.VerdictName(verdict) + ")");
+                            blocked++;
+                            continue;
+                        }
                         string json;
                         using (WebClient wc = new WebClient())
                         {
@@ -88,6 +117,14 @@ namespace CapBot
                             failed++;
                             continue;
                         }
+                        // Phase 30: the download link gets the same gate.
+                        UpdatePolicy.UrlVerdict dlVerdict = UpdatePolicy.CheckDownloadUrl(vf.DownloadLink);
+                        if (dlVerdict != UpdatePolicy.UrlVerdict.Allowed)
+                        {
+                            report.AppendLine("[blocked] " + mod.Name + ": download url refused (" + UpdatePolicy.VerdictName(dlVerdict) + ")");
+                            blocked++;
+                            continue;
+                        }
                         if (CompareVersions(mod.Version ?? "0.0.0", vf.Version) >= 0) { current++; continue; }
 
                         string target = mod.VersionInfo != null && !string.IsNullOrEmpty(mod.VersionInfo.FileName)
@@ -99,6 +136,30 @@ namespace CapBot
                             wc.Headers.Add("user-agent", UA);
                             bytes = wc.DownloadData(vf.DownloadLink);
                         }
+                        // Phase 30: payload verification BEFORE any write.
+                        string shapeReason = UpdatePolicy.ValidateDllBytes(bytes);
+                        if (shapeReason != null)
+                        {
+                            report.AppendLine("[blocked] " + mod.Name + ": payload refused (" + shapeReason + ")");
+                            blocked++;
+                            continue;
+                        }
+                        string publishedSha = UpdatePolicy.TryGetShaFromVersionJson(json);
+                        if (!UpdatePolicy.VerifySha256(bytes, publishedSha))
+                        {
+                            report.AppendLine("[blocked] " + mod.Name + ": sha256 mismatch (digest published but payload differs)");
+                            blocked++;
+                            continue;
+                        }
+                        // Phase 30: staged/installed names are sanitized (traversal refused).
+                        string safeName = UpdatePolicy.SanitizeDllFileName(Path.GetFileName(target));
+                        if (safeName == null)
+                        {
+                            report.AppendLine("[blocked] " + mod.Name + ": unsafe target file name");
+                            blocked++;
+                            continue;
+                        }
+                        target = Path.Combine(PulsarModLoader.ModManager.GetModsDir(), safeName);
                         try
                         {
                             File.WriteAllBytes(target, bytes);
@@ -145,7 +206,7 @@ namespace CapBot
             {
                 report.AppendLine("Update check error: " + e.Message);
             }
-            report.AppendLine("Updated: " + updated + ", staged: " + staged + ", current: " + current + ", no update link: " + noLink + ", failed: " + failed);
+            report.AppendLine("Updated: " + updated + ", staged: " + staged + ", current: " + current + ", no update link: " + noLink + ", blocked: " + blocked + ", failed: " + failed);
             return report.ToString();
         }
 
