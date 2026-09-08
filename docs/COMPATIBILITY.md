@@ -200,6 +200,20 @@ input is a recommendation only and can never reach the state machine.
   Conflict / Quarantined (+ reason); `StatusLines()` ≤14 lines. Exposed as
   `/capbotstatus conflicts` section and `/capbotcompat [mod]` chat command
   (read-only echo of engine verdicts; host-only).
+- **Record layer (P46.1, `QuarantineRecord.cs`):** the data contracts the
+  executor will persist — `QuarantineRecord` (hand-rolled bounded JSON;
+  evidence attached verbatim with proper control-char escaping, never
+  paraphrased; `CanRecord` factory refuses anything below CONFIRMED
+  Class D), `CompatibilityStateRow` (+ `BootMustKeepQuarantined`:
+  a mod left in Quarantined/QuarantineAgain stays quarantined across
+  reboot — boot NEVER auto-restores; the DisabledUntilCompatibilityTest
+  semantics), and a bounded 256-entry `CompatibilityAuditTrail` with
+  drop counting. No IO in this layer (pure shapes; the executor writes).
+- **State-listener seam (`ConflictEngine.SetStateListener`):** fires on
+  every quarantine-state TRANSITION (never on Evaluate recommendations;
+  idempotent re-confirm does not re-fire; cleared by `ResetForTests`) —
+  the hook the physical executor consumes to move the DLL and write
+  `conflict.json` / `compatibility-state.json`.
 - **Purity:** pure C# domain — zero PULSAR/PML/Harmony/file-IO references
   (the P19 lesson); the engine performs NO file moves itself.
 
@@ -213,15 +227,18 @@ input is a recommendation only and can never reach the state machine.
 ### What Phase 46 deliberately does NOT do
 
 - No physical quarantine executor yet (file moves + conflict.json writing
-  are a future phase; the state machine is ready and testable).
+  are a future phase; the state machine, records, and state-listener seam
+  are ready and testable).
 - No runtime Harmony-map enrichment of `usesHarmony` flags yet.
 - No A/B automation (experiments stay manual one-variable runs).
 - No Safe Mode behavioral changes yet (latch + audit only; the boot-safety
-  gate `DisabledUntilCompatibilityTest` lands with the executor).
+  gate `DisabledUntilCompatibilityTest` lands with the executor — the
+  `CompatibilityStateRow.BootMustKeepQuarantined` rule it will enforce is
+  already in the model).
 
 ### Tests
 
-`tests/ConflictEngineTests.cs` CE01–CE21 (142 assertions): refusal ladder;
+`tests/ConflictEngineTests.cs` CE01–CE25 (171 assertions): refusal ladder;
 protected-mod precedence; symptom-without-A/B ⇒ observe; non-implicating
 A/B ⇒ keep-both; partial causality ⇒ PROBABLE/OBSERVE; full causality ⇒
 CONFIRMED/quarantine state machine incl. idempotent re-confirm; Class C
@@ -229,4 +246,7 @@ never quarantines; symptom→class mapping table; rate limiting; loop
 protection + safe mode; restore/retest clean; invalid transitions;
 duplicate-CapBot audit; bounded status surface; determinism; audit-line
 vocabulary; MoreBots honesty mirror; tracking bounds; reset; status
-edges; protected-list membership. Suite total after P46: 3220/0.
+edges; protected-list membership; state-listener transition events
+(CE22); record factory + verbatim JSON escaping (CE23); boot-gate rule
+(CE24); audit-trail bounds + drop counting (CE25). Suite total after
+P46.1: 3249/0.

@@ -27,17 +27,33 @@ quarantine execution lands in a later phase.
   refusal wins over any symptom or A/B evidence.
 - `Core/Compatibility/ConflictLogBridge.cs` + Mod.cs boot wiring
   (log bridge + one bounded PML inventory snapshot at boot).
+- `Core/Compatibility/QuarantineRecord.cs` (P46.1): `QuarantineRecord`
+  (hand-rolled bounded JSON with verbatim evidence escaping; record
+  factory refuses anything below CONFIRMED Class D),
+  `CompatibilityStateRow` (+ `BootMustKeepQuarantined` boot-gate:
+  Quarantined/QuarantineAgain survive reboot — boot NEVER auto-restores),
+  bounded 256-entry `CompatibilityAuditTrail` with drop counting.
+- `ConflictEngine.SetStateListener` seam: fires on every quarantine-state
+  transition (never on Evaluate recommendations; idempotent re-confirm
+  does not re-fire) — the hook the physical quarantine executor will
+  consume for file moves + conflict.json / compatibility-state.json.
 - `/capbotcompat [mod]` chat command (read-only verdict echo, host-only)
   and `/capbotstatus conflicts` section (StatusHub).
 
 ### Verified
-- Tests: 3220/3220 (+142 `ConflictEngineTests` CE01–CE21, including the
-  MoreBots honesty invariant: partial causality (no reintroduction leg)
-  ⇒ OBSERVE, never QUARANTINE).
-- Build: Release 0 warnings; P46 DLL 434,176 bytes, deployed with
-  SHA256 parity (`8A95B366…`), backup `CapBot.dll.pre_p46.bak` (= P45).
-- Live boot: 8 PML mods loaded, conflict-engine inventory feed 0
-  failures, 0 boot exceptions.
+- Tests: 3249/3249 (+171 `ConflictEngineTests` CE01–CE25: refusal
+  ladder, protected-mod precedence, partial-causality honesty (MoreBots
+  mirror: no reintroduction leg ⇒ OBSERVE, never QUARANTINE), quarantine
+  state machine incl. loop protection + Safe Mode latch, record
+  factory/JSON escaping, boot gate, audit-trail bounds, state-listener
+  events).
+- Build: Release 0 warnings; P46.1 DLL 437,760 bytes, deployed with
+  SHA256 parity (`3C983F31…3475`), backup `CapBot.dll.pre_p461.bak`
+  (= P46), prior chain `CapBot.dll.pre_p46.bak` (= P45) preserved.
+- Live boot (P46.1): CapBot loaded, COMPAT channel active, conflict-
+  engine inventory feed 0 failures, 2 exception lines (known TMPI
+  PLShipInfoUpdatePatch NRE, pre-match, not CapBot), 0 conflict/
+  quarantine lines (no false positives on the 8-mod loadout).
 
 ## [Phases 44–45 — Memory lifecycle, qwen3 pin, presence machine, MoreBots compat fix] — unreleased (built from Alpha 1.2.2 source)
 

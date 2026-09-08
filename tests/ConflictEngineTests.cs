@@ -382,6 +382,84 @@ namespace CapBot.TaskTests
             Check(d21.Refusal == RefusalReason.ProtectedMod && d21.Action == Remediation.KeepBoth,
                 "CE21 protected refusal end-to-end despite CONFIRMED-class evidence");
 
+            // ---- CE22: quarantine-state listener fires on every transition -----------
+            FreshSetup();
+            List<string> stateEvents = new List<string>();
+            ConflictEngine.SetStateListener(delegate (string mod, ConflictEngine.QuarantineState st)
+            {
+                stateEvents.Add(mod + "->" + st);
+            });
+            SetCleanProfile("EvtMod");
+            ConflictEngine.RecordSymptom("EvtMod", SymptomKind.FalseBotDeath, "", "", 10, 0, 500);
+            ConflictEngine.RecordComparison("EvtMod", "ab", true, false, true, 1000);
+            ConflictEngine.Evaluate("EvtMod", 2000);
+            Check(stateEvents.Count == 0, "CE22 no event on Evaluate (recommendation is not a transition)");
+            ConflictEngine.MarkQuarantined("EvtMod", 3000);
+            Check(stateEvents.Count == 1 && stateEvents[0] == "EvtMod->Quarantined", "CE22 Quarantined event");
+            ConflictEngine.MarkQuarantined("EvtMod", 3100);
+            Check(stateEvents.Count == 1, "CE22 idempotent re-confirm does not re-fire");
+            ConflictEngine.MarkRestoredForRetest("EvtMod", 4000);
+            Check(stateEvents.Count == 2 && stateEvents[1] == "EvtMod->RestoredForRetest", "CE22 RestoredForRetest event");
+            ConflictEngine.MarkRetestResult("EvtMod", false, 5000);
+            Check(stateEvents.Count == 3 && stateEvents[2] == "EvtMod->CompatibleAfterRetest", "CE22 CompatibleAfterRetest event");
+            ConflictEngine.ResetForTests();
+            Check(stateEvents.Count == 3, "CE22 reset does not fire events");
+
+            // ---- CE23: quarantine record factory + rendering ---------------------------
+            Check(QuarantineRecord.CanRecord(ConflictClass.ClassD_ModConflict, ConflictConfidence.Confirmed),
+                "CE23 confirmed Class D can be recorded");
+            Check(!QuarantineRecord.CanRecord(ConflictClass.ClassD_ModConflict, ConflictConfidence.Probable),
+                "CE23 probable Class D CANNOT be recorded (honesty guard)");
+            Check(!QuarantineRecord.CanRecord(ConflictClass.ClassC_FeatureConflict, ConflictConfidence.Confirmed),
+                "CE23 confirmed Class C cannot be recorded");
+            QuarantineRecord rec = new QuarantineRecord("BadMod", "BadMod.dll", "1.0", "owner.bad",
+                ConflictRules.ClassText(ConflictClass.ClassD_ModConflict),
+                ConflictRules.ConfidenceText(ConflictConfidence.Confirmed),
+                "exception storm count=1000", "A/B: present with, absent without, reintroduced reproduces",
+                "AUTO-QUARANTINE per standing directive (CONFIRMED Class D)",
+                "P46", "v1.2.10", true, 1234567890L);
+            string json = rec.ToJson();
+            Check(json.IndexOf("\"mod\": \"BadMod\"", StringComparison.Ordinal) > 0, "CE23 json carries mod");
+            Check(json.IndexOf("\"confidence\": \"CONFIRMED\"", StringComparison.Ordinal) > 0, "CE23 json carries confidence");
+            Check(json.IndexOf("\"reversible\": true", StringComparison.Ordinal) > 0, "CE23 json carries reversibility");
+            Check(json.IndexOf("\"timestampMs\": 1234567890", StringComparison.Ordinal) > 0, "CE23 json carries timestamp");
+            string qJson = new QuarantineRecord("Q\"uote\\Mod", "x.dll", "1", "h", "D", "CONFIRMED", "s", "e\r\nv", "d", "P46", "g", false, 1L).ToJson();
+            Check(qJson.IndexOf("Q\\\"uote\\\\Mod", StringComparison.Ordinal) > 0, "CE23 json escapes quotes+backslashes");
+            Check(qJson.IndexOf("\r", StringComparison.Ordinal) < 0 && qJson.IndexOf("\\r\\nv", StringComparison.Ordinal) > 0,
+                "CE23 newlines JSON-escaped (evidence stays verbatim, single-line)");
+            Check(rec.ToAuditLine().IndexOf("reversible=yes", StringComparison.Ordinal) > 0, "CE23 audit line shape");
+
+            // ---- CE24: compatibility-state boot gate -----------------------------------
+            Check(CompatibilityStateRow.BootMustKeepQuarantined("Quarantined"), "CE24 quarantined keeps boot-quarantine");
+            Check(CompatibilityStateRow.BootMustKeepQuarantined("QuarantineAgain"), "CE24 quarantine-again keeps boot-quarantine");
+            Check(!CompatibilityStateRow.BootMustKeepQuarantined("CompatibleAfterRetest"), "CE24 compatible-after-retest boot-restores");
+            Check(!CompatibilityStateRow.BootMustKeepQuarantined("None"), "CE24 none boot-restores");
+            Check(!CompatibilityStateRow.BootMustKeepQuarantined(""), "CE24 empty boot-restores (fail-open for unknown states is the executor's decision, not the row's)");
+            CompatibilityStateRow row = new CompatibilityStateRow("BadMod", "Quarantined", 1, 555L, "confirmed class D");
+            string rowJson = row.ToJson();
+            Check(rowJson.IndexOf("\"state\": \"Quarantined\"", StringComparison.Ordinal) > 0, "CE24 row json carries state");
+            Check(rowJson.IndexOf("\"reconfirmations\": 1", StringComparison.Ordinal) > 0, "CE24 row json carries reconfirmations");
+
+            // ---- CE25: audit trail bounded -------------------------------------------------
+            CompatibilityAuditTrail.ResetForTests();
+            for (int i = 0; i < CompatibilityAuditTrail.MaxEntriesBound; i++)
+            {
+                CompatibilityAuditTrail.Append("line " + i);
+            }
+            Check(CompatibilityAuditTrail.Count == CompatibilityAuditTrail.MaxEntriesBound, "CE25 trail holds the full stream within bound");
+            List<string> snap = CompatibilityAuditTrail.Snapshot();
+            Check(snap[0] == "line 0", "CE25 snapshot oldest-first");
+            for (int i = 0; i < 5; i++)
+            {
+                CompatibilityAuditTrail.Append("more " + i);
+            }
+            Check(CompatibilityAuditTrail.Count == CompatibilityAuditTrail.MaxEntriesBound, "CE25 trail bounded");
+            Check(CompatibilityAuditTrail.DroppedCount == 5, "CE25 drops counted");
+            Check(CompatibilityAuditTrail.Snapshot()[0] == "line 5", "CE25 oldest entries evicted");
+            CompatibilityAuditTrail.Append(null);
+            CompatibilityAuditTrail.Append("");
+            Check(CompatibilityAuditTrail.Count == CompatibilityAuditTrail.MaxEntriesBound, "CE25 null/empty lines ignored");
+
             Console.WriteLine("");
             Console.WriteLine("SUMMARY passed=" + s_Passed + " failed=" + s_Failed);
             return s_Failed;

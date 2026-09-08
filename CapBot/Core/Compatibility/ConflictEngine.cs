@@ -63,6 +63,7 @@ namespace CapBot.Core.Compatibility
         private static readonly object m_Lock = new object();
         private static readonly Dictionary<string, ModRecord> m_Mods = new Dictionary<string, ModRecord>(MaxTrackedMods);
         private static Action<string> m_DecisionListener;
+        private static Action<string, QuarantineState> m_StateListener;
 
         private static int m_RefusedCount;                   // over-bound / invalid calls
         private static int m_Evaluations;
@@ -78,6 +79,14 @@ namespace CapBot.Core.Compatibility
         public static void SetDecisionListener(Action<string> listener)
         {
             lock (m_Lock) { m_DecisionListener = listener; }
+        }
+
+        // Quarantine-state change seam: fired on every quarantine-state
+        // transition (production layer persists compatibility-state.json;
+        // the engine itself performs no IO). modName, newState.
+        public static void SetStateListener(Action<string, QuarantineState> listener)
+        {
+            lock (m_Lock) { m_StateListener = listener; }
         }
 
         // ---- evidence intake ----------------------------------------------------
@@ -236,6 +245,7 @@ namespace CapBot.Core.Compatibility
                 r.Quarantine = QuarantineState.Quarantined;
                 r.QuarantinedAtMs = nowMs;
                 EmitLocked("CompatibilityQuarantined mod=" + r.Name + " reason=" + r.QuarantineReason);
+                FireStateLocked(r.Name, r.Quarantine);
                 return true;
             }
         }
@@ -251,6 +261,7 @@ namespace CapBot.Core.Compatibility
                 if (r.Quarantine != QuarantineState.Quarantined) { CountRefused(); return false; }
                 r.Quarantine = QuarantineState.RestoredForRetest;
                 EmitLocked("CompatibilityRetestRestored mod=" + r.Name);
+                FireStateLocked(r.Name, r.Quarantine);
                 return true;
             }
         }
@@ -269,12 +280,14 @@ namespace CapBot.Core.Compatibility
                 {
                     r.Quarantine = QuarantineState.CompatibleAfterRetest;
                     EmitLocked("CompatibilityDecision mod=" + r.Name + " action=COMPATIBLE_AFTER_RETEST reason=retest clean");
+                    FireStateLocked(r.Name, r.Quarantine);
                     return true;
                 }
                 r.Quarantine = QuarantineState.QuarantineAgain;
                 r.QuarantineAgainCount++;
                 m_QuarantineAgainEvents++;
                 EmitLocked("CompatibilityDecision mod=" + r.Name + " action=QUARANTINE_AGAIN reconfirms=" + r.QuarantineAgainCount);
+                FireStateLocked(r.Name, r.Quarantine);
                 if (m_QuarantineAgainEvents >= ReconfirmationsForSafeMode && !m_SafeMode)
                 {
                     EnableSafeModeLocked("repeated re-confirmed conflicts", nowMs);
@@ -413,6 +426,7 @@ namespace CapBot.Core.Compatibility
             {
                 m_Mods.Clear();
                 m_DecisionListener = null;
+                m_StateListener = null;
                 m_RefusedCount = 0;
                 m_Evaluations = 0;
                 m_DecisionEmits = 0;
@@ -440,6 +454,14 @@ namespace CapBot.Core.Compatibility
         private static void CountRefused()
         {
             lock (m_Lock) { m_RefusedCount++; }
+        }
+
+        private static void FireStateLocked(string modName, QuarantineState newState)
+        {
+            Action<string, QuarantineState> listener = m_StateListener;
+            if (listener == null) return;
+            try { listener(modName, newState); }
+            catch (Exception) { /* state listeners are fail-safe by contract */ }
         }
 
         private static void EmitLocked(string line)

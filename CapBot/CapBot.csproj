@@ -115,6 +115,7 @@
     <Compile Include="Core\Compatibility\ConflictEngine.cs" />
     <Compile Include="Core\Compatibility\ConflictLogBridge.cs" />
     <Compile Include="Core\Compatibility\ProtectedModList.cs" />
+    <Compile Include="Core\Compatibility\QuarantineRecord.cs" />
     <Compile Include="CompatCommand.cs" />
     <Compile Include="Core\Persistence\CrewPersistence.cs" />
     <Compile Include="CrewPersistenceAdapter.cs" />
