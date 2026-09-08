@@ -3,6 +3,37 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 32 — Testing/QA (invariant regression suite)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `tests/QaInvariantTests.cs` (QA01–QA10, 45 assertions) + suite
+  registration (31 domain files, 22 suites). Zero production changes —
+  the phase is a pure test-and-audit pass consolidating the master
+  prompt's architecture invariants into repeatable regressions:
+  deny-by-default authority across ALL seams; LLM advisory-only
+  (ADVICE: vocabulary gate + opaque round-trip); bounded-state census;
+  end-to-end pipeline round trip with duplicate protection; recovery
+  backoff monotonic/capped; persistence live-wins; cross-system
+  determinism (byte-identical StatusHub reports from identical
+  timelines); no-fabrication census; updater chain integrity; perf gate
+  stamp discipline.
+- `docs/QA.md` — the invariant census table (12 master rules → automated
+  proofs), test inventory, and known-gaps register.
+- `verify_build_p32.ps1` — consolidated reflection audit: full 30-type
+  P2–P31 shipped-surface census; 11 patch classes; Mod-ctor wiring
+  IL-proven (authority seam + MP monitor + compat manager) with the full
+  preload set; BOTH advisors IL-proven recommend-only (zero pipeline-
+  mutator references in any method body); command surfaces intact.
+
+### Verified
+- Tests: `TOTAL passed=2777 failed=0` ×3 consecutive (31 domain files,
+  22 suites; QA suite 45/45).
+- Reflection (`verify_build_p32.ps1`): 40/0 (see above).
+- Build: unchanged production surface — Release build re-run clean.
+- Run-1/2 defects: 3 test-authoring slips (missing using, ledger
+  RecordOutcome returns bool, QA02 out-var overwritten). ZERO product
+  defects found — all 12 invariants held.
+
 ## [Phase 31 — Performance (scene-scan gate, per-frame cost bounded)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added
