@@ -3,6 +3,82 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 10 — Crew agents] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Crew/CrewAgent.cs` — the agent model: bounded data record for one
+  crew member (bot or human) with stable identity (`AgentId` = "AGT:<hash8>"
+  via the shared FNV-1a `ActionIdentity.ComputeStableHash` over seed
+  "B|<playerId>"/"H|<playerId>" — deterministic across rejoins, immune to
+  name/class changes), PULSAR identity reference (`PlayerId`),
+  role model (`ClassId` raw + bounded `CrewRole` vocabulary
+  Captain/Pilot/Scientist/Weapons/Engineer mapped from the verified class
+  ids 0–4, unknown→Other, absent→Unknown; `RoleName` resolved data-only
+  through the verified static channel `PLPlayer.GetClassNameFromID`),
+  captain flag, lifecycle (Active/Inactive/Removed + Created/LastSync/
+  AbsentSince stamps), world association (LastKnownTLIName cached
+  observation), task relationship (CurrentTaskId/Type/CapabilityId/
+  AssignedMs + LastTaskOutcome/ResultMs — assignment metadata and read-only
+  observation only), bounded capability-reference list (≤8, data only,
+  future-phase integration point) and bounded diagnostics. No
+  game-object references, no PLPlayer duplication, no wall-clock reads.
+- `Core/Crew/CrewAgentRegistry.cs` — the per-bot state registry keyed by
+  stable AgentId (never shared statics): bounded-cadence sync (1 s gate,
+  host-only in the shared WorldTick postfix, individually guarded) diffs
+  the crew section of the authoritative P6 snapshot — create / update /
+  deactivate (absent) / reactivate / remove (15 s grace) / bounded
+  history (≤16); agents ≤32, capability refs ≤8; deny-by-default
+  authority seam (no probe / faulting probe ⇒ no-op; authority loss
+  CLEARS the live map so clients never keep stale authoritative state);
+  fail-safe gates (null/never-captured/stale >20 s/future-dated/
+  !GameStarted snapshots → no-op with uncertainty logged; null crew
+  entries skipped); deterministic lookups (GetAgent/FindByPlayerId);
+  task-assignment surface (AssignTask/ClearTask — metadata only, never
+  creates/claims/executes; terminal outcomes observed read-only via
+  TaskRegistry.Get, Failed-retryable stays assigned, vanished cleared
+  after 10 s grace); role-name resolver seam; bounded status/agent
+  lines; ResetForTests.
+- `Core/Crew/CrewAgentLogBridge.cs` — boots the registry's decision
+  listener onto CapBotLog (CREW subsystem) at mod construction.
+- `docs/CREW_AGENTS.md` — the full crew-agent contract: identity,
+  lifecycle, role model, world-state relationship, task relationship,
+  authority/multiplayer behavior, performance bounds, verified-API table,
+  future personality/memory integration points, failure modes, tests.
+- `tests/CrewAgentTests.cs` — 108 assertions covering all 20 mandated
+  scenarios (stable creation, duplicate prevention, bot removal, stale
+  reference, captain identification, role mapping, multi-agent isolation,
+  task ownership, scheduler/recovery/claims/emergency interaction,
+  invalid-player handling, deterministic lookup, bounded registry,
+  join/leave lifecycle, captain change, client/master authority, no
+  cross-agent contamination, no unauthorized execution, fail-safe gates).
+
+### Changed
+- `CapBot.csproj` — three Compile entries for the Crew domain.
+- `Mod.cs` — Phase 10 boot block: crew logging bridge + delegate-wired
+  seams (authority probe = ExecutionClaims.IsAuthoritative, clock =
+  TaskClock.NowMs, world = WorldStateService.Latest, role-name resolver =
+  PLPlayer.GetClassNameFromID, fail-safe wrapped). Registry stays INERT
+  until the tick driver calls Sync host-side.
+- `Patch.cs` — the shared `WorldTick` postfix (PLController.Update)
+  extended IN PLACE (still 11 Harmony patch classes): host-only,
+  exception-guarded `CrewAgentRegistry.Sync(TaskClock.NowMs)` call after
+  the P9 emergency calls; header comment documents Phase 10.
+- `tests/run_tests.ps1` — compiles the two Crew domain files and the
+  ninth suite; header updated.
+- `tests/TaskRecoveryTests.cs` — TestMain runs f9 = CrewAgentTests;
+  TOTAL/return gate covers nine suites.
+
+### Notes
+- No PULSAR API outside the verified set is touched: the registry's own
+  code path consumes WorldSnapshot data only; the role-name resolver is
+  the verified static public `PLPlayer.GetClassNameFromID(Int32)`.
+- PLPlayer priority management, PLBot behavior trees, PLBotController
+  movement, PLFlightAI, RPC patterns, MoreBotsCompatPatch, BotAppearanceFix
+  cosmetics and the PML save format are untouched. No competing movement
+  AI, no per-frame AI-target manipulation.
+- Phase 11+ work (personality, memory, learning, Mission/Economy/Combat
+  directors, Captain Brain 2.0, LLM) is NOT implemented.
+
 ## [Phase 9 — Emergency director] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

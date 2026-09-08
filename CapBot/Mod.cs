@@ -79,6 +79,23 @@ namespace CapBot
             CapBot.Core.Emergency.EmergencyDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Emergency.EmergencyDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Emergency.EmergencyDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            // Phase 10: attach crew-agent-registry logging and wire its seams.
+            // The registry stays INERT until the tick driver (WorldTick) calls
+            // Sync host-side; with the authority probe it is deny-by-default
+            // (clients never build authoritative agent state). Agents observe
+            // tasks read-only (TaskRegistry) and hold assignment metadata only
+            // — no tasks are created, claimed, or executed here, and no PULSAR
+            // world state is modified. Role names resolve through the game's
+            // verified static public naming channel only (data only).
+            CapBot.Core.Crew.CrewAgentLogBridge.Ensure();
+            CapBot.Core.Crew.CrewAgentRegistry.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Crew.CrewAgentRegistry.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Crew.CrewAgentRegistry.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            CapBot.Core.Crew.CrewAgentRegistry.SetRoleNameResolver(delegate(int classId)
+            {
+                try { return PLPlayer.GetClassNameFromID(classId); }
+                catch (System.Exception) { return null; }
+            });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

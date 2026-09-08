@@ -124,6 +124,9 @@
     <Compile Include="Core\Emergency\EmergencyDetector.cs" />
     <Compile Include="Core\Emergency\EmergencyDirector.cs" />
     <Compile Include="Core\Emergency\EmergencyLogBridge.cs" />
+    <Compile Include="Core\Crew\CrewAgent.cs" />
+    <Compile Include="Core\Crew\CrewAgentRegistry.cs" />
+    <Compile Include="Core\Crew\CrewAgentLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

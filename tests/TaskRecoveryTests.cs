@@ -286,9 +286,10 @@ namespace CapBot.TaskTests
             int f6 = CapabilityTests.Run();
             int f7 = ExecutionTests.Run();
             int f8 = EmergencyTests.Run();
+            int f9 = CrewAgentTests.Run();
             Console.WriteLine("");
-            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed + WorldStateTests.LastPassed + CapabilityTests.LastPassed + ExecutionTests.LastPassed + EmergencyTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8));
-            return (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8) == 0 ? 0 : 1;
+            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed + WorldStateTests.LastPassed + CapabilityTests.LastPassed + ExecutionTests.LastPassed + EmergencyTests.LastPassed + CrewAgentTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9));
+            return (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9) == 0 ? 0 : 1;
         }
     }
 }

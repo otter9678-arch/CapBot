@@ -2797,6 +2797,13 @@ namespace CapBot
     // inert until snapshots show provable emergencies). The director never
     // executes anything — it only creates/queues tasks through the P2/P4
     // lifecycle; execution still routes through P5/P7/P8.
+    //
+    // Phase 10: the same postfix also drives the crew-agent registry sync
+    // (1 s internal gate = MinRecheckMs, host-only, deny-by-default
+    // authority). Agents are bounded data records diffed from the crew
+    // section of the Phase 6 snapshot — the registry creates no tasks, never
+    // executes, and never touches PULSAR world state; PLPlayer priority
+    // management and PLBot behavior trees are untouched.
     [HarmonyPatch(typeof(PLController), "Update")]
     static class WorldTick
     {
@@ -2854,6 +2861,14 @@ namespace CapBot
             catch (System.Exception ex)
             {
                 CapBotLog.Error(CapBotLog.EMERGENCY, "Emergency reconcile failed", ex);
+            }
+            try
+            {
+                CapBot.Core.Crew.CrewAgentRegistry.Sync(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.CREW, "Crew agent sync failed", ex);
             }
         }
     }
