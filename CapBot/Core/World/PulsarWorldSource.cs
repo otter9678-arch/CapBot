@@ -291,7 +291,20 @@ namespace CapBot.Core.World
                     try { coolant = playerShip.ReactorCoolantLevelPercent; } catch (Exception ex) { RecordPartial("coolant level", ex); }
                 }
 
-                resources = new ResourceSnapshot(credits, research, upgradeMats, fuel, coolant);
+                // ---- Phase 16 economy inputs (unit prices, fail-safe) -----
+                // Effective fuel/coolant unit prices via the server price API
+                // surface compile-proven in shipped Patch.cs HandleShop. Any
+                // fault leaves -1 (unknown); the economy director's
+                // affordability rules stay silent on unknown prices.
+                int fuelPrice = -1;
+                int coolantPrice = -1;
+                if (server != null)
+                {
+                    try { fuelPrice = (int)server.GetFuelBasePrice(); } catch (Exception ex) { RecordPartial("fuel base price", ex); }
+                    try { coolantPrice = (int)server.GetCoolantBasePrice(); } catch (Exception ex) { RecordPartial("coolant base price", ex); }
+                }
+
+                resources = new ResourceSnapshot(credits, research, upgradeMats, fuel, coolant, fuelPrice, coolantPrice);
             }
             catch (Exception ex) { RecordPartial("resources", ex); resources = null; }
 

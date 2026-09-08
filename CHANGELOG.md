@@ -3,6 +3,118 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 16 — Economy director] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Economy/EconomyDirector.cs` — the economy-tracking layer (BOUNDED
+  DETERMINISTIC REPORT-ONLY, P15 mirror): credits tracking in
+  `ECONOMY:CREDITS` records (bounded set ≤ 8 = MaxActiveEconomyRecords with
+  deterministic oldest-shedding by LastSeenMs (tie → lowest key order,
+  `EconomyShed` line), history ≤ 16 = MaxHistory, credits unreadable past
+  60 s = ActiveExpiryMs decays the record with a one-shot `EconomyVanished`
+  report, decision cadence 5 s). One-shot edge reports: `EconomyOpened`
+  (first readable credits), `CreditsLowReport` (credits ≤ ReserveFloor =
+  2500 — the legacy CREDIT_RESERVE documentation, audit H4: the dead
+  MinCreditsReserve slider is NOT wired — one report per episode re-armed by
+  recovery), `CreditsDeltaReport` (change beyond MaxDeltaReportAbs = 10000;
+  direction + magnitude only, NEVER cause inference — the snapshot cannot
+  attribute deltas), `StoreSectorReport` (shop-class sector per the
+  classifier SEAM — production wires the exact compile-proven
+  ESectorVisualIndication list shipped Patch.cs:169-171 uses — + 15 s
+  StoreDwellMs, one report per sector episode, exit closes/re-entry
+  re-arms), `FuelAffordabilityReport`/`CoolantAffordabilityReport` (supply
+  low mirroring the P9 warning thresholds as data constants ≤ 2 capsules /
+  ≤ 30% AND captured unit price readable AND credits < price — one report
+  per episode; pure data: P9 owns low-supply SEVERITY, legacy HandleShop
+  owns all buying), `WarpTollReport` (snapshot WARP_STATION Price >
+  readable credits — verified comparison shape of Patch.cs:2609 — 15 s
+  dwell, cheapest unaffordable toll wins, Price ≤ 0 sentinels never
+  trigger), `EconomyUncertain` fail-safe lines. Fail-safe gates: authority
+  deny-by-default seam (clients never report; credits are MasterDerived),
+  cadence, snapshot staleness (>20 s / future / never-captured /
+  !GameStarted), unknown sentinels (Credits −1 / NaN coolant / −1 fuel /
+  −1 prices / −1 sector never trigger — UnknownInputPasses counter),
+  deny-by-default shop classifier seam (P10 SetRoleNameResolver pattern).
+  NO tasks created (no economy capability exists in the P7 catalog; a task
+  without CapabilityId metadata fails at start per the P8 executor
+  contract — report-only by API-surface necessity, P15 mirror); no
+  ReconcileTasks; no RPCs, no credit mutation (audit M10 patterns
+  excluded), no CrewPurchaseLimitsEnabled replication, no PLTradeData
+  (referenced nowhere — treated as nonexistent), no ShopRepMultiplier
+  consumption (private helper, body never verified — base prices only).
+  Counter readbacks + bounded deterministic diagnostics (Lines one per
+  tracked record, StatusLines = 2). ResetForTests.
+- `Core/Economy/EconomyLogBridge.cs` — attaches CapBotLog (ECONOMY, existing
+  const) as the director's decision listener at boot (same pattern as the
+  other phase bridges).
+- `WorldSnapshot.cs` + `PulsarWorldSource.cs` — ADDITIVE P6 capture (P9
+  ctor pattern): `ResourceSnapshot.FuelBasePrice` / `CoolantBasePrice`
+  (-1 = unknown) filled from `(int)PLServer.GetFuelBasePrice()` /
+  `(int)PLServer.GetCoolantBasePrice()` — both compile-proven in shipped
+  Patch.cs HandleShop (lines 2220/2234) — per-field try/catch
+  RecordPartial, original 5-arg ResourceSnapshot ctor preserved verbatim
+  (defaults −1), new 7-arg ctor chains `: this(...)`.
+- `docs/ECONOMY_DIRECTOR.md` — full contract: report-only rationale (API-
+  surface argument), rules, gates, lifecycle bookkeeping, data flow, the
+  additive capture table, authority model, audit honesty note (H4 dead
+  slider), performance, verified-API table, failure modes, tests,
+  deliberate scope boundaries.
+- `tests/EconomyTests.cs` — 102 assertions covering ES01–ES13: credits
+  end-to-end (open → low edge → recovery re-arm), delta reports (large ±,
+  small suppressed, moderate-delta-crossing-the-band co-fire), store
+  dwell/exit/re-entry episodes, affordability episodes (boundary
+  credits==price is affordable), unknown-sentinel quiet paths (prices
+  unknown; fuel sentinel with coolant still firing), warp-toll
+  dwell/sentinels/cheapest-pick, fail-safe inputs (null/stale/not-started/
+  future/unknown-credits), authority deny-by-default, vanished + expiry
+  hygiene + bounded history (fresh-publish-after-advance discipline),
+  classifier seam deny-by-default (null/faulting = never a shop), cadence +
+  counters + diagnostics.
+
+### Changed
+- `Patch.cs` — WorldTick Postfix extended IN PLACE: after the mission
+  block, `EconomyDirector.Evaluate(nowMs)` in its own try/catch
+  (`CapBotLog.ECONOMY`). Postfix IL bytes 360 → 395 (expected change; no new
+  patch class — the permanent ceiling of 11 is preserved).
+- `CapBot.csproj` — +2 Compile entries (`Core\Economy\EconomyDirector.cs`,
+  `Core\Economy\EconomyLogBridge.cs`).
+- `Mod.cs` — Phase 16 boot block after the mission seams:
+  `EconomyLogBridge.Ensure()` + authority/now/world seams + the
+  shop-sector classifier wired to the compile-proven ESectorVisualIndication
+  shop-class list.
+- `tests/run_tests.ps1` — +1 domain compile entry
+  (`Core\Economy\EconomyDirector.cs`) and +1 suite (`EconomyTests.cs`,
+  last).
+- `tests/TaskRecoveryTests.cs` — TestMain runs fifteen suites (`f15` =
+  EconomyTests); TOTAL line updated.
+
+### Notes
+- Zero NEW unverified PULSAR APIs: the director reads only previously
+  verified P6 snapshot sections plus the two additive price captures whose
+  API surface was already compile-proven in shipped HandleShop code.
+  `GetFuelBasePrice()`/`GetCoolantBasePrice()` are the first P6-capture uses
+  of a whitelist API pair not previously captured (audit line 86).
+- Report-only by API-surface necessity (identical shape to Phase 15): no
+  economy capability exists in the P7 catalog, and the P8 executor rejects
+  tasks with unbound CapabilityIds — an economy task would fail at
+  execution by construction. Legacy BotEconomy/BotExtractor/HandleShop
+  keep exclusive ownership of every economy action.
+- Credit deltas are direction + magnitude only — no cause inference (the
+  snapshot cannot attribute credits movement).
+- Consumers are later phases (Captain Brain 2.0 planning); Phase 16
+  implements no consumer beyond the bounded reports.
+- Verified: build 0 warnings/0 errors; tests TOTAL 1563/1563 (fifteen
+  suites; EconomyTests 102 assertions ES01–ES13); reflection 177 types/
+  155 named, EconomyDirector 60 members + EconomyRecord nested type +
+  all 15 constants exact (MinRecheckMs=5000, MaxActiveEconomyRecords=8,
+  MaxHistory=16, ActiveExpiryMs=60000, MaxStaleSnapshotMs=20000,
+  StoreDwellMs=15000, WarpTollDwellMs=15000, ReserveFloor=2500,
+  MaxDeltaReportAbs=10000, FuelLowCapsules=2, CoolantLowPercent=30,
+  MaxTextLen=120, TrackIdPrefix=ECONOMY:, TrackCredits=CREDITS,
+  TargetKindEconomy=ECONOMY), ResourceSnapshot 2 fields + 2 ctors,
+  P6–P15 intact, harmony_patch_classes=11, WorldTick Postfix IL 395 bytes
+  (expected in-place growth from 360), new namespace CapBot.Core.Economy.
+
 ## [Phase 15 — Mission director] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

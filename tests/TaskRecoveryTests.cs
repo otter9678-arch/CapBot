@@ -292,9 +292,10 @@ namespace CapBot.TaskTests
             int f12 = MemoryTests.Run();
             int f13 = NavigationTests.Run();
             int f14 = MissionTests.Run();
+            int f15 = EconomyTests.Run();
             Console.WriteLine("");
-            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed + WorldStateTests.LastPassed + CapabilityTests.LastPassed + ExecutionTests.LastPassed + EmergencyTests.LastPassed + CrewAgentTests.LastPassed + PersonalityTests.LastPassed + ExperienceTests.LastPassed + MemoryTests.LastPassed + NavigationTests.LastPassed + MissionTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14));
-            return (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14) == 0 ? 0 : 1;
+            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed + WorldStateTests.LastPassed + CapabilityTests.LastPassed + ExecutionTests.LastPassed + EmergencyTests.LastPassed + CrewAgentTests.LastPassed + PersonalityTests.LastPassed + ExperienceTests.LastPassed + MemoryTests.LastPassed + NavigationTests.LastPassed + MissionTests.LastPassed + EconomyTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14 + f15));
+            return (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14 + f15) == 0 ? 0 : 1;
         }
     }
 }

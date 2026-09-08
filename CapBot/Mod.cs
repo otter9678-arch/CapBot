@@ -138,6 +138,28 @@ namespace CapBot
             CapBot.Core.Missions.MissionDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Missions.MissionDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Missions.MissionDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            // Phase 16: attach economy-director logging and wire its seams.
+            // The director is REPORT-ONLY (Phase 16 contract): it tracks the
+            // credits picture, shop-sector presence, fuel/coolant affordability
+            // and warp-toll inaffordability from the P6 snapshot (+ the Phase 16
+            // additive unit-price capture) and emits bounded diagnostics — it
+            // creates NO tasks (no economy capability exists in the P7 catalog,
+            // and a task without CapabilityId metadata fails at start per the
+            // P8 executor contract). The shop-sector classifier rides the same
+            // compile-proven ESectorVisualIndication list shipped Patch.cs uses
+            // to gate its own shop behavior; deny-by-default keeps clients
+            // silent.
+            CapBot.Core.Economy.EconomyLogBridge.Ensure();
+            CapBot.Core.Economy.EconomyDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Economy.EconomyDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Economy.EconomyDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            CapBot.Core.Economy.EconomyDirector.SetShopSectorClassifier(delegate (int visualIndication)
+            {
+                ESectorVisualIndication v = (ESectorVisualIndication)visualIndication;
+                return v == ESectorVisualIndication.GENERAL_STORE || v == ESectorVisualIndication.EXOTIC1 || v == ESectorVisualIndication.EXOTIC2 || v == ESectorVisualIndication.EXOTIC3 || v == ESectorVisualIndication.EXOTIC4
+                    || v == ESectorVisualIndication.EXOTIC5 || v == ESectorVisualIndication.EXOTIC6 || v == ESectorVisualIndication.EXOTIC7 || v == ESectorVisualIndication.AOG_HUB || v == ESectorVisualIndication.GENTLEMEN_START || v == ESectorVisualIndication.CORNELIA_HUB
+                    || v == ESectorVisualIndication.COLONIAL_HUB || v == ESectorVisualIndication.WD_START || v == ESectorVisualIndication.SPACE_SCRAPYARD || v == ESectorVisualIndication.FLUFFY_FACTORY_01 || v == ESectorVisualIndication.FLUFFY_FACTORY_02 || v == ESectorVisualIndication.FLUFFY_FACTORY_03 || v == ESectorVisualIndication.SPACE_CAVE_2;
+            });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

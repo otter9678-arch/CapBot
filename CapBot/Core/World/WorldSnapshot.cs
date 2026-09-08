@@ -250,6 +250,15 @@ namespace CapBot.Core.World
         public readonly int FuelCapsules;                  // -1 = unknown (player ship)
         public readonly float CoolantLevelPercent;         // NaN = unknown (player ship)
 
+        // ---- Phase 16 additions (economy director inputs) ---------------------
+        // Effective unit prices in credits (-1 = unknown). Captured from
+        // PLServer.GetFuelBasePrice()/GetCoolantBasePrice() — both compile-proven
+        // in shipped Patch.cs HandleShop (lines 2220/2234). Fail-safe: any
+        // capture fault leaves -1 and the economy director's affordability
+        // rules stay silent (unknown sentinels never trigger).
+        public readonly int FuelBasePrice;                 // -1 = unknown
+        public readonly int CoolantBasePrice;              // -1 = unknown
+
         public ResourceSnapshot(
             int credits, IReadOnlyList<int> researchMaterials,
             int upgradeMaterials, int fuelCapsules, float coolantLevelPercent)
@@ -268,6 +277,20 @@ namespace CapBot.Core.World
             UpgradeMaterials = upgradeMaterials;
             FuelCapsules = fuelCapsules;
             CoolantLevelPercent = coolantLevelPercent;
+            FuelBasePrice = -1;
+            CoolantBasePrice = -1;
+        }
+
+        // Phase 16 constructor: adds the two economy unit prices without
+        // touching any existing caller (P9 additive-ctor pattern).
+        public ResourceSnapshot(
+            int credits, IReadOnlyList<int> researchMaterials,
+            int upgradeMaterials, int fuelCapsules, float coolantLevelPercent,
+            int fuelBasePrice, int coolantBasePrice)
+            : this(credits, researchMaterials, upgradeMaterials, fuelCapsules, coolantLevelPercent)
+        {
+            FuelBasePrice = fuelBasePrice < 0 ? -1 : fuelBasePrice;
+            CoolantBasePrice = coolantBasePrice < 0 ? -1 : coolantBasePrice;
         }
     }
 

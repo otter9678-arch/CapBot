@@ -2894,6 +2894,14 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.MISSION, "Mission director evaluate failed", ex);
             }
+            try
+            {
+                CapBot.Core.Economy.EconomyDirector.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.ECONOMY, "Economy director evaluate failed", ex);
+            }
         }
     }
     [HarmonyPatch(typeof(PLBotController), "HandleMovement")]
