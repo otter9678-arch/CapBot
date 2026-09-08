@@ -99,6 +99,14 @@ namespace CapBot.Core.World
         public readonly int AlertLevel;            // -1 = unknown
         public readonly float CombatLevel;         // NaN = unknown
 
+        // ---- Phase 17 additions (combat director inputs) -----------------------
+        // Data-only combat-activity flag: did the game itself mark this ship as
+        // recently damaged (the shipped Patch.cs:242 "took damage recently"
+        // window — Time.time - LastTookDamageTime() < 10f, compile-proven).
+        // false covers both "not recently damaged" and "capture unknown" —
+        // a report-only consumer treats false as never-trigger (fail-safe).
+        public readonly bool TookDamageRecently;
+
         public ShipSnapshot(
             int shipId, string name, bool isPlayerShip, int teamId,
             bool hostileToPlayerShip, float hullFraction, float shieldFraction,
@@ -117,6 +125,23 @@ namespace CapBot.Core.World
             WarpTargetSectorId = warpTargetSectorId;
             AlertLevel = alertLevel;
             CombatLevel = combatLevel;
+            TookDamageRecently = false;
+        }
+
+        // Phase 17 constructor: adds the combat-activity flag without touching
+        // any existing caller (P9 additive-ctor pattern).
+        public ShipSnapshot(
+            int shipId, string name, bool isPlayerShip, int teamId,
+            bool hostileToPlayerShip, float hullFraction, float shieldFraction,
+            bool inWarp, int warpChargeStage, int warpTargetSectorId,
+            int alertLevel, float combatLevel,
+            bool tookDamageRecently)
+            : this(shipId, name, isPlayerShip, teamId,
+                   hostileToPlayerShip, hullFraction, shieldFraction,
+                   inWarp, warpChargeStage, warpTargetSectorId,
+                   alertLevel, combatLevel)
+        {
+            TookDamageRecently = tookDamageRecently;
         }
     }
 
@@ -165,6 +190,13 @@ namespace CapBot.Core.World
         public readonly float PlayerTargetCombatLevel;  // NaN = unknown
         public readonly float OurCombatLevel;           // NaN = unknown
 
+        // ---- Phase 17 additions (combat director inputs) -----------------------
+        // Boarder count on the player ship (PLShipInfoBase.InvadersOnboard —
+        // DLL reflection-verified: public property returning System.Int32;
+        // game-owned data read, never hostility logic). -1 = unknown; -1 never
+        // triggers any report (unknown sentinels never trigger).
+        public readonly int InvadersOnboardCount;       // -1 = unknown
+
         public ThreatSnapshot(
             IReadOnlyList<int> knownHostileShipIds,
             int team0ShipCount, int team1ShipCount, int team2ShipCount,
@@ -186,6 +218,21 @@ namespace CapBot.Core.World
             PlayerTargetShipId = playerTargetShipId;
             PlayerTargetCombatLevel = playerTargetCombatLevel;
             OurCombatLevel = ourCombatLevel;
+            InvadersOnboardCount = -1;
+        }
+
+        // Phase 17 constructor: adds the boarder count without touching any
+        // existing caller (P9 additive-ctor pattern).
+        public ThreatSnapshot(
+            IReadOnlyList<int> knownHostileShipIds,
+            int team0ShipCount, int team1ShipCount, int team2ShipCount,
+            int playerTargetShipId, float playerTargetCombatLevel, float ourCombatLevel,
+            int invadersOnboardCount)
+            : this(knownHostileShipIds,
+                   team0ShipCount, team1ShipCount, team2ShipCount,
+                   playerTargetShipId, playerTargetCombatLevel, ourCombatLevel)
+        {
+            InvadersOnboardCount = invadersOnboardCount < 0 ? -1 : invadersOnboardCount;
         }
     }
 

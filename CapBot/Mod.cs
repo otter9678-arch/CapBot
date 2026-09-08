@@ -160,6 +160,21 @@ namespace CapBot
                     || v == ESectorVisualIndication.EXOTIC5 || v == ESectorVisualIndication.EXOTIC6 || v == ESectorVisualIndication.EXOTIC7 || v == ESectorVisualIndication.AOG_HUB || v == ESectorVisualIndication.GENTLEMEN_START || v == ESectorVisualIndication.CORNELIA_HUB
                     || v == ESectorVisualIndication.COLONIAL_HUB || v == ESectorVisualIndication.WD_START || v == ESectorVisualIndication.SPACE_SCRAPYARD || v == ESectorVisualIndication.FLUFFY_FACTORY_01 || v == ESectorVisualIndication.FLUFFY_FACTORY_02 || v == ESectorVisualIndication.FLUFFY_FACTORY_03 || v == ESectorVisualIndication.SPACE_CAVE_2;
             });
+            // Phase 17: attach combat-director logging and wire its seams.
+            // The director is REPORT-ONLY by MANDATE (Phase 17 contract): a
+            // combat-adjacent capability EXISTS (SET_CAPTAIN_TARGET, P7) but
+            // its authorship is owned by the P9 emergency director and by the
+            // legacy captain tick. The director tracks the engagement picture
+            // (hostile set, combat-level gap label, warp-combat, under-fire,
+            // boarders) from the P6 snapshot (+ the Phase 17 additive
+            // InvadersOnboard/took-damage-recently capture) and emits bounded
+            // diagnostics — it creates NO tasks, never fires, never sets
+            // targets, and never assigns severity. Deny-by-default authority
+            // keeps clients silent.
+            CapBot.Core.Combat.CombatLogBridge.Ensure();
+            CapBot.Core.Combat.CombatDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Combat.CombatDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Combat.CombatDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

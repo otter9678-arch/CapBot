@@ -186,7 +186,16 @@ namespace CapBot.Core.World
                         try { targetCombatLevel = target.GetCombatLevel(); } catch (Exception ex) { RecordPartial("target combat level", ex); }
                     }
                 }
-                threats = new ThreatSnapshot(hostileIds, team0, team1, team2, targetShipId, targetCombatLevel, ourCombatLevel);
+
+                // Phase 17: boarder count on the player ship (game-owned data;
+                // PLShipInfoBase.InvadersOnboard is a public System.Int32
+                // property — DLL reflection-verified). Any fault leaves -1 and
+                // the boarder rule stays silent.
+                int invaders = -1;
+                try { if (playerShip != null) invaders = playerShip.InvadersOnboard; }
+                catch (Exception ex) { RecordPartial("invaders onboard", ex); }
+
+                threats = new ThreatSnapshot(hostileIds, team0, team1, team2, targetShipId, targetCombatLevel, ourCombatLevel, invaders);
             }
             catch (Exception ex) { RecordPartial("threats", ex); threats = null; }
 
@@ -449,11 +458,23 @@ namespace CapBot.Core.World
             float combatLevel = float.NaN;
             try { combatLevel = ship.GetCombatLevel(); } catch (Exception) { }
 
+            // Phase 17: game-owned "took damage recently" flag (the shipped
+            // Patch.cs:242 window, compile-proven). Data-only; any fault leaves
+            // false and the combat director's under-fire rule stays silent.
+            bool tookDamageRecently = false;
+            try
+            {
+                float timeNow = UnityEngine.Time.time;
+                tookDamageRecently = timeNow - ship.LastTookDamageTime() < 10f;
+            }
+            catch (Exception) { }
+
             return new ShipSnapshot(
                 ship.ShipID, ship.ShipName, isPlayerShip, ship.TeamID,
                 hostile, hullFraction, shieldFraction,
                 ship.InWarp, (int)ship.WarpChargeStage, ship.WarpTargetID,
-                alertLevel, combatLevel);
+                alertLevel, combatLevel,
+                tookDamageRecently);
         }
 
         private static CrewMemberSnapshot BuildCrew(PLPlayer player, bool isCaptain)

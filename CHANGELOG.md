@@ -3,6 +3,108 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 17 — Combat director] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Combat/CombatDirector.cs` — the combat-tracking layer (BOUNDED
+  DETERMINISTIC REPORT-ONLY **by mandate**: the P7 catalog DOES contain one
+  combat-adjacent capability — SET_CAPTAIN_TARGET, executor-dispatchable —
+  but its authorship is owned by the P9 emergency director (DangerousCombat)
+  and by the legacy captain tick (ComputeDesiredOrder / BoardEnemy / blind
+  jump), so P17 produces the combat-side coordination record and creates NO
+  tasks). Single `COMBAT:ENGAGEMENT` episode record (bounded set ≤ 8 =
+  MaxActiveCombatRecords with deterministic oldest-shedding — defensive-only
+  in this contract, house-pattern parity — history ≤ 16 = MaxHistory, hostile
+  set empty past 60 s = ActiveExpiryMs decays the record with a one-shot
+  `CombatVanished` report, decision cadence 5 s). One-shot edge reports:
+  `CombatOpened` (first pass with ≥ 1 authoritative hostile — immediate, no
+  dwell: P9 owns immediate severity; record-creation vocabulary, re-emits
+  only after the record decays), `HostileEngagementReport` (after
+  EngagementDwellMs = 15 s of a STABLE hostile picture — any composition
+  change re-arms with a fresh dwell clock; carries hostile count, our/target
+  combat levels (INFERRED semantics, data-only), the gap label mirroring
+  P9's INFERRED 1.33 threat-readout const, and the player-ship hull
+  fraction), `HostileClearedReport` (hostiles drop to zero: one-shot episode
+  close; the tracked record survives — hygiene owns expiry — and re-entry
+  re-opens the episode), `WarpEngagementReport` (hostiles present while the
+  player ship is in warp — pure data picture, vanilla/legacy own all
+  warp/escape behavior), `UnderFireReport` (player ship TookDamageRecently
+  while hostiles present — pure data: P9 owns fire/hull SEVERITY), 
+  `BoarderReport` (InvadersOnboardCount > 0 — independent of hostiles; data
+  only: vanilla repel + legacy order-6 own the response), `CombatUncertain`
+  fail-safe lines. Fail-safe gates: authority deny-by-default seam (clients
+  never report), cadence, snapshot staleness (>20 s / future / never-captured
+  / !GameStarted), unknown sentinels (NaN combat levels → "-" never a
+  trigger; InvadersOnboardCount −1 → silent + UnknownInputPasses;
+  TookDamageRecently false covers "not damaged" and "capture unknown"),
+  zero-hostile passes are legitimate quiet passes (not unknowns). NO tasks,
+  no ReconcileTasks, no RPCs, no target authorship, no weapon/fire APIs, no
+  severity ladder, no config-slider wiring (audit H4: AIReactionSpeed /
+  AIAccuracy / CombatEngageRange / CombatDisengageHealth are DEAD; the
+  legacy blind-jump hull floor 0.2f + 60 s cooldown are documented as
+  data-only constants). Counter readbacks + bounded deterministic
+  diagnostics (Lines one per tracked record, StatusLines = 2).
+  ResetForTests.
+- `Core/Combat/CombatLogBridge.cs` — attaches CapBotLog (COMBAT, existing
+  const) as the director's decision listener at boot (same pattern as the
+  other phase bridges).
+- `WorldSnapshot.cs` + `PulsarWorldSource.cs` — ADDITIVE P6 capture (P9
+  ctor pattern): `ShipSnapshot.TookDamageRecently` (game-owned "took damage
+  recently" window — `Time.time - LastTookDamageTime() < 10f`, compile-proven
+  shipped Patch.cs:242) and `ThreatSnapshot.InvadersOnboardCount`
+  (`playerShip.InvadersOnboard` — DLL reflection-verified public
+  System.Int32 property; docs/EMERGENCY.md §165) — per-field try/catch
+  RecordPartial, original ctors preserved verbatim (defaults false / −1),
+  new ctors chain `: this(...)`.
+- `docs/COMBAT_DIRECTOR.md` — full contract: report-only-by-mandate
+  rationale (ownership argument), rules, gates, lifecycle bookkeeping, data
+  flow, the additive capture table, authority model, audit honesty notes
+  (H4 dead combat sliders), performance, verified-API table, failure modes,
+  tests, scope boundaries.
+- `tests/CombatTests.cs` — 77 assertions CS01–CS13: engagement episode
+  end-to-end, composition-change re-arm (fresh dwell), episode close +
+  live-record re-entry semantics, combat-level gap labeling
+  (unfavorable/sub-threshold/NaN), warp-combat picture, under-fire episodes
+  with re-arm, boarder episodes (independent of hostiles, −1 sentinel),
+  quiet paths (zero hostiles = legitimate quiet), fail-safe inputs
+  (null/stale/not-started/future), authority deny-by-default, vanished +
+  expiry hygiene + bounded history (fresh-publish-after-advance discipline),
+  cadence + counters + diagnostics determinism, additive-capture ctor
+  regression. Hooked as f16 (sixteen suites); run_tests.ps1 compiles the
+  combat domain file + test file with the rest. **TOTAL 1640/1640** (1563
+  prior + 77 new).
+
+### Changed
+- `CapBot.csproj` — +2 Compile entries (Core/Combat/CombatDirector.cs,
+  Core/Combat/CombatLogBridge.cs) after the Economy entries.
+- `Mod.cs` — Phase 17 boot block after the economy seams: CombatLogBridge
+  .Ensure() + authority/now/world seams (deny-by-default; no classifier
+  seam needed this phase — hostile membership comes from the authoritative
+  HostileShips list, no game enums consumed).
+- `Patch.cs` — WorldTick Postfix: ONE new guarded block after the economy
+  block (`CombatDirector.Evaluate` ONLY — IL 395 → 430 bytes; still 11
+  Harmony patch classes, ceiling preserved; no ReconcileTasks — nothing to
+  reconcile).
+- `tests/run_tests.ps1` — compiles Core/Combat/CombatDirector.cs +
+  tests/CombatTests.cs with the rest; `tests/TaskRecoveryTests.cs` — f16
+  hook + sixteen-suite TOTAL/gate.
+
+### Notes
+- Zero new unverified APIs: the two additive captures are compile-proven
+  (Patch.cs:242 window) or DLL reflection-verified (InvadersOnboard Int32
+  property); everything else consumes existing P6 snapshot fields.
+- Report-only by mandate (ownership argument — §1 of the contract doc);
+  SET_CAPTAIN_TARGET authorship stays P9/legacy-owned; no new combat
+  capability registered (P7 catalog stays at 7 built-ins).
+- Combat-level semantics remain INFERRED (research §6.6) and data-only,
+  mirroring the P9 EmergencyDetector precedent.
+- Verification summary: Release build 0/0; tests 1640/1640 (16 suites);
+  reflection 182 types / 159 named (P16 was 177/155), CombatDirector 53
+  members + CombatRecord 7 members, all 15 constants exact, ShipSnapshot 13
+  fields / 2 ctors, ThreatSnapshot 8 fields / 2 ctors, P6–P16 intact,
+  harmony_patch_classes=11, WorldTick Postfix IL 430, namespace
+  CapBot.Core.Combat present.
+
 ## [Phase 16 — Economy director] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

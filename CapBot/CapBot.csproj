@@ -139,6 +139,8 @@
     <Compile Include="Core\Missions\MissionLogBridge.cs" />
     <Compile Include="Core\Economy\EconomyDirector.cs" />
     <Compile Include="Core\Economy\EconomyLogBridge.cs" />
+    <Compile Include="Core\Combat\CombatDirector.cs" />
+    <Compile Include="Core\Combat\CombatLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />
