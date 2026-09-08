@@ -3,6 +3,100 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 15 — Mission director] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Missions/MissionDirector.cs` — the mission-tracking layer (BOUNDED
+  DETERMINISTIC REPORT-ONLY): `MissionTrackRecord` rows (TrackId
+  "MISSION:<typeId>", FirstSeen/LastSeen/LastProgress stamps, completed/
+  total objective counters, UpdateCount, CompletedReported/AbandonedReported/
+  StallReported one-shot flags, LatestObjectiveText bounded DATA carry ≤ 120
+  chars — never parsed); `MissionDirector` (tracked set ≤ 8 =
+  MaxActiveMissions with deterministic oldest-shedding by LastSeenMs
+  (tie → lowest key order, `MissionShed` line), history ≤ 16 = MaxHistory,
+  absent/terminal records decay after 60 s = ActiveExpiryMs, live present
+  missions never expire, stall dwell 120 s = StallReportMs once per episode
+  re-armed by progress, decision cadence 5 s). One-shot transition reports:
+  MissionOpened (first sighting), MissionProgress (non-completing
+  completed-count increase — one bounded report per edge, a completing
+  increase emits MissionCompleted instead), MissionCompleted (all objectives
+  done or Ended, incl. terminal-at-first-sighting), MissionAbandoned edge,
+  MissionVanished (tracked mission absent from a readable list),
+  MissionStallReport (120 s no-progress coordination record for later
+  phases — never a task), MissionlessReport (edge-triggered, only after the
+  session tracked a mission; pristine zero-mission sessions are quiet).
+  Same-type-id instances collapse (first sighting wins, extra instances
+  counted in SameTypeIdCollisions — audit L2 caveat now documented and
+  counted). Fail-safe gates: authority deny-by-default seam (clients never
+  report), cadence, snapshot staleness (>20 s / future / never-captured /
+  !GameStarted → MissionUncertain line), unknown sentinels (TotalObjectives
+  == 0 never completes or stalls). NO tasks created (the P7 catalog has no
+  mission capability and the P8 executor rejects unbound CapabilityIds —
+  report-only by API-surface necessity); no ReconcileTasks (nothing to
+  reconcile); no RPCs, no dialogue interaction, no objective mutation (legacy
+  audit C2 patterns excluded). Counter readbacks + bounded deterministic
+  diagnostics (Lines ≤ one per tracked mission, StatusLines = 2). The
+  WorldSnapshot ctors normalize a null missions list to empty (Bounded
+  contract), so the null-section branch is defensive-only and absence rides
+  the bounded MissionVanished path (documented capture-failure semantics).
+  ResetForTests.
+- `Core/Missions/MissionLogBridge.cs` — attaches CapBotLog (MISSION) as the
+  director's decision listener at boot (same pattern as the other phase
+  bridges).
+- `docs/MISSION_DIRECTOR.md` — full contract: report-only rationale (API-
+  surface argument), rules, gates, lifecycle bookkeeping, data flow,
+  identity caveat, authority model, performance, verified-API table (zero
+  new APIs), failure modes, tests, deliberate scope boundaries.
+- `tests/MissionTests.cs` — 79 assertions covering MS01–MS13: tracking
+  end-to-end (open → progress → completed, single report per edge, bounded
+  DATA carry), transition suppression, abandonment edges,
+  terminal-at-first-sighting, stall dwell (once per episode, re-armed by
+  progress), missionless edge (pristine-session baseline quiet, never spam),
+  capture-failure semantics (ctor normalization → absence path), fail-safe
+  inputs (null/stale/not-started), authority deny-by-default (null/faulting/
+  non-master), vanished reports + expiry hygiene + bounded history, bounded
+  tracked set with deterministic shed-oldest, same-type collision counter,
+  cadence + counters + diagnostics.
+
+### Changed
+- `Patch.cs` — WorldTick Postfix extended IN PLACE: after the navigation
+  blocks, `MissionDirector.Evaluate(nowMs)` in its own try/catch
+  (`CapBotLog.MISSION`). Postfix IL bytes 325 → 360 (expected change; no new
+  patch class — the permanent ceiling of 11 is preserved).
+- `CapBot.csproj` — +2 Compile entries (`Core\Missions\MissionDirector.cs`,
+  `Core\Missions\MissionLogBridge.cs`).
+- `Mod.cs` — Phase 15 boot block after the navigation seams:
+  `MissionLogBridge.Ensure()` + authority/now/world seams
+  (`ExecutionClaims.IsAuthoritative` / `TaskClock.NowMs` /
+  `WorldStateService.Latest`).
+- `tests/run_tests.ps1` — +1 domain compile entry
+  (`Core\Missions\MissionDirector.cs`) and +1 suite (`MissionTests.cs`,
+  last).
+- `tests/TaskRecoveryTests.cs` — TestMain runs fourteen suites (`f14` =
+  MissionTests); TOTAL line updated.
+
+### Notes
+- Zero NEW PULSAR APIs: the director reads only the P6 snapshot missions
+  section (PLServer.AllMissions / PLMissionBase.Objectives /
+  PLMissionObjective.IsCompleted/ObjectiveText — all previously verified).
+  Mission RPCs, dialogue flows, objective writes, mission rewards/decline
+  paths, and PLGlobalMission remain UNVERIFIED territory and are not used.
+- Report-only by API-surface necessity: no mission capability exists in the
+  P7 catalog, and the P8 executor rejects tasks with unbound CapabilityIds —
+  a mission task would fail at execution by construction.
+- Identity: snapshot missions carry only MissionTypeId (audit L2) — same-type
+  concurrent missions are collapsed and the risk is counted, never silent.
+- Consumers are later phases (Captain Brain 2.0 planning, Economy Director);
+  Phase 15 implements no consumer beyond the bounded reports.
+- Verified: build 0 warnings/0 errors; tests TOTAL 1461/1461 (fourteen
+  suites; MissionTests 79 assertions MS01–MS13); reflection 172 types/
+  151 named, P15 type surfaces + all 8 constants exact (MinRecheckMs=5000,
+  MaxActiveMissions=8, MaxHistory=16, ActiveExpiryMs=60000,
+  MaxStaleSnapshotMs=20000, StallReportMs=120000, TrackIdPrefix=MISSION:,
+  TargetKindMission=MISSION), P6–P14 intact, harmony_patch_classes=11,
+  WorldTick Postfix IL 360 bytes (expected in-place growth from 325), new
+  namespace CapBot.Core.Missions.
+
 ## [Phase 14 — Navigation recovery] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

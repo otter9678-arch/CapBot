@@ -127,6 +127,17 @@ namespace CapBot
             CapBot.Core.Navigation.NavigationRecoveryDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Navigation.NavigationRecoveryDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Navigation.NavigationRecoveryDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            // Phase 15: attach mission-director logging and wire its seams.
+            // The director is REPORT-ONLY (Phase 15 contract): it tracks mission
+            // transitions from the P6 snapshot and emits bounded diagnostics —
+            // it creates NO tasks (no mission capability exists in the P7
+            // catalog, and a task without CapabilityId metadata fails at start
+            // per the P8 executor contract). Deny-by-default authority keeps
+            // clients silent.
+            CapBot.Core.Missions.MissionLogBridge.Ensure();
+            CapBot.Core.Missions.MissionDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Missions.MissionDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Missions.MissionDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

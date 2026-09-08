@@ -2886,6 +2886,14 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.NAVIGATION, "Navigation recovery reconcile failed", ex);
             }
+            try
+            {
+                CapBot.Core.Missions.MissionDirector.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.MISSION, "Mission director evaluate failed", ex);
+            }
         }
     }
     [HarmonyPatch(typeof(PLBotController), "HandleMovement")]
