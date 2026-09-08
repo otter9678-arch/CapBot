@@ -3,6 +3,70 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 19 — Decision validator (pre-dispatch diagnostics screen)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Validation/DecisionValidator.cs` — a diagnostics-only pre-dispatch
+  validator: reviews QUEUED tasks that carry a `CapabilityId` metadata
+  binding from the WorldTick Postfix IMMEDIATELY BEFORE `TaskScheduler.Tick`
+  (screened tasks are still Queued — no race with grants/leases/claims) and
+  emits bounded diagnostics when a task's shape contradicts what its
+  dispatcher will do with it (dispatcher-only shape gaps the P7 registry
+  ladder cannot see: ISSUE_MOVE_ORDER registry TargetReq=None lets a
+  non-SECTOR task through to die post-start; SET_CAPTAIN_ORDER order id must
+  be in the verified vanilla vocabulary {1,4,6,8,9,10,11,12,13};
+  ADD/REMOVE_COURSE_GOAL SECTOR+int≥0) or when the author's world premise has
+  gone stale (CAPTAIN_DELIB/NAV_RECOVERY authored FROM a snapshot: claimed
+  sector vs current Navigation.CurrentSectorId with positive evidence only,
+  InWarp invalidates the sector premise). **Fail-open on uncertainty** (any
+  unreadable input — null/stale/future/not-started snapshot, nav missing,
+  CurrentSectorId −1, unreadable target — produces an uncertain marker or a
+  silent skip, NEVER a rejection; an uncertain validator must never be the
+  reason healthy work dies), **fail-closed on action** (holds no task
+  records, calls no lifecycle API — P3 recovery owns ALL cancel/fail/pause
+  decisions; worst case = one diagnostic line). Deliberate non-duplication:
+  never re-runs P7 gates 1-13, P3 rules, P5 claims, or galaxy/encounter
+  membership (the dispatcher's job with real game data). Bounded sanity:
+  Argument != TargetId on SECTOR tasks → `argument mismatch` (authoring bug
+  surfaced, not fixed). House director pattern (static + DirectorState +
+  m_Lock, 4 fail-closed seams, deny-by-default authority with fault = no-op,
+  cadence 1s matching scheduler MinRecheckMs, snapshot fail-safe gates,
+  bounded ≤4 lines/pass fired after scan, bounded counters + Lines()/
+  StatusLines() readbacks, ResetForTests clears state AND seams). EMERGENCY
+  tasks without a capability binding are skipped silently (known-fail-by-
+  contract per Phase 9 §9 — not a validator concern). MaxStaleSnapshotMs=20s
+  reuses the P16/P17/P18 director threshold — one shared freshness standard,
+  NOT a third. Zero new game reads (everything flows through the P6
+  snapshot); no new Harmony patch class (ceiling 11 held; the Evaluate call
+  lives in the EXISTING WorldTick Postfix, IL 499 → 533).
+- `Core/Validation/DecisionLogBridge.cs` — attaches CapBotLog as the
+  validator's decision listener at boot (CaptainLogBridge pattern).
+- `CapBotLog.DECISION` subsystem const (additive).
+- `docs/DECISION_VALIDATOR.md` — full contract: the ownership argument (what
+  it must NOT duplicate and why, with the two evidence-proven gap closures),
+  screens, fail semantics, diagnostics vocabulary, gates, data flow,
+  multiplayer authority model, performance contract, verified-API table,
+  failure modes, tests, scope boundaries.
+- `tests/DecisionValidatorTests.cs` — DV01–DV14 (78 assertions) covering the
+  clean pass (incl. DV01b: the REAL P18 authoring path produces a task the
+  validator passes with zero diagnostics), every dispatcher-only shape
+  rejection, both stale-premise rejections (task verified left Queued —
+  diagnostics-only), all five fail-open snapshot paths (zero rejections),
+  uncertain premise data, authority deny-by-default (null/false/faulting
+  probe), cadence (same-timestamp safe), argument-mismatch sanity, no-
+  capability EMERGENCY skip, counters/readbacks determinism + ResetForTests.
+  Hooked as f18 in TaskRecoveryTests (18 suites).
+
+### Changed
+- `Patch.cs` — ONE guarded block added to the WorldTick Postfix between the
+  master gate and `TaskScheduler.Tick`: `DecisionValidator.Evaluate(nowMs)`
+  in its own try/catch (`DECISION "Decision validator tick failed"`).
+- `Mod.cs` — boot block after the P18 seams: `DecisionLogBridge.Ensure()` +
+  authority/clock/world seam wiring (deny-by-default until set).
+- `CapBot.csproj` — 2 new Compile entries.
+- `tests/run_tests.ps1` — DecisionValidator.cs + DecisionValidatorTests.cs
+  added (18 test suites).
+
 ## [Phase 18 — Captain deliberation director] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

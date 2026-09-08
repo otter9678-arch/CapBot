@@ -190,6 +190,16 @@ namespace CapBot
             CapBot.Core.Captain.CaptainDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Captain.CaptainDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Captain.CaptainDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            // ---- Phase 19: decision validator (diagnostics-only pre-dispatch screen) ----
+            // Ownership scope: reviews QUEUED capability-bound tasks BEFORE
+            // scheduler Tick; emits bounded diagnostics only — it never
+            // mutates lifecycle (P3 recovery owns cancel/fail/pause) and
+            // never re-runs P7/P3/P5 gates. Fail-open on uncertainty,
+            // fail-closed on action (holds no task records).
+            CapBot.Core.Validation.DecisionLogBridge.Ensure();
+            CapBot.Core.Validation.DecisionValidator.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Validation.DecisionValidator.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Validation.DecisionValidator.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

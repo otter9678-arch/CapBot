@@ -2821,6 +2821,19 @@ namespace CapBot
             try { isMaster = PhotonNetwork.isMasterClient; }
             catch (System.Exception) { isMaster = false; }
             if (!isMaster) return;
+            // ---- Phase 19: decision validator pre-screen (diagnostics only) ----
+            // Runs BEFORE scheduler Tick so screened tasks are still Queued —
+            // no race with grants/leases/claims. Fail-open on uncertainty,
+            // diagnostics only (never mutates lifecycle; P3 recovery owns all
+            // cancel/fail/pause decisions).
+            try
+            {
+                CapBot.Core.Validation.DecisionValidator.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.DECISION, "Decision validator tick failed", ex);
+            }
             try
             {
                 int nowMs = CapBot.Core.Tasks.TaskClock.NowMs;

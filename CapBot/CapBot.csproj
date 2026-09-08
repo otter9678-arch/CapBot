@@ -143,6 +143,8 @@
     <Compile Include="Core\Combat\CombatLogBridge.cs" />
     <Compile Include="Core\Captain\CaptainDirector.cs" />
     <Compile Include="Core\Captain\CaptainLogBridge.cs" />
+    <Compile Include="Core\Validation\DecisionValidator.cs" />
+    <Compile Include="Core\Validation\DecisionLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />
