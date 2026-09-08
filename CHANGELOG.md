@@ -3,6 +3,65 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 34 — Documentation (README parity, system overview)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `docs/OVERVIEW.md` — one-page phase-to-system map (P1–P33): the task
+  pipeline foundation, crew layer, directors, judgment/advisory layer,
+  hardening/platform phases, each linking its contract doc, plus the
+  test inventory and remaining-plan status.
+- README refresh: Architecture section (the one-way control pipeline +
+  deny-by-default authority + advisory-only LLMs + /capbotstatus);
+  crew-layer, multiplayer-hardening, and secure-updater feature
+  summaries (P25/P26/P28/P30 shipped systems); adaptive-learning bullet
+  updated to the P25 trait-maturation contract; commands table gains
+  `/capbotstatus`.
+
+### Fixed
+- README "Building from source" no longer claims `dotnet build` + a
+  hardcoded Steam path + a nonexistent PostBuild step; replaced with the
+  P33 parameterized `build.ps1` contract (required `-PulsarManaged`,
+  smoke checks, CI pointer). Docs now match shipped behavior.
+
+### Verified
+- Docs-only phase: no production changes; test gate unchanged
+  (`TOTAL passed=2777 failed=0` ×3, last run P32/P33).
+- Cross-checked every README claim against the phase contract docs
+  (OVERVIEW.md §P26–P33) — no unbacked claims remain (the P27 M1 fix
+  discipline held).
+
+## [Phase 33 — Reproducible build/CI (parameterized build.ps1, smoke checks, GitHub Actions pipeline, no personal paths)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `build.ps1` (repo root) — reproducible machine-agnostic build entry
+  point: REQUIRED `-PulsarManaged` parameter (validated: exists +
+  Assembly-CSharp/PulsarModLoader/0Harmony present; note the game ships
+  no `Pulsar.dll`), MSBuild auto-discovery (VS 2022/18/2019 BuildTools +
+  Community) or `-MsBuildPath`, optional `-Clean`, nuget restore with a
+  committed-`packages/` fallback, and smoke checks: DLL exists, ≥1 KB,
+  MZ header, NO resolved `PulsarManaged` path embedded (Unicode scan),
+  no build-machine username embedded. Gate line `BUILD OK dll=… bytes=…
+  config=…`; failures exit non-zero with `BUILD FAILED: <reason>`.
+  Smoke-validated: BUILD OK, 388 KB artifact, path passed as a PARAMETER
+  and never written into any repo file.
+- `ci/pipeline.yml` — GitHub Actions-style pipeline (windows-latest):
+  checkout → setup-msbuild/nuget → `PULSAR_MANAGED` repo-variable game-
+  DLL staging contract (fails if unset; game DLLs are NEVER committed) →
+  restore → parameterized build → reproducibility smoke checks → test
+  gate (3 consecutive clean `RUNNER: TOTAL passed=N failed=0`) →
+  SHA-keyed artifact upload. The reflection verify scripts are
+  deliberately NOT in CI (they require the live game install).
+- `docs/BUILD.md` — the reproducibility contract: inputs (source +
+  provided game DLLs + committed NuGet), invocation, determinism notes
+  (`Deterministic=true`, `LangVersion 8.0`, net472), smoke checks,
+  build.ps1 behavior, CI contract, and the explicit not-in-phase list
+  (no signing/version-automation/release automation, no hardcoded paths).
+
+### Verified
+- Build infrastructure only — zero production changes; test gate
+  unchanged (`TOTAL passed=2777 failed=0` ×3).
+- `BUILD OK` achieved via the parameterized path end-to-end.
+
 ## [Phase 32 — Testing/QA (invariant regression suite)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

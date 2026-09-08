@@ -24,7 +24,7 @@ A PULSAR: Lost Colony mod that adds a bot Captain — and makes **every crew bot
 - **Crew research**: ship-wide talent research, vanilla + modded talents (`.Talents` IDs 64+), cheapest-first, research materials deducted exactly like the vanilla flow
 - **Smart item use**: grabs extinguishers for fires, medkits/health items when hurt — a gap-filler over the game's own AI, never fighting it
 - **Movement watchdog**: bots never stay stuck on walls (pathing re-seek → push → detour → nav-graph teleport, the game's own unstick trick)
-- **Adaptive learning**: each bot keeps persistent combat/economy/craft/nav skill stats that grow with experience (saved via PML)
+- **Adaptive learning**: each bot keeps persistent combat/economy/craft/nav skill stats that grow with experience (saved via PML); personality traits mature with outcomes (bounded trait maturation, Phase 25 — Diligence rises with completion-dominant records, Adaptability with adversity-dominant ones)
 
 ### Economy
 - Sells duplicate and worse cargo components (both vs. installed keepers and pure surplus)
@@ -44,14 +44,38 @@ A PULSAR: Lost Colony mod that adds a bot Captain — and makes **every crew bot
 - **Class locker gear**: bots equip phase pistols, guns, repair/fire guns, scanners, armor from their class locker
 
 ### Mod updater
-- `/updateall` checks every loaded PML mod's `VersionLink` and updates outdated ones (staged as `.update`, applied on next boot)
+- `/updateall` checks every loaded PML mod's `VersionLink` and updates outdated ones (staged as `.update`, applied atomically on next boot)
 - Optional always-on check in the settings menu
+- **Secure by construction** (Phase 30): HTTPS-only downloads from a bounded GitHub-family allowlist, PE-shape validation, SHA-256 verification when the version file publishes a digest, strict file-name defense — a hostile or tampered update is refused, never installed
+
+### Crew layer (Phases 10–13, 25, 28)
+- **Personalities**: every bot gets a deterministic personality (traits 0–100) derived from its identity; personalities MATURE through play (adaptive learning, Phase 25) and the matured values persist across sessions (Phase 28)
+- **Experience**: per-bot outcome history (completed/cancelled/expired/vanished/failed) accrues experience points and levels
+- **Memory**: per-bot bounded memory rings — remembered locations, task outcomes, crew events — with recall and time-based eviction
+- All state is master-authoritative, deterministic, and (matured parts) save-persistent via PML
+
+### Multiplayer hardening (Phase 26)
+- Master/client authority flips are observed pre-gate every frame; on authority loss the volatile state (claims, leases, crew agents) is cleared deterministically while the duplicate-protection ledger survives
+- Host migration: CapBot state is process-local by design — a migrated-to host rebuilds fresh from world observation with no desync (CapBot issues commands through verified vanilla channels; it holds no authoritative game state)
+
+## Architecture (for modders)
+
+Every gameplay action flows one way: **world snapshot → planning → task
+creation → validation → claim → duplicate protection → execution →
+completion/failure → recovery → memory/experience/learning**. The master
+client owns all execution (deny-by-default authority wired to
+`isMasterClient`); clients evaluate nothing. Ollama/Qwen LLM advisors are
+**recommend-only** — their output is validated bounded text that a
+deterministic system may consider, never execute. Status is inspectable
+in-game via `/capbotstatus`. See `docs/OVERVIEW.md` for the full
+phase-by-phase map.
 
 ## Commands
 
 | Command | Description |
 |---|---|
 | `/capbot` (or `/cap`) | Spawns the Captain Bot (host only, in-game) |
+| `/capbotstatus` | Full task-pipeline + crew-layer status report (host only) |
 | `/updateall` | Checks and updates every loaded PML mod |
 
 ## Configuration
@@ -92,11 +116,23 @@ In game (host): `/capbot`
 
 ## Building from source
 
+The build is machine-agnostic — the game's `Managed` DLL folder is a
+required parameter, never a hardcoded path (see `docs/BUILD.md`):
+
 ```
-dotnet build CapBot\CapBot.csproj -c Release
+powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 `
+    -PulsarManaged "C:\Path\To\PULSAR_LostColony_Data\Managed"
 ```
 
-References resolve against the Steam library path in the csproj (`C:\SteamLibrary\steamapps\common\PULSARLostColony\PULSAR_LostColony_Data\Managed`). The PostBuild step copies the DLL into the game's `Mods\` folder.
+- Requires MSBuild (VS BuildTools/Community) and .NET Framework 4.7.2
+  targeting; NuGet packages are committed in `packages/`.
+- The script validates the game DLLs, builds `CapBot.sln` (Release),
+  and smoke-checks the artifact (PE image, no build-machine paths
+  embedded). On success it prints `BUILD OK`.
+- The dev-side test suite (`tests/run_tests.ps1`, pure C#, no game
+  references) runs the 22-suite regression independently of the game.
+- CI: `ci/pipeline.yml` builds on any Windows runner with the game DLLs
+  staged via the `PULSAR_MANAGED` variable.
 
 ## License
 
