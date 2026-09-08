@@ -1,0 +1,83 @@
+# CapBot CI pipeline (Phase 33) — GitHub Actions style, environment-agnostic.
+#
+# CONTRACT: the game's Managed DLLs are NEVER committed. A CI runner stages
+# them from an internal cache into the workspace and exposes the folder via
+# the PULSAR_MANAGED variable. Nothing in this file names a personal path.
+#
+# The dev-side test suite is pure C# (no game references), so it runs on any
+# Windows runner; the build needs the staged game DLLs; the shipped-surface
+# reflection audits are dev-machine scripts and are intentionally NOT part of
+# CI (they require the live game install).
+
+name: capbot-ci
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    env:
+      # Runner-provided staging location of the game's Managed DLLs
+      # (cache hit from the private game-files cache; see docs/BUILD.md).
+      PULSAR_MANAGED: ${{ vars.PULSAR_MANAGED }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Verify staged game DLLs present
+        shell: pwsh
+        run: |
+          if (-not $env:PULSAR_MANAGED) { Write-Error "PULSAR_MANAGED variable not set"; exit 1 }
+          if (-not (Test-Path (Join-Path $env:PULSAR_MANAGED 'Assembly-CSharp.dll'))) {
+            Write-Error "staged game DLLs missing Assembly-CSharp.dll"; exit 1
+          }
+
+      - name: Restore
+        shell: pwsh
+        run: nuget restore CapBot.sln -NonInteractive
+
+      - name: Build (Release, parameterized game path)
+        shell: pwsh
+        run: |
+          msbuild CapBot.sln /p:Configuration=Release /p:PulsarManaged="$env:PULSAR_MANAGED" /v:minimal /nologo /m:8
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Reproducibility smoke checks
+        shell: pwsh
+        run: |
+          $dll = 'CapBot\bin\Release\CapBot.dll'
+          if (-not (Test-Path $dll)) { Write-Error 'DLL missing'; exit 1 }
+          $bytes = [System.IO.File]::ReadAllBytes($dll)
+          if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { Write-Error 'not a PE image'; exit 1 }
+          $text = [System.Text.Encoding]::Unicode.GetString($bytes)
+          if ($text.IndexOf($env:PULSAR_MANAGED, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            Write-Error 'DLL embeds the runner path'; exit 1
+          }
+
+      - name: Test (pure-C# dev suite; 3 clean runs)
+        shell: pwsh
+        run: |
+          $runs = 0
+          while ($runs -lt 3) {
+            $out = & powershell -NoProfile -ExecutionPolicy Bypass -File tests/run_tests.ps1
+            $line = ($out | Select-String 'RUNNER:').Line
+            Write-Output $line
+            if ($line -notmatch 'failed=0') { Write-Error 'test gate failed'; exit 1 }
+            $runs++
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CapBot-${{ github.sha }}
+          path: CapBot/bin/Release/CapBot.dll
+          if-no-files-found: error
