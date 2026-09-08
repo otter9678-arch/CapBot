@@ -3,6 +3,63 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 36 — Live gameplay validation (first live-session evidence, qwen3 fix)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `docs/LIVE_VALIDATION.md` — the P36 record: verification vocabulary
+  (UNIT TEST / INTEGRATION / LIVE GAME / NOT LIVE-VERIFIED), entry state,
+  findings ledger, live-session evidence tables with log line counts,
+  the per-domain live-validation matrix, and reproducible manual
+  procedures M-CR1..M-U1 for everything not mechanically verifiable.
+
+### Fixed
+- **L1 — qwen3:latest returned empty advice**: qwen3 is a thinking model;
+  its reasoning trace consumed the completion budget inside
+  `message.thinking` (`content:""`, `done_reason:"length"` at 48 AND 256
+  tokens — reproduced by live HTTP probe of the real Ollama service).
+  Both advisors now append `"think":false` for thinking models
+  (`OllamaAdvisor.IsRequestingModelThinking`; CrewAdvisor reuses it).
+  Probe after fix: valid `ADVICE:` line, `done_reason:"stop"`.
+- **D1 — deployed DLL was stale**: game `Mods/CapBot.dll` predated the
+  final P35 build (size+hash mismatch). Re-deployed; parity re-verified;
+  superseded by the L1 build (SHA256 `b7862bfc…`).
+
+### Investigated (no code change)
+- **L2 — "NAV_RECOVERY tasks never reach terminal state"**: DISPROVEN.
+  Live logs contain full completion chains (e.g. #177:
+  `Dispatched REMOVE_COURSE_GOAL` → `ExecutorResult SUCCESS
+  task=Completed`; 21 observed NAV completions, 0 failures). The
+  apparent leak was (a) outcome lines labeling capability, not task type,
+  and (b) the CapBotLog flood guard (24 msgs/10 s, silent drops) hiding
+  lines during emergency bursts. `Expired=0` is correct policy ordering:
+  the stuck rule (15 s) precedes the timeout rule (120 s) and tasks
+  resolve in seconds. `TaskRegistry.SweepExpired` is confirmed orphaned
+  but functionally superseded by the wired `TaskRecoveryManager.Tick`
+  — left as a documented helper (no duplicate expiry authority).
+
+### Documented (tuning candidates, not blockers)
+- **L3** — advisory-only emergencies (NavigationFailure,
+  ObjectiveCritical; `RequiredCapability=""`) cycle fail→retry→cancel
+  through the executor (349 `no capability bound` events across two live
+  sessions). Bounded and fail-closed by design; P37 should suppress
+  executor routing for capability-less findings.
+- Flood-guard observability: burst-time line drops make log counts lower
+  bounds; P37 may raise the budget / exempt ERROR+ levels.
+
+### Verified (live, two real game sessions, 0 CapBot exceptions)
+- Emergency pipeline end-to-end: CoolantCritical → task → grant → claim →
+  `Dispatched SET_CAPTAIN_ORDER order=9` → `ExecutorResult SUCCESS` →
+  `EmergencyResolved` (multiple instances, both sessions).
+- NAV recovery dispatches (ADD/REMOVE_COURSE_GOAL) completing with
+  `ExecutorResult SUCCESS task=Completed`.
+- Recovery: bounded retry with backoff, cancel on retries exhausted; zero
+  `ExecutorInvariant` violations.
+- Advice recommend-only live: `OllamaAdvice` + `CrewAdvice` accepted;
+  no task/order mutation follows any advice line.
+- Compatibility: CapBot alongside BetterAI/QualityImprover/ExpandedGalaxy/
+  Progress_Editor/Talents/UnlimitedCredits etc. — no conflicts (one
+  third-party Talents-mod NRE documented as upstream).
+
 ## [Phase 35 — Final audit (verdict: PASS)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

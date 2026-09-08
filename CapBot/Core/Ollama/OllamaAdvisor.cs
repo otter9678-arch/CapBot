@@ -66,8 +66,36 @@ namespace CapBot.Core.Ollama
         {
             "qwen2.5:latest",     // 0 — default (7.6B, measured warm ~240 ms)
             "qwen:latest",        // 1 — smallest (4B, measured warm ~125 ms)
-            "qwen2.5-coder:latest" // 2 — coder variant (present locally)
+            "qwen2.5-coder:latest", // 2 — coder variant (present locally)
+            "qwen3:latest"        // 3 — thinking model; request carries "think":false (P36)
         };
+
+        // Thinking models burn ordinary completion tokens on a reasoning
+        // trace before emitting the actual answer; with the advisor's small
+        // completion budget that starves the answer entirely (live-verified
+        // 2026-09-08: qwen3:latest returned empty content at num_predict 48
+        // AND 256, done_reason "length", all tokens in message.thinking).
+        // Ollama's per-request "think":false disables the trace for models
+        // that support it; Ollama ignores it for models that do not.
+        private static readonly string[] ThinkingModels = new string[]
+        {
+            "qwen3:latest"
+        };
+
+        private static bool IsThinkingModel(string model)
+        {
+            if (model == null) return false;
+            for (int i = 0; i < ThinkingModels.Length; i++)
+                if (string.Equals(model, ThinkingModels[i], StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        // Internal accessor for sibling advisors sharing the model vocabulary
+        // (CrewAdvisor/P21) so their request builders stay in lockstep.
+        internal static bool IsRequestingModelThinking(string model)
+        {
+            return IsThinkingModel(model);
+        }
 
         public const string TargetKindNone = "NONE";   // advisory prompts carry no game target
 
@@ -648,6 +676,7 @@ namespace CapBot.Core.Ollama
             sb.Append("{\"role\":\"user\",\"content\":\"").Append(EscapeJson(prompt)).Append("\"}");
             sb.Append("],\"stream\":false");
             sb.Append(",\"keep_alive\":\"30m\"");
+            if (IsThinkingModel(model)) sb.Append(",\"think\":false");
             sb.Append(",\"options\":{\"num_predict\":48,\"temperature\":0.2}}");
             return sb.ToString();
         }

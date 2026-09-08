@@ -379,7 +379,7 @@ namespace CapBot.TaskTests
             Check(OllamaAdvisor.ClampModelIndex(-1) == 0, "OA12e negative model index clamps");
             Check(OllamaAdvisor.ClampModelIndex(99) == 0, "OA12f out-of-range index clamps");
             Check(OllamaAdvisor.ClampModelIndex(1) == 1, "OA12g valid index preserved");
-            Check(OllamaAdvisor.KnownModels.Length == 3, "OA12h bounded model vocabulary");
+            Check(OllamaAdvisor.KnownModels.Length == 4, "OA12h bounded model vocabulary");
             // ApplyConfig validation.
             FreshSetup();
             OllamaAdvisor.ApplyConfig(true, 99999, 42);
@@ -387,6 +387,24 @@ namespace CapBot.TaskTests
             Check(OllamaAdvisor.GetModelIndex() == 0, "OA12j bad model index clamps");
             OllamaAdvisor.ApplyConfig(true, 8080, 1);
             Check(OllamaAdvisor.GetPort() == 8080 && OllamaAdvisor.GetModelIndex() == 1, "OA12k valid config applied");
+
+            // ---- OA14: thinking-model request shape (P36 qwen3 live finding) -----
+            FreshSetup();
+            // qwen3:latest joined the vocabulary (index 3).
+            Check(OllamaAdvisor.KnownModels.Length == 4, "OA14a model vocabulary extended");
+            Check(OllamaAdvisor.ClampModelIndex(3) == 3, "OA14b index 3 valid");
+            Check(OllamaAdvisor.ModelName(3) == "qwen3:latest", "OA14c index 3 resolves qwen3");
+            // Request for a thinking model carries "think":false; legacy models do not.
+            string q3 = OllamaAdvisor.BuildRequestJson(FreshCalm(1000), 3, 1000);
+            Check(q3 != null && q3.IndexOf("\"think\":false", StringComparison.Ordinal) >= 0,
+                "OA14d qwen3 request disables thinking");
+            string legacy = OllamaAdvisor.BuildRequestJson(FreshCalm(1000), 0, 1000);
+            Check(legacy != null && legacy.IndexOf("\"think\"", StringComparison.Ordinal) < 0,
+                "OA14e legacy request carries no think flag");
+            // Non-requesting accessor stays consistent for the sibling advisor.
+            Check(OllamaAdvisor.IsRequestingModelThinking("qwen3:latest"), "OA14f thinking probe true for qwen3");
+            Check(!OllamaAdvisor.IsRequestingModelThinking("qwen2.5:latest"), "OA14g thinking probe false for legacy");
+            Check(!OllamaAdvisor.IsRequestingModelThinking(null), "OA14h thinking probe null-safe");
 
             // ---- OA13: readbacks + reset determinism ------------------------------
             FreshSetup();

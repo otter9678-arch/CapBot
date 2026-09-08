@@ -59,7 +59,8 @@ namespace CapBot.Core.Qwen
         {
             "qwen2.5:latest",   // default (P21 shares the P20 vocabulary)
             "qwen:latest",
-            "qwen2.5-coder:latest"
+            "qwen2.5-coder:latest",
+            "qwen3:latest"      // thinking model; request carries "think":false (P36)
         };
 
         public const int ModelDefault = 0;
@@ -468,6 +469,7 @@ namespace CapBot.Core.Qwen
             sb.Append("{\"role\":\"user\",\"content\":\"").Append(EscapeJson(p.ToString())).Append("\"}");
             sb.Append("],\"stream\":false");
             sb.Append(",\"keep_alive\":\"30m\"");
+            if (OllamaAdvisor.IsRequestingModelThinking(model)) sb.Append(",\"think\":false");
             sb.Append(",\"options\":{\"num_predict\":48,\"temperature\":0.2}}");
             return sb.ToString();
         }

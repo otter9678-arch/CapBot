@@ -111,8 +111,17 @@ Advice is emitted as one bounded log line:
 | `OllamaPort` | int | 11434 | loopback port, clamped 1..65535 |
 
 `KnownModels` = `qwen2.5:latest` (default), `qwen:latest`,
-`qwen2.5-coder:latest`. Model is an index (never a free-form string — avoids
-the first-string-`SaveValue` pitfall).
+`qwen2.5-coder:latest`, `qwen3:latest` (P36). Model is an index (never a
+free-form string — avoids the first-string-`SaveValue` pitfall).
+
+**Thinking models (P36):** `qwen3:latest` is a reasoning model — measured
+2026-09-08, with the advisor's `num_predict:48` it spends the entire budget
+on its internal thinking trace and returns **empty** `message.content`
+(`done_reason:"length"`; still empty at 256). For models in the
+`ThinkingModels` table the request builder adds `"think":false` (Ollama
+per-request switch; ignored by non-thinking models). Live probe with the
+flag: valid one-line ADVICE response in 20 tokens. CrewAdvisor (P21) shares
+the same vocabulary and flag logic via `IsRequestingModelThinking`.
 
 ## Response contract (verified against Ollama 0.33.3, 2026-09-08)
 
@@ -141,6 +150,7 @@ non-empty, ≥ 8 chars, ≤ 240 (truncated), `ADVICE:` prefix
 | OA11 | advice validation bounds (prefix, case, length, control chars) |
 | OA12 | config clamps (port, model index, ApplyConfig) |
 | OA13 | readbacks, status format, reset determinism, post-reset inert |
+| OA14 | thinking-model request shape (P36): vocabulary extension, `"think":false` present for qwen3 / absent for legacy models, null-safe probe |
 
 Test-harness note: the OA suite is the first multi-threaded suite —
 `WaitForCall` (worker entered transport, in-flight observable) vs
