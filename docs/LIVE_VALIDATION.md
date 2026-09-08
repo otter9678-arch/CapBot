@@ -160,7 +160,7 @@ outcomes, no ExecutorResult after Dispatched, timeouts never fire") was
    Kept as a documented helper; **no code change** — wiring a second expiry
    path would duplicate recovery's authority.
 
-### Finding L3 — advisory-only emergencies cycle fail→retry→cancel (TUNING CANDIDATE, by-design fail-closed)
+### Finding L3 — advisory-only emergencies cycle fail→retry→cancel (FIXED in P37)
 
 `EmergencyDetector` creates two emergency types with **no wired capability**
 (deliberate: "no capability wired: vanilla owns this; coordination-only
@@ -168,22 +168,21 @@ decision") — `NavigationFailure` (stuck bot, Warning) and `ObjectiveCritical`
 (1 objective left, Warning). These tasks reach Running, fail closed
 ("no capability bound"), retry once after backoff, then cancel on retries
 exhausted (349 `no capability bound` fail events across both sessions —
-the dominant `Running->Failed` source). Behavior is bounded (MaxRetries=1)
-and correct (deny-by-default), but wasteful: each advisory-only detection
-consumes a scheduler slot and ~6 log lines. **P37 tuning candidate:**
-either suppress executor-routed task creation for `RequiredCapability=""`
-findings (report via ADJ/PLANNING channels instead) or pre-filter in
-`CreateEmergencyTask`. Not a blocker; no code change this phase.
+the dominant `Running->Failed` source). Behavior was bounded (MaxRetries=1)
+and correct (deny-by-default), but wasteful. **P37 resolution:** the
+director now notes coordination-only findings (`EmergencyNoted`,
+`CoordinationOnlyNoted` counter) without creating a task or an Active
+record — see `docs/EMERGENCY.md` §5. No executor churn is possible for
+capability-less emergencies anymore.
 
-### Observability note — flood guard drops lines under bursts
+### Observability note — flood guard drops lines under bursts (FIXED in P37)
 
 `CapBotLog`'s 24/10 s global budget with silent drops is the documented
 reason some transitions/`Recovery applied Fail` lines are absent from the
 logs during emergency cascades. Counts in the table above are therefore
-*lower bounds*. **P37 tuning candidate:** raise the budget or exempt
-`[ERROR]`/`[CRITICAL]` levels from the guard. Log truth remains bounded and
-correct (no invariant violations observed); this affects observability
-only.
+*lower bounds*. **P37 resolution:** budget raised to 96/10 s and Warning+
+lines exempt from the global window (per-key dedup retained); first
+occurrences of failures can no longer be dropped.
 
 ## Live validation matrix
 
@@ -240,7 +239,7 @@ proof only), · = NOT LIVE-VERIFIED (manual procedure below).
 | --- | --- | --- |
 | Course-lost / goal-reached recovery authoring (P14) | ✔ + ○ | unit-proven; live full chains: `Dispatched REMOVE/ADD_COURSE_GOAL` → `ExecutorResult SUCCESS task=Completed` (#177 Player.log:1462–1474; 6+15 observed completions, 0 failures) |
 | TLI transitions / interior movement | · | vanilla stack; no CapBot patches on it (P6 read-only) — see M-N1 |
-| Stuck detection | ○ + · | P6 PLBotController metrics verified; P14 rule unit-proven; advisory-only emergency fires live (see L3) — see M-N1 |
+| Stuck detection | ✔ + ○ | P6 PLBotController metrics verified; P14 rule unit-proven; advisory-only emergency fires live (see L3, fixed P37) — see M-N1 |
 
 ### Persistence
 
@@ -377,9 +376,12 @@ qwen3), port slider, verbose-logging toggle, summary block.
 - The in-game matrix above separates ✔ (live-observed this phase) from
   ○/· rows. Highest-value next live step remains M-CR1 (gateway) →
   M-C1/M-M1 (authoring paths) → M-L1 (qwen3 advice with the L1 build).
-- **P37+ recommendation:** the live sessions DID produce actionable
-  findings, so development can proceed. Recommended sequence: **P37 =
-  tuning** (L3 advisory-only emergency suppression, flood-guard budget,
-  plus any M-CR1/M-L1 findings from the next live session), then P44-class
-  hardening only if live sessions surface defect-class findings. Manual
-  procedures M-CR1..M-U1 remain the owner's reproducible hand-off.
+- **P37+ recommendation:** EXECUTED — P37 was the tuning phase: L3
+  coordination-only suppression and the flood-guard budget/Warning+
+  exemption are both landed and re-gated (2793/2793 ×3, build+deploy
+  parity `2d3b2df6…`). The Stuck-detection matrix row above changes
+  meaning from P37: the advisory-only emergency fires as `EmergencyNoted`
+  (no task, no executor involvement) — M-N1 remains the manual procedure
+  for the vanilla-stack behavior itself. Next live session should re-run
+  M-CR1 → M-C1 → M-L1 (qwen3 advice with the L1+P37 build) and confirm
+  the L3 churn lines (`no capability bound` on EMERGENCY tasks) are gone.

@@ -3,6 +3,42 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 37 — Tuning (coordination-only emergencies never executed; flood guard freed)] — unreleased (built from Alpha 1.2.2 source)
+
+### Changed
+- **Coordination-only emergencies no longer create tasks (P36 finding L3).**
+  The two advisory-only emergency types (`NavigationFailure`,
+  `ObjectiveCritical` — no capability wired, vanilla owns the response)
+  previously ran the full executor path: fail `no capability bound` → one
+  retry → cancel, every re-detection cycle (349 events across two live
+  sessions). The director now **notes** them instead: `EmergencyNoted …`
+  line, `CoordinationOnlyNoted` counter (exposed in `/capbotstatus` via
+  `StatusLines`), no task, and no Active record (a record with no task
+  could shed a REAL capability-backed emergency out of the bounded
+  active set). The state machine still reacts to their Warning severity;
+  dedup/escalation semantics for capability-backed emergencies untouched.
+- **Flood guard no longer starves real bursts (P36 finding L2 root cause).**
+  The global log budget was 24 messages / 10 s with silent drops — live
+  emergency bursts exceeded it and hid `ExecutorResult`/recovery outcome
+  lines, which is what fabricated the "NAV tasks never terminal" suspicion.
+  Budget raised to 96/10 s, and Warning+ lines are exempt from the global
+  window entirely (the 8 s per-key dedup still bounds per-frame fault
+  storms, so first occurrences of Warning/Error/Critical can never be
+  dropped).
+
+### Added
+- `EmergencyTests` S26: coordination-only findings create no task, no
+  active record, emit `EmergencyNoted`, still move the state machine to
+  Monitoring, and re-note (not dedup) on repeat passes. S21 updated to the
+  new expectations (7 capability-backed tasks; nothing shed below cap).
+
+### Verified
+- Build OK (389,632 bytes); tests **2793/2793 ×3** (2785 + 8 S26
+  assertions); reflection gates re-run: StatusHub census 37/0, advisor +
+  patch census 0 FAIL, 11 Harmony patch classes, WorldTick IL 877.
+- Deployed to game Mods with backup (`CapBot.dll.pre_p37.bak`); SHA256
+  parity `2d3b2df6…` (repo == deployed).
+
 ## [Phase 36 — Live gameplay validation (first live-session evidence, qwen3 fix)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

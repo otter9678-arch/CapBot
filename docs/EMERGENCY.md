@@ -113,6 +113,17 @@ combat detection reads only the game's authoritative `HostileShips` list (the
 Quality-Improver compatibility guarantee: we observe the game's own outcomes,
 we never call hostility logic).
 
+**Coordination-only findings (P37, closes live finding L3):** the two rules
+with no wired capability (NavigationFailure, ObjectiveCritical — see the
+"none — coordination-only" Realization column) never create tasks and never
+enter the Active set. They are counted (`CoordinationOnlyNoted`) and logged
+(`EmergencyNoted …`) and still drive the state machine, but routing them
+through the executor could only end in the bounded fail→retry→cancel churn
+observed in the P36 live sessions (349 `no capability bound` events). The
+Active set is therefore reserved for capability-backed emergencies — a
+coordination-only record can never shed a real emergency out of the bounded
+active set.
+
 ## 6. Structured EmergencyDecision (bounded immutable data)
 
 `EmergencyId, EmergencyType, Severity, DetectedAtMs, AffectedActor,

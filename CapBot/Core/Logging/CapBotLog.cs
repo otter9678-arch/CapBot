@@ -38,7 +38,7 @@ namespace CapBot.Core.Logging
         public const string LEARNING = "LEARNING";   // Phase 25: adaptive learning subsystem (additive)
 
         private const int PerMessageIntervalMs = 8000; // same key: at most one line / 8 s
-        private const int MaxMessagesPerWindow = 24;   // global flood guard
+        private const int MaxMessagesPerWindow = 96;   // global flood guard (P37: 24 starved real bursts)
         private const int FloodWindowMs = 10000;
         private const int MaxTrackedKeys = 256;        // bounded key set (no unbounded collections)
 
@@ -88,7 +88,14 @@ namespace CapBot.Core.Logging
 
                 while (RecentEmitTicks.Count > 0 && UncheckedDelta(RecentEmitTicks.Peek(), now) > FloodWindowMs)
                     RecentEmitTicks.Dequeue();
-                if (RecentEmitTicks.Count >= MaxMessagesPerWindow) return;
+                // P37: Warning and above are exempt from the global window
+                // budget. Live sessions (P36, finding L2) showed outcome and
+                // recovery lines vanishing inside emergency bursts — exactly
+                // when the log matters most. The per-key interval above still
+                // bounds a per-frame fault storm, so the guard keeps its spam
+                // role for repeated failures while never dropping the first
+                // occurrence of a Warning/Error/Critical.
+                if (RecentEmitTicks.Count >= MaxMessagesPerWindow && level < Level.Warning) return;
                 RecentEmitTicks.Enqueue(now);
 
                 string line = "[CapBot:" + sub + "] [" + level.ToString().ToUpperInvariant() + "] " + msg;

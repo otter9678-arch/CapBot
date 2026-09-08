@@ -507,15 +507,19 @@ namespace CapBot.TaskTests
                 crew: new CrewMemberSnapshot[] { Bot(1, 0.4f) },
                 missions: new MissionSnapshot[] { Mission(502, 3, 2) }));
             Eval();
-            Check(EmergencyDirector.TasksCreated == 9, "S21 nine distinct emergencies in one pass");
-            Check(EmergencyDirector.ActiveCount == EmergencyDirector.MaxActiveEmergencies,
-                "S21 single-pass burst: active set bounded at MaxActiveEmergencies");
-            Check(EmergencyDirector.HistoryCount == 1, "S21 overflow shed into bounded history");
+            // P37: 7 capability-backed emergencies create tasks; the two
+            // coordination-only findings (NavigationFailure, ObjectiveCritical)
+            // are noted without tasks or records (finding L3 fix).
+            Check(EmergencyDirector.TasksCreated == 7, "S21 seven distinct capability-backed emergencies in one pass");
+            Check(EmergencyDirector.CoordinationOnlyNoted == 2, "S21 both coordination-only findings noted, no tasks");
+            Check(EmergencyDirector.ActiveCount == 7,
+                "S21 active set holds only capability-backed records (below cap, nothing shed)");
+            Check(EmergencyDirector.HistoryCount == 0, "S21 nothing shed into history below the cap");
             List<CapBotTask> live = TaskRegistry.LiveSnapshot();
             for (int i = 0; i < live.Count; i++) live[i].TryCancel("test cleanup");
             EmergencyDirector.ReconcileTasks(s_Clock.NowMs);
             Check(EmergencyDirector.ActiveCount == 0, "S21 reconcile resolved actives whose tasks reached terminal");
-            Check(EmergencyDirector.HistoryCount == 9 && EmergencyDirector.HistoryCount <= EmergencyDirector.MaxHistory,
+            Check(EmergencyDirector.HistoryCount == 7 && EmergencyDirector.HistoryCount <= EmergencyDirector.MaxHistory,
                 "S21 history stays bounded after mass resolution");
 
             // ================================================================
@@ -589,6 +593,31 @@ namespace CapBot.TaskTests
             Publish(Snap(s_Clock.NowMs, gameStarted: false, hull: 0.24f));
             Check(Eval() == 0, "S25 game-not-started snapshot -> fail-safe");
             Check(EmergencyDirector.ActiveCount == 0 && TaskRegistry.LiveCount == 0, "S25 no state mutated on any failure path");
+
+            // ================================================================
+            // S26 (P37): coordination-only findings are noted, never executed
+            // — the L3 live finding (fail->retry->cancel churn) is closed at
+            // the source
+            // ================================================================
+            FreshSetup();
+            Publish(Snap(s_Clock.NowMs, navMetrics: true, moved: 0.2f, seeking: 8f,
+                missions: new MissionSnapshot[] { Mission(503, 2, 1) }));
+            Check(Eval() == 0, "S26 coordination-only findings create no task (Eval returns 0)");
+            Check(EmergencyDirector.TasksCreated == 0 && EmergencyDirector.CoordinationOnlyNoted == 2,
+                "S26 both advisory findings counted as noted");
+            Check(EmergencyDirector.ActiveCount == 0 && TaskRegistry.LiveCount == 0,
+                "S26 no active record and no task (an inert record could shed real emergencies)");
+            Check(CountLines("EmergencyNoted") == 2, "S26 EmergencyNoted decision lines emitted");
+            Check(CountLines("EmergencyTaskCreated") == 0, "S26 no task-creation lines");
+            Check(EmergencyDirector.CurrentState == EmergencyState.Monitoring,
+                "S26 state machine still reacts to Warning findings (Monitoring rung)");
+            // The noted path is not a dedup path: a repeat pass re-noties (no
+            // active record to collide with) while still creating nothing.
+            Advance(EmergencyDirector.MinRecheckMs);
+            Publish(Snap(s_Clock.NowMs, navMetrics: true, moved: 0.2f, seeking: 8f,
+                missions: new MissionSnapshot[] { Mission(503, 2, 1) }));
+            Check(Eval() == 0 && EmergencyDirector.TasksCreated == 0 && EmergencyDirector.CoordinationOnlyNoted == 4,
+                "S26 repeat pass re-notes without ever creating a task");
 
             // ================================================================
             // Per-rule detection coverage (all nine implemented rules)

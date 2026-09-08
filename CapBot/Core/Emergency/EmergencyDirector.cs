@@ -70,6 +70,7 @@ namespace CapBot.Core.Emergency
             public long DuplicatesSuppressed;
             public long StaleRejections;
             public long TransitionsRejected;
+            public long CoordinationOnlyNoted;
             public string LastUncertainReason;
         }
 
@@ -104,6 +105,7 @@ namespace CapBot.Core.Emergency
         public static long DuplicatesSuppressed { get { lock (m_Lock) return S.DuplicatesSuppressed; } }
         public static long StaleRejections { get { lock (m_Lock) return S.StaleRejections; } }
         public static long TransitionsRejected { get { lock (m_Lock) return S.TransitionsRejected; } }
+        public static long CoordinationOnlyNoted { get { lock (m_Lock) return S.CoordinationOnlyNoted; } }
 
         public static List<string> ActiveLines()
         {
@@ -220,6 +222,22 @@ namespace CapBot.Core.Emergency
         {
             lock (m_Lock)
             {
+                // P37 (finding L3): coordination-only findings carry no wired
+                // capability — routing them through the executor can only end
+                // in the bounded fail→retry→cancel churn observed live (349
+                // "no capability bound" events). They are NOTED and left to
+                // the state machine + telemetry: no task, and no Active
+                // record either (an active with TaskId 0 could shed a REAL
+                // capability-backed emergency out of the bounded active set).
+                if (string.IsNullOrEmpty(finding.RequiredCapability))
+                {
+                    S.CoordinationOnlyNoted++;
+                    Emit("EmergencyNoted " + finding.EmergencyId
+                        + " type=" + finding.EmergencyType + " sev=" + finding.Severity
+                        + " (coordination-only: no capability wired; no task created)");
+                    return;
+                }
+
                 ActiveEmergency active;
                 if (S.Active.TryGetValue(finding.EmergencyId, out active))
                 {
@@ -501,7 +519,8 @@ namespace CapBot.Core.Emergency
                 lines.Add("state=" + S.State + " active=" + S.Active.Count + " history=" + S.HistoryIds.Count);
                 lines.Add("evals=" + S.Evaluations + " detected=" + S.EmergenciesDetected
                     + " tasks=" + S.TasksCreated + " dups=" + S.DuplicatesSuppressed
-                    + " stale=" + S.StaleRejections + " rejectedTransitions=" + S.TransitionsRejected);
+                    + " stale=" + S.StaleRejections + " rejectedTransitions=" + S.TransitionsRejected
+                    + " noted=" + S.CoordinationOnlyNoted);
             }
             return lines;
         }
@@ -522,6 +541,7 @@ namespace CapBot.Core.Emergency
                 S.DuplicatesSuppressed = 0;
                 S.StaleRejections = 0;
                 S.TransitionsRejected = 0;
+                S.CoordinationOnlyNoted = 0;
                 S.LastUncertainReason = null;
                 m_AuthorityProbe = null;
                 m_NowMsProvider = null;
