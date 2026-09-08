@@ -1,6 +1,8 @@
 ﻿using PulsarModLoader;
 using HarmonyLib;
 using CapBot.Core.Logging;
+using CapBot.Core.Perf;
+using CapBot.Core.Tasks;
 using UnityEngine;
 using System.Collections.Generic;
 using System.Reflection.Emit;
@@ -503,6 +505,12 @@ namespace CapBot
         static List<Vector3> targets = new List<Vector3>();
         static void AtColony(PLPlayer CapBot)
         {
+            // Phase 31 (audit H2): this handler ran its 2-3 full-scene
+            // FindObjectsOfType scans EVERY FRAME. Gate the whole handler at a
+            // 250 ms cadence; the last-set AI targets persist in PLBot between
+            // gated runs so movement stays fluid.
+            if (!SceneScanGate.Allow("colony", TaskClock.NowMs)) return;
+            SceneScanGate.Commit("colony", TaskClock.NowMs);
             PLBot AI = CapBot.MyBot;
             PLPawn pawn = CapBot.GetPawn();
             PLTeleportationLocationInstance planet = null;
@@ -749,6 +757,10 @@ namespace CapBot
         }
         static void WastedWing(PLPlayer CapBot)
         {
+            // Phase 31 (audit H2): 4-5 full-scene scans per frame — gated at the
+            // shared 250 ms handler cadence.
+            if (!SceneScanGate.Allow("wastedwing", TaskClock.NowMs)) return;
+            SceneScanGate.Commit("wastedwing", TaskClock.NowMs);
             PLBot AI = CapBot.MyBot;
             PLPawn pawn = CapBot.GetPawn();
             PLLockedSeamlessDoor EntranceDoor = null;
@@ -1324,6 +1336,10 @@ namespace CapBot
         }
         static void AtRaces(PLPlayer CapBot)
         {
+            // Phase 31 (audit H2): gated at the shared 250 ms handler cadence
+            // (race-screen + TLI scans ran every frame).
+            if (!SceneScanGate.Allow("races", TaskClock.NowMs)) return;
+            SceneScanGate.Commit("races", TaskClock.NowMs);
             PLRaceStartScreen raceScreen = Object.FindObjectOfType(typeof(PLRaceStartScreen)) as PLRaceStartScreen;
             if (raceScreen == null) return; // Phase 1 (finding C2): race screen not spawned yet
             PLRace race = raceScreen.MyRace;
@@ -1697,9 +1713,15 @@ namespace CapBot
                 CapBot.MyBot.TickFindInvaderAction(null);
             }
         }
-        static void PlanetExploration(PLPlayer CapBot, out bool ShouldHalt) 
+        static void PlanetExploration(PLPlayer CapBot, out bool ShouldHalt)
         {
             ShouldHalt = false;
+            // Phase 31 (audit H2): gated at the shared 250 ms handler cadence
+            // (mission/pickup/pawn scans ran every frame). ShouldHalt stays
+            // false between gated runs (no halt decision is lost — the last
+            // non-halt state persists for the frame).
+            if (!SceneScanGate.Allow("planetexplore", TaskClock.NowMs)) return;
+            SceneScanGate.Commit("planetexplore", TaskClock.NowMs);
             List<PLPawnBase> targets = new List<PLPawnBase>();
             List<PLPickupObject> pickupTargets = new List<PLPickupObject>();
             List<PLPickupComponent> componentsTargets = new List<PLPickupComponent>();
@@ -2040,8 +2062,12 @@ namespace CapBot
                 return;
             }
         }
-        static void HighRollers(PLPlayer CapBot) 
+        static void HighRollers(PLPlayer CapBot)
         {
+            // Phase 31 (audit H2): gated at the shared 250 ms handler cadence
+            // (high-roller ship/game scans ran every frame).
+            if (!SceneScanGate.Allow("highrollers", TaskClock.NowMs)) return;
+            SceneScanGate.Commit("highrollers", TaskClock.NowMs);
             PLHighRollersShipInfo highRoller = Object.FindObjectOfType<PLHighRollersShipInfo>();
             if (CapBot.ActiveMainPriority == null || CapBot.ActiveMainPriority.TypeData != 65)
             {

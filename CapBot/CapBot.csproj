@@ -116,6 +116,7 @@
     <Compile Include="Core\Diagnostics\StatusHub.cs" />
     <Compile Include="StatusCommand.cs" />
     <Compile Include="Core\Update\UpdatePolicy.cs" />
+    <Compile Include="Core\Perf\SceneScanGate.cs" />
     <Compile Include="Core\World\WorldSnapshot.cs" />
     <Compile Include="Core\World\WorldStateService.cs" />
     <Compile Include="Core\World\WorldSnapshotProbe.cs" />

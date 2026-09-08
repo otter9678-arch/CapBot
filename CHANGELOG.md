@@ -3,6 +3,46 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 31 — Performance (scene-scan gate, per-frame cost bounded)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Perf/SceneScanGate.cs` — per-key re-scan gate (audit H2):
+  `Allow(key, nowMs)` allows when ≥250 ms passed since the key's stamp
+  (first call arms; Allow NEVER advances the stamp — the engine owns
+  Commit), `Commit(key, nowMs)` records the pass. Bounded MaxKeys=32
+  fail-closed; null/empty keys refuse and never allocate; wrap-aware
+  deltas; deterministic (no wall-clock reads). IL-verified pure domain.
+  Zero allocations on the gated path.
+- Handler wiring (Patch.cs, two lines each): the five scripted-sector
+  handlers — `AtColony`, `WastedWing`, `AtRaces`, `PlanetExploration`,
+  `HighRollers` — now gate their WHOLE body at a 250 ms cadence. These
+  ran every frame with 2–5 full-scene `FindObjectsOfType` scans each
+  (dozens of scene scans per frame in those sectors); now ≤4
+  scans/sec per sector. Behavior preserved: last-set AI targets persist
+  in PLBot between gated runs (game-side), movement stays fluid;
+  `PlanetExploration`'s halt flag re-evaluates on the next gated pass.
+  IL-proven: all five handlers call Allow with their exact key strings.
+- Audit M4 re-verified as NOT current: BotEconomy/BotUpgrades per-tick
+  allocations already run inside the 4-second slow-tick window
+  (executor-gated) — documented in `docs/PERFORMANCE.md` §1.
+- `tests/PerfGateTests.cs` (PERF01–PERF08, 63 assertions) + suite
+  registration (30 domain files, 21 suites).
+- `docs/PERFORMANCE.md` — the P31 contract (findings §1, gate §2,
+  not-in-phase §3, tests §4, gotchas §5, verification §6).
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2732 failed=0` ×3 consecutive (suite now 30 domain
+  files, 21 suites). Zero product bugs this phase; all 6 run-1..5 fixes
+  were test-timeline authoring errors (non-monotonic timestamps crossing
+  the 250 ms boundary; the gate stamp moves only on arm/Commit — the
+  engine's Allow→Commit pattern is what arms the next window).
+- Reflection (`verify_build_p31.ps1`): 24/0 — gate surface/consts
+  (IntervalMs=250, MaxKeys=32); all five handlers IL-proven gated with
+  their exact keys; gate IL purity; 11 patch classes; prior-phase types
+  intact. Verify preloads extended (CrewAILibraryBuild/UnityEngine/Behave
+  dlls) with per-method fault-safe body probes.
+
 ## [Phase 30 — Secure updater (verification chain, atomic staging)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added
