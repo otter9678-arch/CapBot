@@ -4,10 +4,11 @@
 // builds on. Time is virtual: every timestamp is an explicit nowMs argument —
 // no real clock reads, no sleeping.
 //
-// Covers the Phase 14 mandated scenarios:
-//   N01 CourseLost rule end-to-end (task created, registered, queued, correct
-//       capability/target/metadata, re-affirms CURRENT sector)
-//   N02 dwell + requeue-block windows (no storm; re-arm after resolution)
+// Covers the Phase 14 mandated scenarios (N01/N02 revised in P39):
+//   N01 CourseLost rule REPORT-ONLY (P39 root-cause fix: re-affirming the
+//       current sector as a goal is a semantic no-op that oscillated with
+//       GoalReached's REMOVE — bounded report, never a task)
+//   N02 GoalReached requeue-block windows (no storm; re-arm after resolution)
 //   N03 GoalReached rule (first goal == current sector, dwell-gated, removes)
 //   N04 GoalReached negative cases (second goal reached, in-warp, unknown
 //       sector never trigger)
@@ -130,48 +131,70 @@ namespace CapBot.TaskTests
 
         internal static int Run()
         {
-            // ---- N01: CourseLost end-to-end --------------------------------------
+            // ---- N01: CourseLost report-only (P39 root-cause fix) ----------------
+            // The old behavior (ADD the current sector as a goal) oscillated
+            // against GoalReached's REMOVE — ~125 zero-effect task cycles in
+            // the P38 live session. Re-affirming the current sector cannot
+            // change the world: the goal is instantly "reached" and removed.
             FreshSetup();
             Publish(Snap(s_Clock.NowMs, Nav(5, false, null, false, float.NaN, float.NaN)));
             Advance(NavigationRecoveryDirector.MinRecheckMs);
-            Check(Eval() == 0, "N01 no task before dwell window");
+            Check(Eval() == 0, "N01 course-lost never creates a task (report-only)");
             Check(NavigationRecoveryDirector.ActivePlanCount == 1, "N01 plan opened");
             Check(NavigationRecoveryDirector.GetPlan("NAV:CourseLost:S5") != null, "N01 course-lost plan id");
             Advance(NavigationRecoveryDirector.CourseLostDwellMs);
-            Check(Eval() == 1, "N01 task created after dwell");
-            CapBotTask t1 = FindNavTask();
-            Check(t1 != null, "N01 recovery task registered");
-            Check(t1.TaskType == NavigationRecoveryDirector.TaskTypeRecovery, "N01 task type vocabulary");
-            Check(t1.OwnerActorId == "CAPTAIN", "N01 owner matches capability owners");
-            Check(t1.GetMetadata("CapabilityId") == RegisteredCapabilities.AddCourseGoal, "N01 ADD_COURSE_GOAL bound");
-            Check(t1.TargetKind == "SECTOR" && t1.TargetId == "5", "N01 target is current sector");
-            Check(t1.GetMetadata("Argument") == "5", "N01 argument carries sector");
-            Check(t1.GetMetadata("Preemptible") == "true", "N01 preemptible policy metadata");
-            Check(t1.State == TaskState.Queued, "N01 task queued through the standard pipeline");
-            Check(t1.Priority == NavigationRecoveryDirector.RecoveryPriority, "N01 recovery priority");
-            Check(HasLineContaining("NavRecoveryTaskCreated"), "N01 creation emitted");
-            // Second eval with live task: duplicate suppressed, no second task.
-            Advance(NavigationRecoveryDirector.MinRecheckMs);
-            Check(Eval() == 0, "N01 live task suppresses duplicate");
-            Check(NavigationRecoveryDirector.TasksCreatedCount == 1, "N01 exactly one task total");
+            Check(Eval() == 0, "N01 still no task after dwell (no re-affirm work exists)");
+            Check(NavigationRecoveryDirector.TasksCreatedCount == 0, "N01 zero tasks total");
+            Check(NavigationRecoveryDirector.ReportsRecordedCount == 1, "N01 bounded report recorded");
+            Check(HasLineContaining("NavCourseLostReport"), "N01 report emitted");
+            // Repeated passes: report NOT repeated (per-plan once), plan refreshed.
+            for (int i = 0; i < 4; i++)
+            {
+                Advance(NavigationRecoveryDirector.MinRecheckMs);
+                Publish(Snap(s_Clock.NowMs, Nav(5, false, null, false, float.NaN, float.NaN)));
+                Check(Eval() == 0, "N01 repeat pass quiet (pass " + (i + 1) + ")");
+            }
+            Check(NavigationRecoveryDirector.ReportsRecordedCount == 1, "N01 report NOT repeated while plan lives");
+            Check(NavigationRecoveryDirector.TasksCreatedCount == 0, "N01 no task ever across repeats");
 
-            // ---- N02: requeue-block window ---------------------------------------
-            // Resolve the task (recovery/executor owns resolution; here the
-            // lifecycle is advanced directly as the executor would).
+            // ---- N02: no re-arm storm for the report-only rule --------------------
+            // The requeue-block window still guards GoalReached (task-bearing);
+            // CourseLost itself can never storm because it never tasks.
+            FreshSetup();
+            Publish(Snap(s_Clock.NowMs, Nav(5, false, new int[] { 5 }, false, float.NaN, float.NaN)));
+            Advance(NavigationRecoveryDirector.MinRecheckMs);
+            Check(Eval() == 0, "N02 no task before goal dwell");
+            Check(NavigationRecoveryDirector.ActivePlanCount == 1, "N02 goal plan opened");
+            Advance(NavigationRecoveryDirector.GoalDwellMs);
+            Publish(Snap(s_Clock.NowMs, Nav(5, false, new int[] { 5 }, false, float.NaN, float.NaN)));
+            Check(Eval() == 1, "N02 GoalReached removal task created after dwell");
+            CapBotTask t1 = FindNavTask();
+            Check(t1 != null, "N02 recovery task registered");
+            Check(t1.GetMetadata("CapabilityId") == RegisteredCapabilities.RemoveCourseGoal, "N02 REMOVE_COURSE_GOAL bound");
+            Check(t1.TargetKind == "SECTOR" && t1.TargetId == "5", "N02 target is the reached goal sector");
+            Check(t1.GetMetadata("Preemptible") == "true", "N02 preemptible policy metadata");
+            Check(t1.State == TaskState.Queued, "N02 task queued through the standard pipeline");
+            Check(t1.Priority == NavigationRecoveryDirector.RecoveryPriority, "N02 recovery priority");
+            Check(HasLineContaining("NavRecoveryTaskCreated"), "N02 creation emitted");
+            // Live task suppresses duplicates.
+            Advance(NavigationRecoveryDirector.MinRecheckMs);
+            Publish(Snap(s_Clock.NowMs, Nav(5, false, new int[] { 5 }, false, float.NaN, float.NaN)));
+            Check(Eval() == 0, "N02 live task suppresses duplicate");
+            Check(NavigationRecoveryDirector.TasksCreatedCount == 1, "N02 exactly one task total");
+            // Resolve; inside the requeue block: no new task. Fresh snapshots
+            // before each eval — Eval rejects a stale snapshot before the
+            // requeue gate is ever reached.
             t1.TryStart();
             t1.TryComplete();
             Advance(NavigationRecoveryDirector.MinRecheckMs);
             NavigationRecoveryDirector.ReconcileTasks(s_Clock.NowMs);
-            NavPlanRecord plan1 = NavigationRecoveryDirector.GetPlan("NAV:CourseLost:S5");
-            Check(plan1.TaskResolvedMs >= 0, "N02 resolution recorded");
-            // Inside the requeue block: no new task even though condition persists.
-            // Fresh snapshots before each eval — Eval rejects a stale snapshot
-            // before the requeue gate is ever reached.
+            NavPlanRecord plan1 = NavigationRecoveryDirector.GetPlan("NAV:GoalReached:S5");
+            Check(plan1 != null && plan1.TaskResolvedMs >= 0, "N02 resolution recorded");
             Advance(NavigationRecoveryDirector.MinRecheckMs);
-            Publish(Snap(s_Clock.NowMs, Nav(5, false, null, false, float.NaN, float.NaN)));
+            Publish(Snap(s_Clock.NowMs, Nav(5, false, new int[] { 5 }, false, float.NaN, float.NaN)));
             Check(Eval() == 0, "N02 requeue block holds");
             Advance(NavigationRecoveryDirector.RequeueBlockMs);
-            Publish(Snap(s_Clock.NowMs, Nav(5, false, null, false, float.NaN, float.NaN)));
+            Publish(Snap(s_Clock.NowMs, Nav(5, false, new int[] { 5 }, false, float.NaN, float.NaN)));
             Check(Eval() == 1, "N02 re-arm after block");
             CapBotTask t2 = FindNavTask();
             Check(t2 != null && t2.TaskId != t1.TaskId, "N02 fresh task after re-arm");
@@ -298,10 +321,11 @@ namespace CapBot.TaskTests
 
             // ---- N09: ReconcileTasks (vanished task) -----------------------------------
             FreshSetup();
-            Publish(Snap(s_Clock.NowMs, Nav(5, false, null, false, float.NaN, float.NaN)));
+            Publish(Snap(s_Clock.NowMs, Nav(5, false, new int[] { 5 }, false, float.NaN, float.NaN)));
             Advance(NavigationRecoveryDirector.MinRecheckMs);
             Eval();
-            Advance(NavigationRecoveryDirector.CourseLostDwellMs);
+            Advance(NavigationRecoveryDirector.GoalDwellMs);
+            Publish(Snap(s_Clock.NowMs, Nav(5, false, new int[] { 5 }, false, float.NaN, float.NaN)));
             Eval();
             CapBotTask t9 = FindNavTask();
             Check(t9 != null, "N09 task exists");
@@ -312,17 +336,18 @@ namespace CapBot.TaskTests
             long vanishedId = t9.TaskId;
             TaskRegistry.ResetForTests();
             NavigationRecoveryDirector.ReconcileTasks(s_Clock.NowMs);
-            NavPlanRecord plan9 = NavigationRecoveryDirector.GetPlan("NAV:CourseLost:S5");
+            NavPlanRecord plan9 = NavigationRecoveryDirector.GetPlan("NAV:GoalReached:S5");
             Check(plan9 != null && plan9.TaskResolvedMs >= 0, "N09 vanished task resolves plan");
             Check(NavigationRecoveryDirector.TaskResolutionCount == 1, "N09 resolution counted");
             Check(HasLineContaining("NavPlanTaskResolved"), "N09 resolution emitted");
 
             // ---- N10: no unauthorized execution -----------------------------------------
             FreshSetup();
-            Publish(Snap(s_Clock.NowMs, Nav(5, false, null, false, float.NaN, float.NaN)));
+            Publish(Snap(s_Clock.NowMs, Nav(5, false, new int[] { 5 }, false, float.NaN, float.NaN)));
             Advance(NavigationRecoveryDirector.MinRecheckMs);
             Eval();
-            Advance(NavigationRecoveryDirector.CourseLostDwellMs);
+            Advance(NavigationRecoveryDirector.GoalDwellMs);
+            Publish(Snap(s_Clock.NowMs, Nav(5, false, new int[] { 5 }, false, float.NaN, float.NaN)));
             Eval();
             CapBotTask t10 = FindNavTask();
             Check(t10 != null, "N10 task exists");
@@ -360,13 +385,14 @@ namespace CapBot.TaskTests
 
             // ---- N12: cadence + counters + diagnostics -----------------------------------
             FreshSetup();
-            Publish(Snap(s_Clock.NowMs, Nav(5, false, null, false, float.NaN, float.NaN)));
+            Publish(Snap(s_Clock.NowMs, Nav(5, false, new int[] { 5 }, false, float.NaN, float.NaN)));
             Check(Eval() == 0, "N12 first eval quiet (dwell)");
             Check(Eval() == 0, "N12 same-instant re-eval cadence-gated");
             Advance(1);
             Check(Eval() == 0, "N12 sub-cadence re-eval gated");
             Check(NavigationRecoveryDirector.EvaluationCount == 1, "N12 gated passes not counted");
-            Advance(NavigationRecoveryDirector.MinRecheckMs + NavigationRecoveryDirector.CourseLostDwellMs);
+            Advance(NavigationRecoveryDirector.MinRecheckMs + NavigationRecoveryDirector.GoalDwellMs);
+            Publish(Snap(s_Clock.NowMs, Nav(5, false, new int[] { 5 }, false, float.NaN, float.NaN)));
             Check(Eval() == 1, "N12 post-cadence task created");
             Check(NavigationRecoveryDirector.Lines().Count == 1, "N12 Lines bounded");
             Check(NavigationRecoveryDirector.StatusLines().Count == 2, "N12 StatusLines bounded");

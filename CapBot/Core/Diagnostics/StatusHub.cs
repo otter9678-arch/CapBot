@@ -55,7 +55,8 @@ namespace CapBot.Core.Diagnostics
             });
             AddSource(lines, "recovery", delegate
             {
-                lines.Add("recovery tracked=" + TaskRecoveryManager.TrackedCount);
+                lines.Add("recovery tracked=" + TaskRecoveryManager.TrackedCount
+                    + " stalledReports=" + TaskRecoveryManager.StallReportCount);
             });
             AddSource(lines, "scheduler", delegate
             {

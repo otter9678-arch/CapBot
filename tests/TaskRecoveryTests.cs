@@ -266,6 +266,30 @@ namespace CapBot.TaskTests
             List<string> lines = TaskRecoveryManager.RecoveryStatusLines(TaskClock.NowMs);
             Check(lines.Count == 1 && lines[0].IndexOf("|actions=") > 0, "recovery status lines bounded + formatted");
 
+            // ---- P39: ACTION_STALLED queued-no-lease diagnostic (report-only) -----------
+            FreshSetup();
+            CapBotTask st = NewTask(0, -1);
+            st.TryQueue(); // stays Queued: nobody grants a lease
+            int stCreated = st.CreatedTimeMs;
+            // Below threshold: silent.
+            TaskRecoveryManager.Tick(stCreated + TaskRecoveryManager.StallReportAfterMs - 1000);
+            Check(st.State == TaskState.Queued, "stall: below threshold task untouched");
+            Check(TaskRecoveryManager.StallReportCount == 0, "stall: no report before threshold");
+            // Crossing the threshold: exactly one report, task NOT mutated.
+            TaskRecoveryManager.Tick(stCreated + TaskRecoveryManager.StallReportAfterMs + 1000);
+            Check(st.State == TaskState.Queued, "stall: report does not mutate the task");
+            Check(TaskRecoveryManager.StallReportCount == 1, "stall: one report at threshold");
+            // Recheck gate + interval: an immediate follow-up tick is silent.
+            TaskRecoveryManager.Tick(stCreated + TaskRecoveryManager.StallReportAfterMs + 1500);
+            Check(TaskRecoveryManager.StallReportCount == 1, "stall: rate-limited inside interval");
+            // Past the interval: second bounded report.
+            TaskRecoveryManager.Tick(stCreated + TaskRecoveryManager.StallReportAfterMs + TaskRecoveryManager.StallReportIntervalMs + 2000);
+            Check(TaskRecoveryManager.StallReportCount == 2, "stall: second report after interval");
+            // Grant finally arrives: the task leaves Queued and reports stop.
+            st.TryStart(); st.TryComplete();
+            TaskRecoveryManager.Tick(stCreated + TaskRecoveryManager.StallReportAfterMs + TaskRecoveryManager.StallReportIntervalMs + 3000);
+            Check(TaskRecoveryManager.StallReportCount == 2, "stall: no report after grant+completion");
+
             Console.WriteLine("");
             Console.WriteLine("SUMMARY passed=" + s_Passed + " failed=" + s_Failed);
             return s_Failed;

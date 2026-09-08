@@ -115,6 +115,7 @@ namespace CapBot.Core.Navigation
             public long Evaluations;
             public long TasksCreated;
             public long ReportsRecorded;
+            public long CourseLostReports;
             public long DuplicatesSuppressed;
             public long PlansExpired;
             public long TaskResolutions;
@@ -149,6 +150,7 @@ namespace CapBot.Core.Navigation
         public static long EvaluationCount { get { lock (m_Lock) return S.Evaluations; } }
         public static long TasksCreatedCount { get { lock (m_Lock) return S.TasksCreated; } }
         public static long ReportsRecordedCount { get { lock (m_Lock) return S.ReportsRecorded; } }
+        public static long CourseLostReportCount { get { lock (m_Lock) return S.CourseLostReports; } }
         public static long DuplicatesSuppressedCount { get { lock (m_Lock) return S.DuplicatesSuppressed; } }
         public static long PlansExpiredCount { get { lock (m_Lock) return S.PlansExpired; } }
         public static long TaskResolutionCount { get { lock (m_Lock) return S.TaskResolutions; } }
@@ -198,7 +200,8 @@ namespace CapBot.Core.Navigation
             {
                 lines.Add("navPlans=" + S.Plans.Count + " history=" + S.HistoryIds.Count
                     + " evals=" + S.Evaluations + " tasks=" + S.TasksCreated
-                    + " reports=" + S.ReportsRecorded + " dupSuppressed=" + S.DuplicatesSuppressed
+                    + " reports=" + S.ReportsRecorded + " courseLostReports=" + S.CourseLostReports
+                    + " dupSuppressed=" + S.DuplicatesSuppressed
                     + " expired=" + S.PlansExpired + " resolutions=" + S.TaskResolutions);
                 lines.Add("stale=" + S.StaleRejections
                     + " uncertain=" + (S.LastUncertainReason ?? "-"));
@@ -291,23 +294,37 @@ namespace CapBot.Core.Navigation
 
                 // ---- Rule 1: CourseLost ------------------------------------------
                 // No course goals, not in warp, current sector known, persisted.
+                //
+                // P39 ROOT-CAUSE FIX (live evidence: tasks #4..#256 alternated
+                // ADD_COURSE_GOAL sector=0 / REMOVE_COURSE_GOAL sector=0 for a
+                // whole session): re-affirming the CURRENT sector as a course
+                // goal cannot change the condition this rule detects — the
+                // goal-count stays 0 vs 1 only until Rule 2 (GoalReached,
+                // firstGoal == currentSector) removes it again. The two rules
+                // formed an ADD/REMOVE oscillator with zero net world effect
+                // (~125 task cycles live). CourseLost is therefore REPORT-ONLY:
+                // a plan record + one bounded diagnostic (same shape as
+                // StuckStall). Only GoalReached removal of genuinely stale
+                // goals (first goal != current sector... impossible here by
+                // rule; i.e. goals for OTHER sectors) still tasks.
                 if (courseCount == 0 && !inWarp && currentSectorId >= 0)
                 {
                     string planId = "NAV:CourseLost:S" + currentSectorId.ToString(System.Globalization.CultureInfo.InvariantCulture);
                     NavPlanRecord plan = GetOrRefreshPlanLocked(planId, NavRule.CourseLost, currentSectorId, nowMs);
-                    if (!plan.HasLiveTask
-                        && unchecked(nowMs - plan.FirstSeenMs) >= CourseLostDwellMs
-                        && (plan.TaskResolvedMs < 0 || unchecked(nowMs - plan.TaskResolvedMs) >= RequeueBlockMs))
+                    plan.UpdateCount++;
+                    if (plan.TaskId == 0 && plan.UpdateCount == 1)
                     {
-                        long taskId = CreateRecoveryTaskLocked(plan, RegisteredCapabilities.AddCourseGoal,
-                            currentSectorId, "course lost in sector; re-affirm current sector as goal",
-                            nowMs, pending);
-                        if (taskId > 0) created++;
+                        // First observation: bounded report line (per-plan once;
+                        // re-report only after the plan expires and re-opens).
+                        S.ReportsRecorded++;
+                        S.CourseLostReports++;
+                        pending.Add("NavCourseLostReport " + planId
+                            + " (report-only: re-affirming the current sector as a goal is a no-op —"
+                            + " it is immediately 'reached' and removed; vanilla starmap owns unprompted routing)");
                     }
-                    else if (plan.HasLiveTask)
-                    {
-                        S.DuplicatesSuppressed++;
-                    }
+                    // Re-observations (UpdateCount > 1) are silent: the plan
+                    // record already carries the condition, and re-reporting
+                    // would flood the log exactly like the old task loop did.
                 }
 
                 // ---- Rule 2: GoalReached ------------------------------------------
@@ -501,6 +518,7 @@ namespace CapBot.Core.Navigation
                 S.Evaluations = 0;
                 S.TasksCreated = 0;
                 S.ReportsRecorded = 0;
+                S.CourseLostReports = 0;
                 S.DuplicatesSuppressed = 0;
                 S.PlansExpired = 0;
                 S.TaskResolutions = 0;

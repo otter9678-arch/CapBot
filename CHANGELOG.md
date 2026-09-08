@@ -3,6 +3,57 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 39 — Autonomy Stabilization / Loop Elimination] — unreleased (built from Alpha 1.2.2 source)
+
+### Fixed
+- **CoolantCritical no-op remediation loop (P38 live evidence: 134
+  identical re-tasks of `EID:COOLANTCRITICAL:3f5584d3`).** Remediation
+  (SET_CAPTAIN_ORDER order=9) succeeded every time but cannot refill
+  coolant, so the same-severity condition was re-detected after every
+  completion and re-created identical executor work forever. The
+  EmergencyDirector now keeps a per-EmergencyId no-progress
+  **SuppressionGate**: at most `MaxNoProgressResolutions=3` remediation
+  attempts, then the identity is suppressed with a rate-limited
+  (`SuppressionNotifyMs=60000`) `EmergencySuppressed` line. ANY severity
+  change re-arms the breaker (the world moved); the gate expires only
+  after `ActiveExpiryMs` with no re-detections (the condition is gone).
+  A live-session defect in the first gate draft (suppressed re-detections
+  did not refresh `LastSeenMs`, so the hygiene sweep expired the gate
+  mid-suppression and restarted the cycle) was caught by live evidence
+  and fixed — the gate stays warm on every re-detection, including
+  suppressed ones.
+- **NAV ADD/REMOVE course-goal oscillator (P38 live evidence: 122
+  zero-effect recovery tasks, 79 ADD + 43 REMOVE, ~125 cycles).**
+  Rule 1 (CourseLost) re-affirmed the CURRENT sector as a course goal;
+  Rule 2 (GoalReached) instantly "reached" and removed it. CourseLost is
+  now REPORT-ONLY: one bounded `NavCourseLostReport` per plan-open (same
+  shape as StuckStall); the vanilla starmap owns unprompted routing.
+  GoalReached removal stays task-bearing (it removes genuinely stale
+  goals) with its dwell/requeue-block timing unchanged.
+
+### Added
+- **Bounded "nothing happens" diagnostics (mandate vocabulary).**
+  `RecoveryActionType.StalledReport`: a Queued task un-granted for
+  `StallReportAfterMs=30000` (~6 missed 5 s scheduler grant cycles)
+  emits a rate-limited (`StallReportIntervalMs=60000`) `ACTION_STALLED`
+  line through the existing recovery listener — report-only, never a
+  lifecycle mutation (recovery must not queue work or pick tasks).
+  `/capbotstatus` recovery line now carries `stalledReports=`.
+- `/capbotstatus` emergency line now carries `suppressed=` and `gates=`
+  (no-progress breaker state); navigation line now carries
+  `courseLostReports=`.
+
+### Documented
+- `docs/LIVE_VALIDATION.md` P39 verdict: both loops eliminated at cause
+  and LIVE-PASS verified in a fresh session (EmergencyTaskCreated frozen
+  at exactly 3 then suppressed; NavRecoveryTaskCreated 0; NavCourseLostReport
+  1; 0 exceptions; 292 log lines at the 10-minute mark vs 2996 in P38);
+  mandate items mapped to existing architecture (replan stability, sector
+  reconciliation, capability pre-validation, starvation audit).
+- Tests: 2822/2822 (+S27 no-progress breaker lifecycle; N01/N02 rewritten
+  for report-only CourseLost and task-bearing GoalReached; N09/N10/N12
+  retargeted; +7 ACTION_STALLED assertions).
+
 ## [Phase 38 — Live re-validation of the P37 build (docs-only)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Verified

@@ -19,6 +19,11 @@ namespace CapBot.Core.Tasks
         public const int MaxRecoveryActions = 12;    // lifetime budget per task (non-terminal)
         public const int MinRecheckMs = 1000;        // a task is never re-examined faster
         public const int MaxBackoffMs = 30000;       // retry delay ceiling
+        // P39 ACTION_STALLED diagnostics: a Queued task un-granted this long
+        // is reported (several scheduler grant cycles: lease is 5s, so 30s
+        // is ~6 missed cycles), then re-reported at the interval.
+        public const int StallReportAfterMs = 30000;
+        public const int StallReportIntervalMs = 60000;
         private const int MaxTracked = TaskRegistry.MaxLiveTasks; // ≤ live cap by definition
 
         private static readonly Dictionary<long, RecoveryRecord> m_Records =
@@ -28,6 +33,7 @@ namespace CapBot.Core.Tasks
         private static Action<CapBotTask, RecoveryActionType, string, bool> m_OnAction;
         private static int m_LastTickMs = -1;
         private static bool m_Enabled = true;
+        private static long m_StallReports;
 
         // ---- configuration (bounded, test-settable) -----------------------
         public static int BackoffBaseMs = 2000;
@@ -118,6 +124,28 @@ namespace CapBot.Core.Tasks
                     // First observation of a failure (whether recovery- or
                     // externally-initiated): anchor the retry backoff here.
                     rec.FailedAtMs = nowMs;
+                }
+
+                // P39 "nothing happens" diagnostic: a Queued task that has
+                // waited several grant cycles without a lease is REPORTED,
+                // never mutated. Bounded ACTION_STALLED-class line (mandate
+                // vocabulary) — visibility, not action, because recovery must
+                // not queue work or pick tasks; a starved queue is the
+                // scheduler's fact to surface.
+                if (task.State == TaskState.Queued
+                    && unchecked(nowMs - task.CreatedTimeMs) >= StallReportAfterMs
+                    && (rec.LastStalledReportMs < 0
+                        || unchecked(nowMs - rec.LastStalledReportMs) >= StallReportIntervalMs))
+                {
+                    rec.LastStalledReportMs = nowMs;
+                    rec.StalledReports++;
+                    m_StallReports++;
+                    Action<CapBotTask, RecoveryActionType, string, bool> stallListener;
+                    lock (m_Lock) stallListener = m_OnAction;
+                    if (stallListener != null)
+                        stallListener(task, RecoveryActionType.StalledReport,
+                            "ACTION_STALLED queued no-lease for " + ((nowMs - task.CreatedTimeMs) / 1000)
+                            + "s (scheduler grant lag or starvation; report-only)", true);
                 }
 
                 RecoveryDecision d = TaskRecoveryPolicy.Decide(task, rec, Probe, nowMs);
@@ -217,6 +245,7 @@ namespace CapBot.Core.Tasks
         }
 
         public static int TrackedCount { get { lock (m_Lock) return m_Records.Count; } }
+        public static long StallReportCount { get { lock (m_Lock) return m_StallReports; } }
 
         // Diagnostic snapshot (bounded). "id|state|actions|lastReason"
         public static List<string> RecoveryStatusLines(int nowMs)
@@ -245,6 +274,7 @@ namespace CapBot.Core.Tasks
                 m_Probe = NullWorldProbe.Instance;
                 m_Enabled = true;
                 m_LastTickMs = -1;
+                m_StallReports = 0;
             }
             BackoffBaseMs = 2000;
             BackoffMultiplier = 2.0;

@@ -143,6 +143,19 @@ validates and dispatches it exactly as for every other task.
 - While an emergency is ACTIVE, re-detection **never re-creates tasks**: the
   record's LastSeenMs refreshes and severity may escalate only (one
   `EmergencyEscalated` line; the existing task keeps its lifecycle).
+- **No-progress breaker (added P39).** A remediation can resolve WITHOUT
+  fixing the condition (live: CoolantCritical + SET_CAPTAIN_ORDER order=9 —
+  134 identical re-tasks in one session). When the record is absent
+  (resolved) and the SAME severity is re-detected, the per-EmergencyId
+  **SuppressionGate** accumulates evidence: at most
+  `MaxNoProgressResolutions = 3` bounded attempts, then the identity is
+  suppressed — a rate-limited (`SuppressionNotifyMs = 60000`)
+  `EmergencySuppressed` line, no task. ANY severity change re-arms the
+  breaker (the world moved → fresh bounded attempts are legitimate). The
+  gate decays only via the hygiene sweep when re-detections STOP for
+  `ActiveExpiryMs` (the condition is actually gone) — re-detections keep it
+  warm even while suppressed. Readbacks: `EmergenciesSuppressed`,
+  `SuppressionGateCount`; `/capbotstatus` carries `suppressed=` + `gates=`.
 - Bounded bookkeeping: active ≤ 8 (`MaxActiveEmergencies`, overflow sheds the
   oldest by LastSeenMs), history ≤ 16 (`MaxHistory`), un-confirmed emergencies
   decay after 30 s (`ActiveExpiryMs`), re-arm delay after a task resolves =

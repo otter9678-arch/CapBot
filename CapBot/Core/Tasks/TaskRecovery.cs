@@ -27,7 +27,13 @@ namespace CapBot.Core.Tasks
         Resume = 3,   // Paused -> Running (capability available again)
         Fail = 4,     // -> Failed (stuck or interrupted execution)
         Cancel = 5,   // terminal abandonment (recovery impossible)
-        Expire = 6    // terminal (deadline elapsed)
+        Expire = 6,   // terminal (deadline elapsed)
+        // P39: diagnostic-only — NEVER a policy decision and NEVER executed
+        // (no lifecycle mutation). The manager emits it when a Queued task
+        // has waited far past any reasonable grant window ("nothing happens"
+        // visibility the P39 mandate requires). acted=true in the listener
+        // stream is report semantics only.
+        StalledReport = 7
     }
 
     // Answers recovery questions from CURRENT authoritative world state.
@@ -68,6 +74,8 @@ namespace CapBot.Core.Tasks
         public int Actions;
         public string LastReason;
         public bool PausedForCapability;
+        public int StalledReports;    // P39: emitted diagnostic count (bounded by rate limit)
+        public int LastStalledReportMs = -1;
     }
 
     internal struct RecoveryDecision

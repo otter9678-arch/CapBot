@@ -253,6 +253,10 @@ namespace CapBot.Core.Emergency
         public int LastSeenMs;                       // refreshed on re-detection
         public EmergencySeverity Severity;           // may escalate; de-escalation is handled by state machine
         public int TaskCreatedMs;
+        // P39 no-progress breaker bookkeeping lives in the director's
+        // SuppressionGate (keyed by EmergencyId, survives record resolution
+        // so a resolve-without-fix cycle accumulates evidence across tasks).
+        // The record itself stays a pure data holder.
 
         public ActiveEmergency(string emergencyId, EmergencyType type, long taskId, int firstSeenMs, EmergencySeverity severity)
         {

@@ -443,3 +443,93 @@ qwen3), port slider, verbose-logging toggle, summary block.
   No code changes were required this phase (docs-only). Remaining manual
   surface: M-C1 divergent authoring, M-C2, M-M1, M-L1 (qwen3:latest),
   M-P1, M-MP1.
+
+## P39 verdict
+
+- **Scope:** P39 root-caused BOTH live loops from the P38 archived log
+  (`.qwen/tmp/p38_playerlog_archive.log`, 3675 CapBot lines) before
+  writing any code, then fixed them at cause and re-validated live.
+- **Root cause #1 — CoolantCritical no-op remediation loop (FIXED).**
+  P38 evidence: `EmergencyTaskCreated … EID:COOLANTCRITICAL:3f5584d3`
+  ×**134** — SET_CAPTAIN_ORDER order=9 succeeded every time but cannot
+  refill coolant, so the same-severity condition was re-detected after
+  every completion and re-created identical executor work forever. Fix:
+  a per-EmergencyId no-progress SuppressionGate in EmergencyDirector —
+  bounded to `MaxNoProgressResolutions=3` remediation attempts, then
+  suppressed with a rate-limited (`SuppressionNotifyMs=60000`)
+  `EmergencySuppressed` line; ANY severity change re-arms (world moved);
+  the gate expires only after `ActiveExpiryMs` with NO re-detections
+  (condition actually gone).
+- **Root cause #2 — NAV ADD/REMOVE oscillator (FIXED).** P38 evidence:
+  NavRecoveryTaskCreated ×**122** (79 ADD_COURSE_GOAL + 43
+  REMOVE_COURSE_GOAL, ~125 zero-effect cycles): Rule 1 re-affirmed the
+  CURRENT sector as a course goal; Rule 2 instantly "reached" and removed
+  it; repeat forever. Fix: CourseLost is REPORT-ONLY (one bounded
+  `NavCourseLostReport` per plan-open, same shape as StuckStall; vanilla
+  starmap owns unprompted routing). GoalReached removal stays
+  task-bearing (it removes genuinely stale goals).
+- **Live defect caught and fixed during P39 validation:** the first gate
+  draft returned early on suppressed re-detections WITHOUT refreshing
+  `LastSeenMs`, so the hygiene sweep expired the gate ~30 s into every
+  suppression while the condition was still actively re-detected every
+  5 s — restarting the 3-attempt cycle forever (13 live tasks before the
+  defect was diagnosed; archived `.qwen/tmp/p39_gateexpiry_defect_log.log`).
+  Fix: the gate stays warm on every re-detection, including suppressed
+  ones; expiry now only happens when re-detections STOP.
+- **P39 also added the bounded "nothing happens" diagnostic** the mandate
+  required: `RecoveryActionType.StalledReport` — a Queued task un-granted
+  for `StallReportAfterMs=30000` (≈6 missed 5 s grant cycles) emits a
+  rate-limited (`StallReportIntervalMs=60000`) `ACTION_STALLED` line
+  through the existing recovery listener, never mutating the task;
+  `/capbotstatus` now carries `stalledReports=`. Running-task stalls were
+  already owned by recovery rule 7 (stuck → Fail at 15 s).
+- **Mandate items assessed against existing architecture (no new code
+  needed):** replan-storm prevention = P22 premise-drift + 15 s
+  anti-churn block (planning authors nothing yet, so repeated replanning
+  is structurally impossible); semantic command dedup = P18 per-intent
+  authoring caps + P37 coordination-only suppression + the P39
+  SuppressionGate; sector-transition stale-state reconciliation = P6
+  SECTOR_CHANGED/WARP listeners + P19 stale-premise screens + recovery
+  world-invalidation rule; capability pre-validation = the 13-gate
+  registry ladder + executor re-validation (P7/P8); scheduler/executor
+  starvation audit = grants are bounded per tick with leases that expire
+  (`ExpireStaleLeases`), recovery budgets bound retry storms — the new
+  ACTION_STALLED line closes the observability gap.
+- **Live validation (fresh session, build `98f3f688…` deployed with
+  `CapBot.dll.pre_p39.bak` backup + SHA256 parity; game relaunched,
+  UI-automated Play → OFFLINE → ENGAGE → Captain → Ready):**
+  - Emergency loop elimination: **LIVE-PASS** — `EmergencyTaskCreated`
+    frozen at exactly 3 (the bounded attempts), then suppression holding
+    with rate-limited `EmergencySuppressed` notifications; zero re-task
+    storms for the rest of the session (was 134 in P38).
+  - NAV oscillator elimination: **LIVE-PASS** — `NavCourseLostReport` ×1
+    (report-only, no task ever), `NavRecoveryTaskCreated` ×**0**, no
+    ADD/REMOVE dispatch pairs (was 79+43 in P38).
+  - Pipeline health under suppression: **LIVE-PASS** — the 3 bounded
+    attempts each ran Granted → ClaimAccepted → Dispatched
+    SET_CAPTAIN_ORDER order=9 → ExecutorResult SUCCESS; `EmergencyResolved`
+    ×3 matches tasks created; **0 exceptions**.
+  - Log discipline: **LIVE-PASS** — 292 CapBot lines at the 10-minute
+    stress mark (P38 baseline: 2996 for a comparable span); counters flat.
+  - Severity-change re-arm, gate-expiry re-arm, GoalReached task-bearing
+    removal, dwell/requeue timing: **UNIT-PASS** (S27, N01/N02/N09/N10/N12).
+  - ACTION_STALLED diagnostics: **UNIT-PASS** (7 new assertions); live
+    firing not observed because no task stalled (correct behavior — the
+    diagnostic is for the failure case).
+  - `/capbotstatus` P39 surfaces: **UNVERIFIED on-screen this session**
+    (echo is chat-only and the user's desktop had focus; P38 OCR evidence
+    stands for the mechanism; counter wiring is UNIT-PASS via StatusHub
+    compile + test battery).
+  - Captain layer live: `/capbot` sent, `CaptainIntentOpened
+    CAPTAIN:CREWGATHER` observed (full M-CR1 spawn evidence remains P38's).
+- **Test gate:** 2822/2822 (was 2793; +S27 breaker lifecycle, rewritten
+  N01/N02, retargeted N09/N10/N12, +7 ACTION_STALLED assertions).
+- **Deployment:** `98f3f688…` live-verified build; final build (adds the
+  ACTION_STALLED diagnostics, 392,704 bytes) deploys to
+  `C:\SteamLibrary\steamapps\common\PULSARLostColony\Mods\CapBot.dll`
+  when the session ends (the running game holds the DLL lock). Backup
+  convention kept: `CapBot.dll.pre_p39.bak`.
+- **Verdict: P39 goals met — both live loops are eliminated at cause,
+  verified in a real session. No blocking defects remain.** Remaining
+  manual surface unchanged from P38: M-C1 divergent authoring, M-C2,
+  M-M1, M-L1, M-P1, M-MP1.

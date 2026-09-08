@@ -620,6 +620,74 @@ namespace CapBot.TaskTests
                 "S26 repeat pass re-notes without ever creating a task");
 
             // ================================================================
+            // S27 (P39): no-progress breaker — a persisting emergency whose
+            // remediation resolves without changing the condition is re-armed
+            // a bounded number of times, then suppressed (escalation resets)
+            // ================================================================
+            // The live loop this closes: EID:COOLANTCRITICAL re-tasked every
+            // few seconds for a whole P38 session — SET_CAPTAIN_ORDER order=9
+            // succeeded every time but cannot refill coolant, so the same
+            // Critical finding re-created identical executor work forever.
+            FreshSetup();
+            // Cycle helper: one full remediation cycle at a fixed severity.
+            // Pass 1: task created. Then the executor completes it (TryStart/
+            // TryComplete as the executor would), ReconcileTasks deactivates
+            // the record, and the next pass re-detects the SAME severity.
+            Func<bool> cycle = delegate
+            {
+                Publish(Snap(s_Clock.NowMs, coolant: 10f));
+                int createdThisPass = Eval();
+                List<CapBotTask> liveNow = TaskRegistry.LiveSnapshot();
+                for (int i = 0; i < liveNow.Count; i++)
+                {
+                    if (liveNow[i].GetMetadata("EmergencyId") == null) continue;
+                    liveNow[i].TryStart();
+                    liveNow[i].TryComplete();
+                }
+                EmergencyDirector.ReconcileTasks(s_Clock.NowMs);
+                Advance(EmergencyDirector.MinRecheckMs);
+                return createdThisPass == 1;
+            };
+            // First cycle after FreshSetup: the gate opens on creation, the
+            // same-severity re-detection increments to 1. (The creation-pass
+            // gate is opened with ResolvedNoProgress = 0 and the FIRST
+            // unchanged re-detection makes it a resolve-without-fix cycle.)
+            Check(cycle(), "S27 cycle 1 created exactly one task");
+            Check(cycle(), "S27 cycle 2 created exactly one task");
+            Check(cycle(), "S27 cycle 3 created exactly one task");
+            Check(EmergencyDirector.TasksCreated == 3, "S27 three bounded attempts before suppression");
+            // Fourth pass: same severity re-detected, gate at cap -> suppressed.
+            Publish(Snap(s_Clock.NowMs, coolant: 10f));
+            Check(Eval() == 0, "S27 fourth re-detection suppressed (no task)");
+            Check(EmergencyDirector.TasksCreated == 3, "S27 suppression stops task creation");
+            Check(HasLineContaining("EmergencySuppressed"), "S27 suppression line emitted");
+            Check(EmergencyDirector.EmergenciesSuppressed >= 1, "S27 suppression counter incremented");
+            // Suppression persists across further passes at the same severity
+            // (with bounded re-notification, not silence).
+            Advance(EmergencyDirector.MinRecheckMs);
+            Publish(Snap(s_Clock.NowMs, coolant: 10f));
+            Check(Eval() == 0 && EmergencyDirector.TasksCreated == 3, "S27 suppression holds on repeat");
+            // Severity CHANGE = the world moved = fresh bounded attempts.
+            Publish(Snap(s_Clock.NowMs, coolant: 25f)); // Critical -> Elevated
+            Advance(EmergencyDirector.MinRecheckMs);
+            Check(Eval() == 1, "S27 severity change re-arms task creation");
+            Check(EmergencyDirector.TasksCreated == 4, "S27 re-armed attempt created a task");
+            // Condition gone: the gate expires with the evidence window; a
+            // much-later return of the condition starts a fresh breaker.
+            List<CapBotTask> liveAfter = TaskRegistry.LiveSnapshot();
+            for (int i = 0; i < liveAfter.Count; i++)
+            {
+                if (liveAfter[i].GetMetadata("EmergencyId") == null) continue;
+                liveAfter[i].TryStart();
+                liveAfter[i].TryComplete();
+            }
+            EmergencyDirector.ReconcileTasks(s_Clock.NowMs);
+            Advance(EmergencyDirector.ActiveExpiryMs + EmergencyDirector.MinRecheckMs);
+            Publish(Snap(s_Clock.NowMs, coolant: 10f)); // condition returns (and severity changed back)
+            Check(Eval() == 1, "S27 expired-gate return re-arms");
+            Check(EmergencyDirector.TasksCreated == 5, "S27 fresh attempts after gate expiry");
+
+            // ================================================================
             // Per-rule detection coverage (all nine implemented rules)
             // ================================================================
             EmergencyDecision d;

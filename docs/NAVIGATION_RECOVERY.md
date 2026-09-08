@@ -26,9 +26,15 @@ bridge). World input rides the Phase 6 snapshot (no separate capture path).
   not-started snapshots, missing navigation section, or unknown (NaN/-1)
   rule inputs, the director marks the situation uncertain
   (`NavRecoveryUncertain …` line), creates nothing, and takes no action.
-- **Recovery means re-affirming the CURRENT sector.** The director never
-  invents destinations: CourseLost re-adds the sector the ship is already in.
-  Course goals are reached only through registered P7 capabilities.
+- **Recovery means re-affirming the CURRENT sector — via GoalReached
+  removal only (revised P39).** The director never invents destinations.
+  **P39 root-cause fix:** re-affirming the sector the ship is already in
+  is a no-op — GoalReached instantly "reaches" it and removes it, and the
+  two rules formed an ADD/REMOVE oscillator (~125 zero-effect cycles in
+  the P38 session). CourseLost is therefore **REPORT-ONLY** (one bounded
+  `NavCourseLostReport` line per plan-open; the vanilla starmap owns
+  unprompted routing). Only GoalReached removal of genuinely stale goals
+  still tasks, through registered P7 capabilities.
 - Deny-by-default authority: no probe / faulting probe / non-master →
   `Evaluate` is a no-op. Production wiring is `ExecutionClaims.IsAuthoritative()`
   (master-client state), so **clients never produce recovery tasks**.
@@ -40,7 +46,7 @@ bridge). World input rides the Phase 6 snapshot (no separate capture path).
 
 | Rule | Trigger (verified inputs only) | Dwell | Action |
 |------|-------------------------------|-------|--------|
-| CourseLost | `CourseGoals.Count == 0`, `!InWarp`, `CurrentSectorId >= 0` | 10 s (`CourseLostDwellMs`) | ADD_COURSE_GOAL task re-affirming CURRENT sector |
+| CourseLost | `CourseGoals.Count == 0`, `!InWarp`, `CurrentSectorId >= 0` | — | **REPORT-ONLY (P39)**: bounded plan record + one `NavCourseLostReport` line per plan-open; vanilla starmap owns unprompted routing |
 | GoalReached | `CourseGoals[0] == CurrentSectorId`, `!InWarp`, `CurrentSectorId >= 0` | 15 s (`GoalDwellMs`) | REMOVE_COURSE_GOAL task for that goal |
 | StuckStall | active course + `DistMovedInLast5s < 1 m` while `TimeSeekingTargetSec > 7 s` (vanilla stuck signature, research §3.4) + valid nav metrics | — | **REPORT-ONLY**: bounded plan record + one `NavStallReport` line; vanilla stuck-teleport owns physical unsticking |
 

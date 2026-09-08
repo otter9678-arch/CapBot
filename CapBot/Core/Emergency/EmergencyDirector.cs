@@ -48,6 +48,8 @@ namespace CapBot.Core.Emergency
         public const int EmergencyTaskTimeoutMs = 120000; // emergency tasks self-expire (bounded work)
         public const int ActiveExpiryMs = 30000;       // un-reconfirmed emergency decays after this
         public const int TaskRequeueBlockMs = 20000;   // re-arm delay after a task resolves for its emergency
+        public const int MaxNoProgressResolutions = 3; // P39: stop re-creating tasks after N resolve-without-escalation cycles
+        public const int SuppressionNotifyMs = 60000;  // P39: re-notify suppression at most once per minute (bounded, not silent)
         public const int StateDwellMs = 5000;          // hysteresis: every state transition needs this much justification
         public const int RecoveryHoldMs = 10000;       // minimum time in Recovery before Normal
         public const int MaxStaleSnapshotMs = 20000;   // fail-safe: no decisions on older snapshots
@@ -60,6 +62,12 @@ namespace CapBot.Core.Emergency
         {
             public readonly Dictionary<string, ActiveEmergency> Active =
                 new Dictionary<string, ActiveEmergency>(StringComparer.Ordinal);
+            // P39 no-progress gates: per-emergency-id evidence of remediations
+            // that resolved without changing the condition. Bounded by expiry
+            // hygiene (ActiveExpiryMs of no re-detection clears the gate —
+            // condition gone = fresh start if it ever returns).
+            public readonly Dictionary<string, SuppressionGate> Suppression =
+                new Dictionary<string, SuppressionGate>(StringComparer.Ordinal);
             public readonly Queue<string> HistoryIds = new Queue<string>();
             public EmergencyState State = EmergencyState.Normal;
             public int StateEnteredMs = -1;
@@ -71,7 +79,20 @@ namespace CapBot.Core.Emergency
             public long StaleRejections;
             public long TransitionsRejected;
             public long CoordinationOnlyNoted;
+            public long EmergenciesSuppressed;
             public string LastUncertainReason;
+        }
+
+        // P39: no-progress gate for one emergency identity. Created at first
+        // task creation; incremented on each resolve-without-escalation;
+        // reset on any observed severity change (the condition moved — the
+        // remediation may work now); expired when the condition disappears.
+        private sealed class SuppressionGate
+        {
+            public int ResolvedNoProgress;
+            public EmergencySeverity LastSeverity;
+            public int LastSeenMs;
+            public int LastSuppressedMs = int.MinValue / 2; // allows an immediate first notify
         }
 
         private static readonly DirectorState S = new DirectorState();
@@ -106,6 +127,8 @@ namespace CapBot.Core.Emergency
         public static long StaleRejections { get { lock (m_Lock) return S.StaleRejections; } }
         public static long TransitionsRejected { get { lock (m_Lock) return S.TransitionsRejected; } }
         public static long CoordinationOnlyNoted { get { lock (m_Lock) return S.CoordinationOnlyNoted; } }
+        public static long EmergenciesSuppressed { get { lock (m_Lock) return S.EmergenciesSuppressed; } }
+        public static int SuppressionGateCount { get { lock (m_Lock) return S.Suppression.Count; } }
 
         public static List<string> ActiveLines()
         {
@@ -183,6 +206,23 @@ namespace CapBot.Core.Emergency
                         expiryPairs.Add(kv);
                     }
                 }
+                // P39: the no-progress gates decay on the same evidence rule —
+                // a condition that has not been re-detected for ActiveExpiryMs
+                // is gone; if it ever returns, the remediation gets fresh
+                // bounded attempts instead of a stale suppression.
+                List<string> expiredGates = null;
+                foreach (KeyValuePair<string, SuppressionGate> kv in S.Suppression)
+                {
+                    if (unchecked(nowMs - kv.Value.LastSeenMs) >= ActiveExpiryMs)
+                    {
+                        if (expiredGates == null) expiredGates = new List<string>();
+                        expiredGates.Add(kv.Key);
+                    }
+                }
+                if (expiredGates != null)
+                {
+                    for (int i = 0; i < expiredGates.Count; i++) S.Suppression.Remove(expiredGates[i]);
+                }
             }
             if (expiryPairs != null)
             {
@@ -254,7 +294,70 @@ namespace CapBot.Core.Emergency
                         Emit("EmergencyEscalated " + finding.EmergencyId + " sev=" + finding.Severity
                             + " (existing task #" + active.TaskId + " keeps lifecycle)");
                     }
+                    // P39: the gate tracks severity movement — any CHANGE
+                    // (up or down) is world progress and resets the breaker;
+                    // an UNCHANGED re-detection refreshes the window only.
+                    SuppressionGate liveGate;
+                    if (S.Suppression.TryGetValue(finding.EmergencyId, out liveGate))
+                    {
+                        liveGate.LastSeenMs = nowMs;
+                        if (finding.Severity != liveGate.LastSeverity)
+                        {
+                            liveGate.LastSeverity = finding.Severity;
+                            liveGate.ResolvedNoProgress = 0;
+                        }
+                    }
                     return;
+                }
+
+                // P39 no-progress breaker: this emergency's remediation already
+                // resolved with the condition UNCHANGED (same severity
+                // re-detected after every completion — live evidence:
+                // EID:COOLANTCRITICAL re-tasked every few seconds for a whole
+                // session while order 9 succeeded each time and the coolant
+                // never refilled). Re-creating an identical task can only
+                // loop. The record is absent (resolved); the gate suppresses
+                // re-tasking while the condition idles at the same severity.
+                SuppressionGate gate;
+                if (S.Suppression.TryGetValue(finding.EmergencyId, out gate))
+                {
+                    // P39 live-session defect fix: the gate must stay WARM on
+                    // every unchanged re-detection, including suppressed ones.
+                    // The first draft refreshed LastSeenMs only on the paths
+                    // that reached the bottom of this block — the suppression
+                    // branch returned first — so the hygiene sweep expired the
+                    // gate ~30 s into every suppression while the condition
+                    // was still actively re-detected every 5 s, restarting
+                    // the 3-attempt cycle forever (13 live tasks before the
+                    // fix). Expiry now only ever happens when re-detections
+                    // STOP (condition actually gone).
+                    gate.LastSeenMs = nowMs;
+                    if (finding.Severity != gate.LastSeverity)
+                    {
+                        // Severity moved since the last resolution: the world
+                        // changed — fresh bounded attempts are legitimate.
+                        gate.LastSeverity = finding.Severity;
+                        gate.ResolvedNoProgress = 0;
+                    }
+                    else
+                    {
+                        // Condition re-detected UNCHANGED after the previous
+                        // remediation resolved: a resolve-without-fix cycle.
+                        if (gate.ResolvedNoProgress < MaxNoProgressResolutions) gate.ResolvedNoProgress++;
+                        if (gate.ResolvedNoProgress >= MaxNoProgressResolutions)
+                        {
+                            if (unchecked(nowMs - gate.LastSuppressedMs) >= SuppressionNotifyMs)
+                            {
+                                gate.LastSuppressedMs = nowMs;
+                                S.EmergenciesSuppressed++;
+                                Emit("EmergencySuppressed " + finding.EmergencyId
+                                    + " type=" + finding.EmergencyType + " sev=" + finding.Severity
+                                    + " (no-progress: " + gate.ResolvedNoProgress
+                                    + " resolutions, condition unchanged; severity change re-arms)");
+                            }
+                            return;
+                        }
+                    }
                 }
 
                 if (S.Active.Count >= MaxActiveEmergencies)
@@ -281,6 +384,18 @@ namespace CapBot.Core.Emergency
                     return;
                 }
                 S.Active[finding.EmergencyId] = new ActiveEmergency(finding.EmergencyId, finding.EmergencyType, taskId, nowMs, finding.Severity);
+                // P39: open/refresh the no-progress gate for this identity so
+                // resolve-without-fix cycles accumulate evidence across tasks.
+                SuppressionGate createdGate;
+                if (!S.Suppression.TryGetValue(finding.EmergencyId, out createdGate))
+                {
+                    createdGate = new SuppressionGate();
+                    createdGate.LastSeverity = finding.Severity;
+                    createdGate.ResolvedNoProgress = 0;
+                    S.Suppression[finding.EmergencyId] = createdGate;
+                }
+                createdGate.LastSeenMs = nowMs;
+                createdGate.LastSeverity = finding.Severity;
                 S.EmergenciesDetected++;
                 S.TasksCreated++;
                 created = true;
@@ -506,6 +621,14 @@ namespace CapBot.Core.Emergency
             if (stale == null) return;
             foreach (KeyValuePair<string, ActiveEmergency> kv in stale)
             {
+                // P39: the emergency's task reached a terminal state. Whether
+                // this counts as PROGRESS is decided by the next detection
+                // pass: condition gone (no re-detection → gate expires) or
+                // severity moved (gate resets) = progress; the SAME severity
+                // re-detected = a resolve-without-fix cycle (gate incremented
+                // in ProcessFinding via the absent-record path). The gate
+                // itself is updated there, not here — ReconcileTasks only
+                // deactivates the record.
                 ResolveActive(kv.Key, "task resolved");
             }
         }
@@ -520,7 +643,8 @@ namespace CapBot.Core.Emergency
                 lines.Add("evals=" + S.Evaluations + " detected=" + S.EmergenciesDetected
                     + " tasks=" + S.TasksCreated + " dups=" + S.DuplicatesSuppressed
                     + " stale=" + S.StaleRejections + " rejectedTransitions=" + S.TransitionsRejected
-                    + " noted=" + S.CoordinationOnlyNoted);
+                    + " noted=" + S.CoordinationOnlyNoted + " suppressed=" + S.EmergenciesSuppressed
+                    + " gates=" + S.Suppression.Count);
             }
             return lines;
         }
@@ -531,6 +655,7 @@ namespace CapBot.Core.Emergency
             lock (m_Lock)
             {
                 S.Active.Clear();
+                S.Suppression.Clear();
                 S.HistoryIds.Clear();
                 S.State = EmergencyState.Normal;
                 S.StateEnteredMs = -1;
@@ -542,6 +667,7 @@ namespace CapBot.Core.Emergency
                 S.StaleRejections = 0;
                 S.TransitionsRejected = 0;
                 S.CoordinationOnlyNoted = 0;
+                S.EmergenciesSuppressed = 0;
                 S.LastUncertainReason = null;
                 m_AuthorityProbe = null;
                 m_NowMsProvider = null;
