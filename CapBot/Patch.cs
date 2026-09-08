@@ -2983,6 +2983,33 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.PLANNING, "Planning director tick failed", ex);
             }
+            // ---- Phase 23: mission work director (dynamic task creation) ----
+            // The authoring stage of the planning arc: with the P22
+            // MISSIONWORK episode open, authors one bounded MISSION_WORK task
+            // (CAPTAIN-owned, priority 4, ISSUE_MOVE_ORDER, SECTOR target =
+            // the current sector) under the full P18 anti-churn discipline
+            // (dwell + requeue block + per-record budget + calm/capacity
+            // gates). Authoring flows through the P2-P8 pipeline only; the
+            // director never RPCs and never mutates other systems' tasks.
+            // Runs AFTER the planning block: tasks authored this pass are
+            // first screened/scheduled/executed on the following WorldTick
+            // (scheduler/executor already ran this tick) — no same-tick race.
+            try
+            {
+                CapBot.Core.Planning.MissionWorkDirector.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.MISSIONWORK, "Mission work director tick failed", ex);
+            }
+            try
+            {
+                CapBot.Core.Planning.MissionWorkDirector.ReconcileTasks(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.MISSIONWORK, "Mission work director reconcile failed", ex);
+            }
         }
     }
     [HarmonyPatch(typeof(PLBotController), "HandleMovement")]

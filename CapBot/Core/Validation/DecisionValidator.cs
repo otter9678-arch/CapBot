@@ -253,13 +253,17 @@ namespace CapBot.Core.Validation
             // at gate 5; no dispatcher-only gap exists for these (research
             // Â§2) â€” no screen beyond premise checks below.
 
-            // ---- (b) author-premise staleness (evidence report Â§4) ----
-            // Only for the two families authored FROM world snapshots. The
-            // registry's target-shape gate already proved int-parseable â‰¥0
+            // ---- (b) author-premise staleness (evidence report §4) ----
+            // Only for the families authored FROM world snapshots. The
+            // registry's target-shape gate already proved int-parseable ≥0
             // for SectorId requirements; for ISSUE_MOVE_ORDER (TargetReq
             // None) the shape screen above proved the parse. Positive
-            // evidence only: uncertain data (nav missing, -1, NaN) â†’ uncertain, not rejected.
-            if (t.TaskType == "CAPTAIN_DELIB" || t.TaskType == "NAV_RECOVERY")
+            // evidence only: uncertain data (nav missing, -1, NaN) → uncertain, not rejected.
+            // Phase 23: MISSION_WORK joins the family (same authoring shape
+            // as CAPTAIN_DELIB — authored from the current-sector premise;
+            // additive, no behavioral change to the existing families).
+            if (t.TaskType == "CAPTAIN_DELIB" || t.TaskType == "NAV_RECOVERY"
+                || t.TaskType == "MISSION_WORK")
             {
                 NavigationSnapshot nav = snapshot.Navigation;
                 if (nav == null)

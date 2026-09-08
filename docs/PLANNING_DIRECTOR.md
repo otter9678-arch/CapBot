@@ -9,7 +9,9 @@ intended snapshot consumer, and the P4/P3/P10 explicitly-not lists all defer
 `TASK_RECOVERY.md:132`, `CREW_AGENTS.md:221`). Phase 22 establishes the
 deterministic planning layer as a bounded **situation-assessment** director:
 it tracks planning-relevant situations as data and emits bounded decision
-lines. Phase 23 (dynamic task creation) builds on this layer.
+lines. Phase 23 (dynamic task creation) builds on this layer — shipped as
+`MissionWorkDirector` (`docs/MISSION_WORK_DIRECTOR.md`), which consumes the
+MISSIONWORK episode surface below.
 
 **Design basis note:** no master-plan document exists in the workspace
 defining Phase 22 (verified by the P22 research report — direct "Phase

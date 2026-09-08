@@ -150,6 +150,15 @@ cooldown guarding vanilla cadence (research §11: AI decisions 1–1.5 s):
 | `CLEAR_COURSE_GOALS` | MasterOnly | None | 5000 ms | `PLServer.ClearCourseGoals()` [PunRPC, VERIFIED] — wipes the whole course (higher cooldown) |
 | `READ_WORLD_SNAPSHOT` | ReadOnly | None | 0 | `CapBot.Core.World.WorldStateService.Latest` (Phase 6, VERIFIED) — no owners restriction, no side effects |
 
+In-tree authorship (Phase 18/23 ownership audit — full census in
+`docs/MISSION_WORK_DIRECTOR.md`): `ISSUE_MOVE_ORDER` → P18
+(`CaptainDirector`) + P23 (`MissionWorkDirector`, priority 4 — queues behind
+P18's priority-8 gather orders, never preempts them); `ADD/REMOVE_COURSE_GOAL`
+→ P14; `SET_CAPTAIN_ORDER`/`SET_CAPTAIN_TARGET` → P9 (+ legacy captain tick
+by covenant); `CLEAR_COURSE_GOALS`/`READ_WORLD_SNAPSHOT` → zero authors by
+design. No task type allowlists are set (all Register calls pass `null`) —
+gating is owner + target-shape + cooldown.
+
 Deliberately excluded in this phase:
 
 - **No speculative combat/mission/economy/build capabilities** — their APIs

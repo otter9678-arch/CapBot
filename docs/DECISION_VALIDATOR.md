@@ -41,14 +41,17 @@ evidence-proven gaps the ladder cannot see because they live between layers:
    the dispatcher (`ExecutorRefused`, stays Queued). The validator surfaces
    that mismatch pre-dispatch, when the diagnosis is actionable, without
    changing the outcome the dispatcher would produce.
-2. **Author-premise staleness.** `CAPTAIN_DELIB` (P18) and `NAV_RECOVERY`
-   (P14) tasks are authored FROM a world snapshot: "move to current sector",
-   "add course goal to current sector". If the ship changes sector or enters
-   warp between authoring and dispatch, the task executes against a premise
-   that no longer holds. The validator compares the task's claimed sector
-   against the CURRENT snapshot premise (positive evidence only) and emits
-   `DecisionRejected` with a bounded staleness reason. It does not cancel the
-   task — P3 recovery owns that decision; the diagnostic arms it.
+2. **Author-premise staleness.** `CAPTAIN_DELIB` (P18), `NAV_RECOVERY`
+   (P14), and `MISSION_WORK` (P23) tasks are authored FROM a world snapshot:
+   "move to current sector", "add course goal to current sector". If the ship
+   changes sector or enters warp between authoring and dispatch, the task
+   executes against a premise that no longer holds. The validator compares
+   the task's claimed sector against the CURRENT snapshot premise (positive
+   evidence only) and emits `DecisionRejected` with a bounded staleness
+   reason. It does not cancel the task — P3 recovery owns that decision; the
+   diagnostic arms it. (Phase 23 added `MISSION_WORK` to the family list —
+   additive, same authoring shape: one task bound to ISSUE_MOVE_ORDER with
+   the current-sector premise.)
 
 Never re-validated (each for a specific reason): registry target-shape for
 SectorId/ShipId/BoundedToken requirements (gate 5 owns it — the validator
@@ -89,8 +92,9 @@ exactly, no new reads:
   dispatcher-only gap exists (registry gate 5 already enforces ShipId/None
   shapes) — no shape screen.
 
-**Author-premise staleness** (only for the two snapshot-authored families,
-`CAPTAIN_DELIB` and `NAV_RECOVERY`, SECTOR-targeted):
+**Author-premise staleness** (only for the snapshot-authored families,
+`CAPTAIN_DELIB`, `NAV_RECOVERY`, and — since Phase 23 — `MISSION_WORK`,
+SECTOR-targeted):
 
 - Snapshot `Navigation.CurrentSectorId != claimed sector` (both readable) →
   `DecisionRejected ... reason=stale premise: sector changed`.

@@ -33,6 +33,7 @@ namespace CapBot.Core.Logging
         public const string OLLAMA = "OLLAMA";       // Phase 20: Ollama advisor subsystem (additive)
         public const string QWEN = "QWEN";           // Phase 21: crew advisor subsystem (additive)
         public const string PLANNING = "PLANNING";   // Phase 22: planning director subsystem (additive)
+        public const string MISSIONWORK = "MISSIONWORK"; // Phase 23: mission work director subsystem (additive)
 
         private const int PerMessageIntervalMs = 8000; // same key: at most one line / 8 s
         private const int MaxMessagesPerWindow = 24;   // global flood guard

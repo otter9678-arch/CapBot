@@ -299,9 +299,10 @@ namespace CapBot.TaskTests
             int f19 = OllamaAdvisorTests.Run();
             int f20 = CrewAdvisorTests.Run();
             int f21 = PlanningDirectorTests.Run();
+            int f22 = MissionWorkDirectorTests.Run();
             Console.WriteLine("");
-            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed + WorldStateTests.LastPassed + CapabilityTests.LastPassed + ExecutionTests.LastPassed + EmergencyTests.LastPassed + CrewAgentTests.LastPassed + PersonalityTests.LastPassed + ExperienceTests.LastPassed + MemoryTests.LastPassed + NavigationTests.LastPassed + MissionTests.LastPassed + EconomyTests.LastPassed + CombatTests.LastPassed + CaptainTests.LastPassed + DecisionValidatorTests.LastPassed + OllamaAdvisorTests.LastPassed + CrewAdvisorTests.LastPassed + PlanningDirectorTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14 + f15 + f16 + f17 + f18 + f19 + f20 + f21));
-            return (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14 + f15 + f16 + f17 + f18 + f19 + f20 + f21) == 0 ? 0 : 1;
+            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed + WorldStateTests.LastPassed + CapabilityTests.LastPassed + ExecutionTests.LastPassed + EmergencyTests.LastPassed + CrewAgentTests.LastPassed + PersonalityTests.LastPassed + ExperienceTests.LastPassed + MemoryTests.LastPassed + NavigationTests.LastPassed + MissionTests.LastPassed + EconomyTests.LastPassed + CombatTests.LastPassed + CaptainTests.LastPassed + DecisionValidatorTests.LastPassed + OllamaAdvisorTests.LastPassed + CrewAdvisorTests.LastPassed + PlanningDirectorTests.LastPassed + MissionWorkDirectorTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14 + f15 + f16 + f17 + f18 + f19 + f20 + f21 + f22));
+            return (f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + f11 + f12 + f13 + f14 + f15 + f16 + f17 + f18 + f19 + f20 + f21 + f22) == 0 ? 0 : 1;
         }
     }
 }

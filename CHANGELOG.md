@@ -3,6 +3,71 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 23 — Mission work director (dynamic task creation)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Planning/MissionWorkDirector.cs` — the authoring stage of the
+  planning arc (P22 established the deterministic planning layer and
+  documented its MISSIONWORK episode as "the trigger surface P23 will
+  author tasks from"): a bounded deterministic CONSUMER of that surface
+  that authors EXACTLY ONE task family bound to EXACTLY ONE capability —
+  `MISSION_WORK` tasks (owner CAPTAIN, priority 4, 60 s timeout, 1 retry,
+  Preemptible) bound to `ISSUE_MOVE_ORDER` with a SECTOR target = the
+  CURRENT sector ("hold crew at the current position while mission work is
+  pending"). Trigger surface (deterministic, two conditions): the P22
+  episode formally opened (`GetIntent("PLAN:MISSIONWORK").OpenedReported`,
+  fail-closed) + the work mission re-derived from the same snapshot with
+  the identical P22 predicate and scan bounds (mission id rides as
+  metadata, never parsed). Full P18 anti-churn discipline: per-record
+  budget `MaxAuthoringsPerIntent`=3 (resets only on hygiene decay),
+  `AuthoringDwellMs`=15000, `AuthoringRequeueBlockMs`=20000 re-armed from
+  `ReconcileTasks` stamping terminal-or-vanished resolution, live-task
+  suppression, calm gate (real P9/P14/P17 readbacks + hostiles/boarders/
+  warp, fail-closed) + capacity gate (`LiveCount < MaxLiveTasks`=64 —
+  reacts to pressure, never retry-storms; register/queue refusals count
+  `AuthoringRefused` and re-arm on the next dwell window). Ownership
+  argument re-audited this phase (fresh post-P23 census in
+  `docs/MISSION_WORK_DIRECTOR.md`): ISSUE_MOVE_ORDER is the only safe
+  channel (transient 20 s-TTL crew effect legacy never reads/writes);
+  priority 4 keeps P23 serialized behind P18's priority-8 gather orders
+  (aged ceiling 9 never beats the preemption margin over P18's base 8).
+  Gate order (P18 house shape): authority deny-by-default ⇒ cadence 5 s ⇒
+  snapshot fail-safe ⇒ bounded rules ⇒ ≤4 lines/pass. No config toggle.
+- `Core/Planning/MissionWorkLogBridge.cs` + `CapBotLog.MISSIONWORK` — boot
+  attach of the new `MISSIONWORK` log subsystem (additive).
+- `Mod.cs` P23 boot block (bridge + authority/now/world seams) and
+  `Patch.cs` WorldTick postfix block (guarded `Evaluate` +
+  `ReconcileTasks` pair after the P22 planning block; 11 patch classes
+  preserved; tasks authored this pass are first scheduled/executed on the
+  following WorldTick — no same-tick race). `CapBot.csproj` +2 Compile.
+- `docs/MISSION_WORK_DIRECTOR.md` — the P23 contract + fresh ownership
+  audit artifact (author census per capability, ISSUE_MOVE_ORDER sharing
+  justification, MUST-NOT list, gate order, constants, failure semantics,
+  MW01–MW10 inventory, verification results).
+
+### Changed
+- `Core/Validation/DecisionValidator.cs` — additive: `MISSION_WORK` joins
+  the author-premise stale-premise family list (`CAPTAIN_DELIB`,
+  `NAV_RECOVERY`, `MISSION_WORK`). Shape screens are capability-keyed and
+  already cover ISSUE_MOVE_ORDER tasks family-independently; the argument-
+  mismatch screen applies as-is. No behavioral change to the existing
+  families.
+- `docs/DECISION_VALIDATOR.md` (family list), `docs/CAPABILITIES.md`
+  (in-tree authorship note), `docs/PLANNING_DIRECTOR.md` (P23 shipped
+  cross-ref) — additive documentation.
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2152 failed=0` ×3 consecutive runs (22 suites,
+  MW01–MW10 added; run-1 harness fixes: DV stale-premise screen ordering,
+  P22 two-pass re-open).
+- Reflection (`verify_build_p23.ps1`): 73/0 — director surface, constants,
+  IL ownership scans (zero forbidden refs; authoring path =
+  `CapBotTask.Create` → `TaskRegistry.Register` → `TryQueue` +
+  `TaskRegistry.Get` reads; PlanningDirector data-only invariant intact),
+  DV family strings, `CapBotLog.MISSIONWORK`, patch classes == 11,
+  WorldTick postfix IL 708 → 777.
+
 ## [Phase 22 — Planning director (deterministic situation assessment)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

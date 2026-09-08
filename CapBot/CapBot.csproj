@@ -152,6 +152,8 @@
     <Compile Include="Core\Qwen\CrewAdvisorLogBridge.cs" />
     <Compile Include="Core\Planning\PlanningDirector.cs" />
     <Compile Include="Core\Planning\PlanningLogBridge.cs" />
+    <Compile Include="Core\Planning\MissionWorkDirector.cs" />
+    <Compile Include="Core\Planning\MissionWorkLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

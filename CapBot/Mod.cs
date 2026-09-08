@@ -252,6 +252,21 @@ namespace CapBot
             CapBot.Core.Planning.PlanningDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Planning.PlanningDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Planning.PlanningDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            // ---- Phase 23: mission work director (dynamic task creation) ----
+            // The authoring stage of the planning arc: consumes the P22
+            // MISSIONWORK episode surface and authors EXACTLY ONE task family
+            // bound to EXACTLY ONE capability — ISSUE_MOVE_ORDER (the
+            // ownership argument was re-audited this phase; see
+            // docs/MISSION_WORK_DIRECTOR.md). Authoring flows through the
+            // P2-P8 pipeline only (Create -> SetMetadata -> Register ->
+            // TryQueue); the director never RPCs and never touches scheduler,
+            // claims, or other systems' tasks. Always-on by construction (no
+            // config toggle — the P18/P22 deterministic-director precedent);
+            // the deny-by-default authority seam keeps clients silent.
+            CapBot.Core.Planning.MissionWorkLogBridge.Ensure();
+            CapBot.Core.Planning.MissionWorkDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Planning.MissionWorkDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Planning.MissionWorkDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).
