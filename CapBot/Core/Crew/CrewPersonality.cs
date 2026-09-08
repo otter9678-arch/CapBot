@@ -280,6 +280,9 @@ namespace CapBot.Core.Crew
             public long Replaced;
             public long Refused;
             public long Derivations;
+            public long Restored;          // Phase 28: matured personalities inserted from the save blob
+            public long RestoreSkipped;    // Phase 28: live record present (live wins)
+            public long RestoreRefused;    // Phase 28: invalid payload / not matured / full registry
         }
 
         private static readonly RegistryState S = new RegistryState();
@@ -435,6 +438,109 @@ namespace CapBot.Core.Crew
             return lines;
         }
 
+        // ---- Phase 28: persistence export/restore (additive) --------------------
+        //
+        // ONLY MATURED (explicit-source) personalities are persisted: derived
+        // ones are reproducible from the stable AgentId (P11 FNV-1a identity
+        // derivation — zero data loss by design), so storing them would be
+        // redundant; a save can never contain them. Restore: INSERT-ONLY
+        // (live state always wins), traits re-clamped by the CrewPersonality
+        // constructor, archetype RE-DERIVED from traits (never trusted — the
+        // P11 Assign rule is a pure function of the trait spread), source
+        // stays "explicit" (the matured provenance must survive a round trip).
+
+        // One matured-personality row for the persistence payload.
+        public struct MaturedTraitRow
+        {
+            public string AgentId;
+            public int Discipline;
+            public int Boldness;
+            public int Sociability;
+            public int Diligence;
+            public int Adaptability;
+            public int DerivedTimeMs;
+        }
+
+        public static List<MaturedTraitRow> ExportMatured()
+        {
+            List<MaturedTraitRow> outList = new List<MaturedTraitRow>();
+            lock (m_Lock)
+            {
+                foreach (KeyValuePair<string, CrewPersonality> kv in S.Personalities)
+                {
+                    CrewPersonality p = kv.Value;
+                    if (!string.Equals(p.Source, PersonalityFactory.SourceExplicit, StringComparison.Ordinal)) continue;
+                    MaturedTraitRow row = new MaturedTraitRow();
+                    row.AgentId = p.AgentId;
+                    row.Discipline = p.Get(PersonalityTrait.Discipline);
+                    row.Boldness = p.Get(PersonalityTrait.Boldness);
+                    row.Sociability = p.Get(PersonalityTrait.Sociability);
+                    row.Diligence = p.Get(PersonalityTrait.Diligence);
+                    row.Adaptability = p.Get(PersonalityTrait.Adaptability);
+                    row.DerivedTimeMs = p.DerivedTimeMs;
+                    outList.Add(row);
+                }
+            }
+            outList.Sort(delegate (MaturedTraitRow a, MaturedTraitRow b)
+            { return string.CompareOrdinal(a.AgentId, b.AgentId); });
+            return outList;
+        }
+
+        // Restores one matured personality row. Returns true when inserted;
+        // false when skipped (live record present — live wins) or refused
+        // (invalid id, non-matured request is impossible by construction but
+        // the source is forced to explicit, archetype re-derived from the
+        // trait spread, full registry, clamping is the constructor's job).
+        public static bool RestoreMatured(string agentId,
+            int discipline, int boldness, int sociability, int diligence, int adaptability,
+            int derivedTimeMs)
+        {
+            if (!PersonalityFactory.IsValidAgentId(agentId))
+            {
+                lock (m_Lock) { S.RestoreRefused++; }
+                return false;
+            }
+            if (discipline < CrewPersonality.MinTraitValue || discipline > CrewPersonality.MaxTraitValue
+                || boldness < CrewPersonality.MinTraitValue || boldness > CrewPersonality.MaxTraitValue
+                || sociability < CrewPersonality.MinTraitValue || sociability > CrewPersonality.MaxTraitValue
+                || diligence < CrewPersonality.MinTraitValue || diligence > CrewPersonality.MaxTraitValue
+                || adaptability < CrewPersonality.MinTraitValue || adaptability > CrewPersonality.MaxTraitValue
+                || derivedTimeMs < 0)
+            {
+                lock (m_Lock) { S.RestoreRefused++; }
+                return false;
+            }
+            // Rebuild through FromValues: traits clamped (redundant but the
+            // constructor path is the single validation authority), archetype
+            // RE-DERIVED from the trait spread (never trusted), source =
+            // explicit (matured provenance).
+            CrewPersonality rebuilt = PersonalityFactory.FromValues(
+                agentId, discipline, boldness, sociability, diligence, adaptability, derivedTimeMs);
+            if (rebuilt == null) { lock (m_Lock) { S.RestoreRefused++; } return false; }
+            lock (m_Lock)
+            {
+                if (S.Personalities.ContainsKey(agentId))
+                {
+                    S.RestoreSkipped++;
+                    return false; // live state wins — never overwrite
+                }
+                if (S.Personalities.Count >= MaxPersonalities)
+                {
+                    S.RestoreRefused++;
+                    return false;
+                }
+                S.Personalities[agentId] = rebuilt;
+                S.Restored++;
+            }
+            Emit("PersonalityRestored " + agentId
+                + " archetype=" + (rebuilt.Archetype ?? "-") + " src=explicit");
+            return true;
+        }
+
+        public static long RestoredCount { get { lock (m_Lock) return S.Restored; } }
+        public static long RestoreSkippedCount { get { lock (m_Lock) return S.RestoreSkipped; } }
+        public static long RestoreRefusedCount { get { lock (m_Lock) return S.RestoreRefused; } }
+
         // Test/dev isolation only. Never call in game code.
         public static void ResetForTests()
         {
@@ -445,6 +551,9 @@ namespace CapBot.Core.Crew
                 S.Replaced = 0;
                 S.Refused = 0;
                 S.Derivations = 0;
+                S.Restored = 0;
+                S.RestoreSkipped = 0;
+                S.RestoreRefused = 0;
                 m_OnDecision = null;
             }
         }

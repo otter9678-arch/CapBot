@@ -122,6 +122,9 @@ namespace CapBot.Core.Crew
             public long Recalls;
             public long Evictions;
             public long Refused;
+            public long Restored;          // Phase 28: rows inserted from the save blob
+            public long RestoreSkipped;    // Phase 28: whole-agent skips (any live memory wins)
+            public long RestoreRefused;    // Phase 28: invalid payload rows
         }
 
         private static readonly RegistryState S = new RegistryState();
@@ -493,6 +496,162 @@ namespace CapBot.Core.Crew
             return lines;
         }
 
+        // ---- Phase 28: persistence export/restore (additive) --------------------
+        //
+        // Export: defensive row copies of every entry (bounded: ≤32 agents ×
+        // ≤8 entries). Restore: INSERT-ONLY at the AGENT level — an agent with
+        // ANY live memory is skipped entirely (live facts are fresher than
+        // any save; a partial overwrite would silently merge stale save rows
+        // into a live ring). Per-row restore routes through the private
+        // Upsert so validation/eviction rules stay the single authority.
+
+        public struct MemoryRow
+        {
+            public string AgentId;
+            public MemoryKind Kind;
+            public long TaskId;
+            public string Text;
+            public string Outcome;
+            public int CreatedTimeMs;
+            public int LastSeenMs;
+            public long UpdateCount;
+        }
+
+        public static List<MemoryRow> ExportAll()
+        {
+            List<MemoryRow> outList = new List<MemoryRow>();
+            lock (m_Lock)
+            {
+                foreach (KeyValuePair<string, AgentMemory> kv in S.Agents)
+                {
+                    for (int i = 0; i < kv.Value.Entries.Count; i++)
+                    {
+                        CrewMemoryEntry e = kv.Value.Entries[i];
+                        MemoryRow row = new MemoryRow();
+                        row.AgentId = e.AgentId;
+                        row.Kind = e.Kind;
+                        row.TaskId = e.TaskId;
+                        row.Text = e.Text;
+                        row.Outcome = e.Outcome;
+                        row.CreatedTimeMs = e.CreatedTimeMs;
+                        row.LastSeenMs = e.LastSeenMs;
+                        row.UpdateCount = e.UpdateCount;
+                        outList.Add(row);
+                    }
+                }
+            }
+            outList.Sort(delegate (MemoryRow a, MemoryRow b)
+            {
+                int c = string.CompareOrdinal(a.AgentId, b.AgentId);
+                if (c != 0) return c;
+                if (a.Kind != b.Kind) return ((int)a.Kind) - ((int)b.Kind);
+                if (a.TaskId != b.TaskId) return a.TaskId < b.TaskId ? -1 : 1;
+                return string.CompareOrdinal(a.Text ?? "", b.Text ?? "");
+            });
+            return outList;
+        }
+
+        // Restores one saved memory row. Returns true when inserted; false
+        // when the owning agent has ANY live memory (whole-agent skip — live
+        // wins), or the row is refused (invalid id/kind/vocabulary/bounds).
+        // The saved LastSeenMs is preserved as the entry's stamp (data row);
+        // UpdateCount is not carried over (live bookkeeping semantics restart;
+        // persisted recall counts would be stale by definition).
+        public static bool RestoreRow(string agentId, MemoryKind kind, long taskId,
+            string text, string outcome, int createdTimeMs, int lastSeenMs, long updateCount)
+        {
+            MemoryRow row = new MemoryRow();
+            row.AgentId = agentId;
+            row.Kind = kind;
+            row.TaskId = taskId;
+            row.Text = text;
+            row.Outcome = outcome;
+            row.CreatedTimeMs = createdTimeMs;
+            row.LastSeenMs = lastSeenMs;
+            row.UpdateCount = updateCount;
+            List<MemoryRow> one = new List<MemoryRow>(1);
+            one.Add(row);
+            return RestoreRows(one) == 1;
+        }
+
+        // Batch restore (the P28 restore path). Whole-agent semantics are
+        // decided against the BATCH-START live state: an agent that had ANY
+        // memory before this call is skipped entirely (all its rows), while
+        // rows restored for a previously-absent agent may legitimately share
+        // one agent (the first Upsert creates it; later rows update in place
+        // — same save, not a live/saved conflict).
+        public static int RestoreRows(List<MemoryRow> rows)
+        {
+            if (rows == null) return 0;
+            HashSet<string> liveAtStart;
+            lock (m_Lock)
+            {
+                liveAtStart = new HashSet<string>(S.Agents.Keys, StringComparer.Ordinal);
+            }
+            int inserted = 0;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                MemoryRow row = rows[i];
+                if (!PersonalityFactory.IsValidAgentId(row.AgentId))
+                {
+                    lock (m_Lock) { S.RestoreRefused++; }
+                    continue;
+                }
+                if (row.Kind != MemoryKind.Location && row.Kind != MemoryKind.TaskOutcome && row.Kind != MemoryKind.CrewEvent)
+                {
+                    lock (m_Lock) { S.RestoreRefused++; }
+                    continue;
+                }
+                if (row.Kind == MemoryKind.TaskOutcome)
+                {
+                    if (row.TaskId <= 0 || !IsKnownOutcome(row.Outcome))
+                    {
+                        lock (m_Lock) { S.RestoreRefused++; }
+                        continue;
+                    }
+                }
+                else
+                {
+                    if (row.TaskId != 0) { lock (m_Lock) { S.RestoreRefused++; } continue; }
+                    if (row.Kind == MemoryKind.Location)
+                    {
+                        if (row.Text == null || row.Text.Length == 0 || row.Text.Length > MaxTextLen)
+                        {
+                            lock (m_Lock) { S.RestoreRefused++; }
+                            continue;
+                        }
+                    }
+                    else if (!IsValidText(row.Text) || (row.Text != null && row.Text.Length == 0))
+                    {
+                        lock (m_Lock) { S.RestoreRefused++; }
+                        continue;
+                    }
+                }
+                if (row.LastSeenMs < 0 || row.UpdateCount < 0)
+                {
+                    lock (m_Lock) { S.RestoreRefused++; }
+                    continue;
+                }
+                if (liveAtStart.Contains(row.AgentId))
+                {
+                    lock (m_Lock) { S.RestoreSkipped++; } // whole-agent skip — live wins
+                    continue;
+                }
+                // Outside the lock: through Upsert (single validation/eviction
+                // authority). Upsert re-validates the agent id and payload.
+                if (Upsert(row.AgentId, row.Kind, row.TaskId, row.Text, row.Outcome, row.LastSeenMs))
+                {
+                    lock (m_Lock) { S.Restored++; }
+                    inserted++;
+                }
+            }
+            return inserted;
+        }
+
+        public static long RestoredCount { get { lock (m_Lock) return S.Restored; } }
+        public static long RestoreSkippedCount { get { lock (m_Lock) return S.RestoreSkipped; } }
+        public static long RestoreRefusedCount { get { lock (m_Lock) return S.RestoreRefused; } }
+
         // Test/dev isolation only. Never call in game code.
         public static void ResetForTests()
         {
@@ -504,6 +663,9 @@ namespace CapBot.Core.Crew
                 S.Recalls = 0;
                 S.Evictions = 0;
                 S.Refused = 0;
+                S.Restored = 0;
+                S.RestoreSkipped = 0;
+                S.RestoreRefused = 0;
                 m_OnDecision = null;
                 m_NowMsProvider = null;
             }

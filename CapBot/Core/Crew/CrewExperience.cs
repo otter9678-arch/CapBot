@@ -136,6 +136,9 @@ namespace CapBot.Core.Crew
             public long RecordsCreated;
             public long Accruals;
             public long Refused;
+            public long Restored;          // Phase 28: records inserted from the save blob
+            public long RestoreSkipped;    // Phase 28: live record already present (live wins)
+            public long RestoreRefused;    // Phase 28: invalid payload / full registry
         }
 
         private static readonly RegistryState S = new RegistryState();
@@ -297,6 +300,119 @@ namespace CapBot.Core.Crew
             return lines;
         }
 
+        // ---- Phase 28: persistence export/restore (additive) --------------------
+        //
+        // Export: defensive copy of every record (the persistence layer is a
+        // read-only consumer of live state; the P25 SnapshotOf pattern).
+        // Restore: INSERT-ONLY — a live record always wins over the saved one
+        // (a record created this session is fresher than any save), Level is
+        // NEVER trusted (recomputed from XP), and invalid payloads are
+        // refused, never fabricated.
+
+        public static List<CrewExperienceRecord> ExportAll()
+        {
+            List<CrewExperienceRecord> outList = new List<CrewExperienceRecord>();
+            lock (m_Lock)
+            {
+                foreach (KeyValuePair<string, CrewExperienceRecord> kv in S.Records)
+                {
+                    outList.Add(SnapshotRecordLocked(kv.Value));
+                }
+            }
+            outList.Sort(delegate (CrewExperienceRecord a, CrewExperienceRecord b)
+            { return string.CompareOrdinal(a.AgentId, b.AgentId); });
+            return outList;
+        }
+
+        private static CrewExperienceRecord SnapshotRecordLocked(CrewExperienceRecord r)
+        {
+            CrewExperienceRecord copy = new CrewExperienceRecord(r.AgentId, r.CreatedTimeMs);
+            copy.TasksCompleted = r.TasksCompleted;
+            copy.TasksCancelled = r.TasksCancelled;
+            copy.TasksExpired = r.TasksExpired;
+            copy.TasksVanished = r.TasksVanished;
+            copy.TasksFailed = r.TasksFailed;
+            copy.TotalOutcomes = r.TotalOutcomes;
+            copy.ExperiencePoints = r.ExperiencePoints;
+            copy.Level = r.Level;
+            copy.LastOutcome = r.LastOutcome;
+            copy.LastResultMs = r.LastResultMs;
+            copy.UpdateCount = r.UpdateCount;
+            return copy;
+        }
+
+        // Restores one record. Returns true when inserted; false when skipped
+        // (a live record already exists — live state always wins, counted
+        // RestoreSkipped) or refused (invalid id/outcome/bounds or full
+        // registry, counted RestoreRefused). Level is recomputed from XP.
+        public static bool RestoreRecord(string agentId, long experiencePoints,
+            long tasksCompleted, long tasksCancelled, long tasksExpired,
+            long tasksVanished, long tasksFailed, long totalOutcomes,
+            string lastOutcome, int createdTimeMs, int lastResultMs, long updateCount)
+        {
+            if (!PersonalityFactory.IsValidAgentId(agentId))
+            {
+                lock (m_Lock) { S.RestoreRefused++; }
+                return false;
+            }
+            // Outcome vocabulary: null/empty last outcome is a "no outcome yet"
+            // row; anything else must be in the Phase 10 closed vocabulary.
+            if (lastOutcome != null && lastOutcome.Length > 0
+                && lastOutcome != CrewAgentRegistry.OutcomeCompleted
+                && lastOutcome != CrewAgentRegistry.OutcomeCancelled
+                && lastOutcome != CrewAgentRegistry.OutcomeExpired
+                && lastOutcome != CrewAgentRegistry.OutcomeVanished
+                && lastOutcome != CrewAgentRegistry.OutcomeFailed)
+            {
+                lock (m_Lock) S.RestoreRefused++;
+                return false;
+            }
+            if (experiencePoints < 0 || tasksCompleted < 0 || tasksCancelled < 0
+                || tasksExpired < 0 || tasksVanished < 0 || tasksFailed < 0
+                || totalOutcomes < tasksCompleted + tasksCancelled + tasksExpired
+                    + tasksVanished + tasksFailed
+                || createdTimeMs < 0 || lastResultMs < -1 || updateCount < 0)
+            {
+                lock (m_Lock) S.RestoreRefused++;
+                return false;
+            }
+            CrewExperienceRecord record = new CrewExperienceRecord(agentId, createdTimeMs);
+            record.TasksCompleted = tasksCompleted;
+            record.TasksCancelled = tasksCancelled;
+            record.TasksExpired = tasksExpired;
+            record.TasksVanished = tasksVanished;
+            record.TasksFailed = tasksFailed;
+            record.TotalOutcomes = totalOutcomes;
+            record.ExperiencePoints = experiencePoints;
+            record.Level = ExperienceLevels.LevelForXp(experiencePoints);   // never trust a persisted level
+            record.LastOutcome = lastOutcome;
+            record.LastResultMs = lastResultMs;
+            record.UpdateCount = updateCount;
+            lock (m_Lock)
+            {
+                if (S.Records.ContainsKey(agentId))
+                {
+                    S.RestoreSkipped++;
+                    return false; // live state wins — never overwrite
+                }
+                if (S.Records.Count >= MaxRecords)
+                {
+                    S.RestoreRefused++;
+                    return false;
+                }
+                S.Records[agentId] = record;
+                S.Restored++;
+            }
+            Emit("ExperienceRestored " + agentId
+                + " xp=" + experiencePoints.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " level=" + record.Level.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        public static long RestoredCount { get { lock (m_Lock) return S.Restored; } }
+        public static long RestoreSkippedCount { get { lock (m_Lock) return S.RestoreSkipped; } }
+        public static long RestoreRefusedCount { get { lock (m_Lock) return S.RestoreRefused; } }
+
         // Test/dev isolation only. Never call in game code.
         public static void ResetForTests()
         {
@@ -306,6 +422,9 @@ namespace CapBot.Core.Crew
                 S.RecordsCreated = 0;
                 S.Accruals = 0;
                 S.Refused = 0;
+                S.Restored = 0;
+                S.RestoreSkipped = 0;
+                S.RestoreRefused = 0;
                 m_OnDecision = null;
             }
         }

@@ -3,6 +3,67 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 28 — Crew data persistence (insert-only restore, live wins)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Persistence/CrewPersistence.cs` — pure C# serializer for the
+  cross-session crew data layers: P12 experience records (full), P13
+  memory rows (full), and MATURED (explicit-source) P11 personalities.
+  Derived personalities are NOT persisted (reproducible from the stable
+  AgentId by design — the P11 derivation is a pure function); archetypes
+  are NEVER persisted (re-derived from traits on restore); levels are
+  NEVER trusted (recomputed from XP). Versioned format v1 ("CAPB" magic,
+  u16 version, bounded sections, u16-length-prefixed null-safe UTF-8
+  strings, 64K hard bound); decode is all-or-nothing — any structural
+  fault returns null, live state untouched. IL-verified pure domain:
+  zero PULSAR/PML/Harmony/game/pipeline references. No Harmony targets,
+  no tick driver, no WorldTick change (11-class ceiling untouched).
+- `CrewPersistenceAdapter.cs` — `CapBotCrewDataSave : PMLSaveData`
+  ("CapBotCrewData", VersionID 1): thin production adapter; PML
+  auto-discovers the subclass (the proven CapBotLearningSave pattern —
+  no registration call). Fail-safe both ways (faulting Save ⇒ empty
+  blob; faulting Load ⇒ never throws, never partial state). Legacy
+  "CapBotLearning" XP slot UNTOUCHED. Logs via the existing PERSISTENCE
+  subsystem.
+- Registry additive export/restore surfaces (live state always wins):
+  `CrewExperienceRegistry.ExportAll / RestoreRecord` (insert-only, Level
+  recomputed from XP, outcome vocabulary enforced); 
+  `CrewPersonalityRegistry.ExportMatured / RestoreMatured` (explicit-
+  source rows only; traits validated 0..100; archetype re-derived;
+  provenance stays "explicit"); `CrewMemorySystem.ExportAll / RestoreRow
+  / RestoreRows` (whole-agent semantics against BATCH-START live state;
+  per-row restore routes through the existing Upsert so validation and
+  eviction rules stay the single authority).
+- Restore semantics: INSERT-ONLY (a live record always wins — never
+  overwritten or evicted; memory skips the WHOLE agent when any live
+  memory existed at batch start); invalid payloads refused and counted,
+  never fabricated (invalid id shape, unknown outcome vocabulary,
+  out-of-range traits, negative counters, XP inconsistent with outcome
+  counters).
+- `tests/PersistenceTests.cs` (PERS01–PERS10, 53 assertions) + suite
+  registration (27 domain files, 18 suites).
+- `docs/PERSISTENCE.md` — the P28 contract (scope census §1, restore
+  semantics §2, format §3, wiring §4, not-in-phase §5, tests §6, gotchas
+  §7, verification §8).
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2572 failed=0` ×3 consecutive (suite now 27 domain
+  files, 18 suites). Run-1 findings fixed in-suite: memory restore
+  batch semantics (whole-agent decision against batch-start state, not
+  per-row current state — MP08-style shared-state lesson), 1
+  accidentally-dropped `CrewExperienceRegistry.StatusLines` method
+  restored, adapter namespace fix (`PulsarModLoader.SaveData`, not the
+  root namespace), corrupted-test-file rewrite (interrupted write had
+  duplicated a block 233× — rewritten and verified single-pass before
+  compiling).
+- Reflection (`verify_build_p28.ps1`): 49/0 — serializer surface/consts
+  (Magic=0x42504143, FormatVersion=1, MaxAgents=32, MaxMemoriesPerAgent=8,
+  MaxEncodedLength=64K); adapter derives PMLSaveData and delegates
+  Capture/Encode (Save) and Decode/Restore (Load); registry export/
+  restore surfaces; serializer IL purity (zero forbidden refs); no
+  Harmony surgery; Harmony patch classes == 11; prior-phase types intact.
+
 ## [Phase 27 — Compatibility manager (dispatch-and-audit registry)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added
