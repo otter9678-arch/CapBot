@@ -45,6 +45,15 @@ namespace CapBot
             CapBot.Core.World.WorldLogBridge.Ensure();
             CapBot.Core.World.WorldStateService.SetSource(new CapBot.Core.World.PulsarWorldSource());
             TaskRecoveryManager.Probe = new CapBot.Core.World.WorldSnapshotProbe();
+            // Phase 7: attach capability-registry logging, register the
+            // built-in capability catalog and wire production seams. This is
+            // contracts only — nothing validates, executes or performs
+            // gameplay yet: no executor exists, the authority seam stays
+            // fail-closed (claims deny-by-default) until Phase 8 wires it
+            // to master-client state, and the scheduler is still inert.
+            CapBot.Core.Capabilities.CapabilityLogBridge.Ensure();
+            CapBot.Core.Capabilities.RegisteredCapabilities.RegisterBuiltIns();
+            CapBot.Core.Capabilities.RegisteredCapabilities.AttachProductionSeams();
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

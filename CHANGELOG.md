@@ -3,6 +3,106 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 7 — Safe task capability registry] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Capabilities/CapabilityDescriptor.cs` — the capability contract
+  vocabulary: `CapabilityAuthority` (MasterOnly/ClientRequest/ClientOnly/
+  ReadOnly — MasterOnly is the default for gameplay), `CapabilityDanger`,
+  `CapabilityReversibility`, `CapabilityValidation` (15 deterministic
+  outcomes), `TargetRequirement` (None/SectorId/ShipId/MissionId/
+  BoundedToken), untrusted `CapabilityRequest` holder, and the immutable
+  `CapabilityDescriptor` (bounded lists ≤ 8, bounded static text, pure
+  `Precondition`/`TargetValidator` delegates, `VerifiedApi` documentation
+  text, deterministic `ToContractLine`). Capabilities are data contracts,
+  never executable instructions.
+- `Core/Capabilities/CapabilityRegistry.cs` — bounded (≤ 32) static
+  allowlist with duplicate-safe registration (ids validated to the same
+  `[A-Za-z0-9_]` ≤ 32 vocabulary as Phase 5 `actionKind`, so a CapabilityId
+  IS a valid actionKind), cheap exact-match lookup (Ordinal dictionary, no
+  scanning/LINQ), enable/disable, and the deterministic validation gate
+  ladder (malformed → disabled → actor → authority → target → precondition
+  → task mismatch → ownership → cooldown → P5 claim conflict → P6 world
+  freshness; first failure wins). Ownership gate resolves the LIVE task
+  (identity + non-terminal + owner match + request consistency); cooldowns
+  stamp only on approval; claim conflict builds the real P5 action identity
+  and treats seam faults as conflict (fail-closed). Pluggable seams
+  (authority probe / clock / world provider / claim probe) — all
+  fail-closed when unwired or faulting; the registry holds no world or
+  claim state. `StatusLines` + `ResetForTests`.
+- `Core/Capabilities/RegisteredCapabilities.cs` — the Phase 7 catalog: 7
+  built-ins (`SET_CAPTAIN_ORDER`, `ISSUE_MOVE_ORDER`, `SET_CAPTAIN_TARGET`,
+  `ADD_COURSE_GOAL`, `REMOVE_COURSE_GOAL`, `CLEAR_COURSE_GOALS`,
+  `READ_WORLD_SNAPSHOT`), all documenting PunRPC-verified vanilla channels
+  (`PLServer.CaptainSetOrderID(Int32)`, `PLPlayer.IssueMoveOrder(Vector3)`,
+  `PLShipInfoBase.Captain_SetTargetShip(Int32)`,
+  `PLServer.AddCourseGoal/RemoveCourseGoal(Int32)/ClearCourseGoals()`),
+  `CAPTAIN`-owner-restricted, `MasterOnly`, cooldowns 1000–5000 ms guarding
+  vanilla cadence, plus the read-only Phase 6 snapshot contract.
+  `RegisterBuiltIns()` (duplicate-safe) + `AttachProductionSeams()` (wires
+  authority→`ExecutionClaims.IsAuthoritative`, clock→`TaskClock.NowMs`,
+  world→`WorldStateService.Latest`, claim probe→`GetClaim.Active ||
+  Ledger.Observe==Succeeded`). Deliberately excluded: `Captain_SetAutoMode`
+  (empty body), `Captain_NameShip`, `SkipWarp/SkipWarpAt` (unrequested),
+  and all speculative combat/mission/economy/build capabilities.
+- `Core/Capabilities/CapabilityLogBridge.cs` — attaches Phase 1 `CapBotLog`
+  (new CAPABILITY subsystem tag) as the registry decision listener at mod
+  boot; the domain contains zero logging calls.
+- `Core/Logging/CapBotLog.cs` (modified) — added the `CAPABILITY` subsystem
+  tag (additive; OLLAMA remains reserved).
+- `CapBot.csproj` (modified) — compile entries for the four new files.
+- `Mod.cs` (modified) — boot wiring: `CapabilityLogBridge.Ensure()`,
+  `RegisteredCapabilities.RegisterBuiltIns()`,
+  `RegisteredCapabilities.AttachProductionSeams()`.
+- `docs/CAPABILITIES.md` — full contract: security boundary (contracts not
+  executable instructions — no C# generation/runtime compilation/DLL
+  loading/shell execution/reflection invocation/LLM-text-as-commands),
+  descriptor table, 13-gate validation ladder table, authority matrix
+  (fail-closed defaults), seam table, the 7-capability catalog with
+  verified APIs, task-system integration contracts (P2/P3/P4/P5/P6),
+  compatibility posture (Better AI/MoreBots/Quality Improver — no hostility
+  assumptions), performance, logging examples, explicit not-in-phase list.
+- `tests/CapabilityTests.cs` — 138 dev-side assertions (not shipped)
+  covering all 14 mandated scenarios: registration (+ id vocabulary
+  boundaries), duplicate registration, bounded registry cap, unknown
+  rejection, deterministic lookup (instance-stable Get, sorted bounded id
+  list), happy-path approval, malformed request/task (incl. request TaskId
+  ≤ 0 and null request owner — request data validated as untrusted),
+  disabled capability, actor allowlist (+ wrong-case owner), authority
+  rejection (deny-by-default + faulting probe fail-closed), invalid targets
+  (kind/non-integer/negative/empty/over-length token/punctuation), declared
+  preconditions + target validators (+ faulting validator fail-closed),
+  task-type mismatch, ownership mismatch (not-registered, wrong owner,
+  spoofed task id, cancelled task still in registry history), P5 claim
+  integration (CapabilityId as actionKind, ledger-Succeeded duplicate
+  rejection, unexpired-claim conflict, expired-lease clearance, faulting
+  claim probe), P6 world integration (missing seam → RejectedWorldStateMissing,
+  never-captured, fresh, stale → RejectedWorldStateStale, boundary,
+  faulting provider), catalog metadata integrity (all 7 capabilities'
+  authority/target/cooldown/VerifiedApi/owner assertions, bounded fields,
+  ToContractLine, StatusLines, enable/disable round-trip). Harness
+  `run_tests.ps1` + TestMain wired for six suites. Combined TOTAL:
+  **passed=567 failed=0** (97 lifecycle + 57 recovery + 89 scheduler +
+  106 claims + 80 world + 138 capability).
+
+### Notes
+- Contract layer only: the registry validates and approves — it never
+  executes. No PULSAR API is called anywhere in this layer (`VerifiedApi`
+  fields are static documentation), no executor exists to consume an
+  `Approved` outcome, and no gameplay can route through the registry yet.
+  The authority seam is doubly fail-closed (registry gate +
+  claims deny-by-default) until P8 wires `PhotonNetwork.isMasterClient`.
+- No Harmony patches added (still 11), no RPC changes, no vanilla AI
+  behavior changes; Better AI/MoreBots/Quality Improver compatibility
+  unaffected (no hostility assumptions encoded). No new PULSAR/PML API
+  usage — pure C# domain + P2–P6 integration.
+- Sighted but deliberately unregistered during API verification:
+  `PLServer.Captain_SetAutoMode(Bool)` (empty body — no observable effect),
+  `PLServer.Captain_NameShip(String)`, `PLServer.SkipWarp/SkipWarpAt`.
+- Not implemented (later phases): executor (P8), directors (P9/P15–P17),
+  Captain Brain 2.0, Decision Validator, Ollama/Qwen, dynamic task
+  generation, persistence, UI, updater security, performance refactoring.
+
 ## [Phase 6 — Game/World State observation layer] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

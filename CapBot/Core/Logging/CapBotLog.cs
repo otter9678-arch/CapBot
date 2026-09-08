@@ -12,11 +12,12 @@ namespace CapBot.Core.Logging
     {
         public enum Level { Trace = 0, Debug, Info, Warning, Error, Critical }
 
-        // Subsystem tags (master plan PART 3). TASK/OLLAMA reserved for later phases.
+        // Subsystem tags (master plan PART 3). OLLAMA reserved for later phases.
         public const string CORE = "CORE";
         public const string CAPTAIN = "CAPTAIN";
         public const string CREW = "CREW";
         public const string TASK = "TASK";
+        public const string CAPABILITY = "CAPABILITY";
         public const string MISSION = "MISSION";
         public const string NAVIGATION = "NAVIGATION";
         public const string COMBAT = "COMBAT";

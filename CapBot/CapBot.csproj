@@ -112,6 +112,10 @@
     <Compile Include="Core\World\WorldSnapshotProbe.cs" />
     <Compile Include="Core\World\PulsarWorldSource.cs" />
     <Compile Include="Core\World\WorldLogBridge.cs" />
+    <Compile Include="Core\Capabilities\CapabilityDescriptor.cs" />
+    <Compile Include="Core\Capabilities\CapabilityRegistry.cs" />
+    <Compile Include="Core\Capabilities\RegisteredCapabilities.cs" />
+    <Compile Include="Core\Capabilities\CapabilityLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

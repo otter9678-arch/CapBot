@@ -28,11 +28,15 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'CapBot\Core\World\WorldSnapshot.cs') `
   (Join-Path $repo 'CapBot\Core\World\WorldStateService.cs') `
   (Join-Path $repo 'CapBot\Core\World\WorldSnapshotProbe.cs') `
+  (Join-Path $repo 'CapBot\Core\Capabilities\CapabilityDescriptor.cs') `
+  (Join-Path $repo 'CapBot\Core\Capabilities\CapabilityRegistry.cs') `
+  (Join-Path $repo 'CapBot\Core\Capabilities\RegisteredCapabilities.cs') `
   (Join-Path $repo 'tests\TaskLifecycleTests.cs') `
   (Join-Path $repo 'tests\TaskRecoveryTests.cs') `
   (Join-Path $repo 'tests\TaskSchedulerTests.cs') `
   (Join-Path $repo 'tests\ExecutionClaimTests.cs') `
-  (Join-Path $repo 'tests\WorldStateTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
+  (Join-Path $repo 'tests\WorldStateTests.cs') `
+  (Join-Path $repo 'tests\CapabilityTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
 if ($LASTEXITCODE -ne 0) { Write-Output 'COMPILE FAILED'; exit 3 }
 
 $output = & $exe 2>&1
