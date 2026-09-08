@@ -541,6 +541,7 @@ namespace CapBot.Core.Crew
         {
             if (string.IsNullOrEmpty(agentId)) return false;
             bool cleared;
+            long taskId = 0;
             lock (m_Lock)
             {
                 CrewAgent a;
@@ -548,7 +549,7 @@ namespace CapBot.Core.Crew
                 else if (a.CurrentTaskId <= 0) { cleared = false; }
                 else
                 {
-                    long taskId = a.CurrentTaskId;
+                    taskId = a.CurrentTaskId;
                     a.CurrentTaskId = 0;
                     a.CurrentTaskType = null;
                     a.CurrentTaskCapabilityId = null;
@@ -567,6 +568,12 @@ namespace CapBot.Core.Crew
                 // OUTSIDE the agent-registry lock so a faulting experience
                 // listener can never affect agent state or task resolution.
                 try { CrewExperienceRegistry.RecordOutcome(agentId, outcome, nowMs); }
+                catch (Exception) { }
+                // Phase 13: memory write — additive and fail-safe, same
+                // discipline: outside the agent-registry lock, own try/catch;
+                // a faulting memory layer can never affect agent state or
+                // task resolution.
+                try { CrewMemorySystem.RememberTaskOutcome(agentId, taskId, outcome, nowMs); }
                 catch (Exception) { }
             }
             return cleared;

@@ -106,6 +106,14 @@ namespace CapBot
             // outside the agent lock) and stays DATA ONLY — it never influences
             // scheduling, claims, execution, or personalities.
             CapBot.Core.Crew.ExperienceLogBridge.Ensure();
+            // Phase 13: attach crew-memory logging and wire the recall clock
+            // seam. Memory is bounded DATA ONLY — it records task outcomes
+            // (via the ClearTask funnel, fail-safe outside the agent lock)
+            // and locations/crew events (explicit APIs for later phases); it
+            // never influences scheduling, claims, execution, personalities,
+            // experience, or world state.
+            CapBot.Core.Crew.MemoryLogBridge.Ensure();
+            CapBot.Core.Crew.CrewMemorySystem.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

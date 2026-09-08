@@ -131,6 +131,8 @@
     <Compile Include="Core\Crew\PersonalityLogBridge.cs" />
     <Compile Include="Core\Crew\CrewExperience.cs" />
     <Compile Include="Core\Crew\ExperienceLogBridge.cs" />
+    <Compile Include="Core\Crew\CrewMemory.cs" />
+    <Compile Include="Core\Crew\MemoryLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

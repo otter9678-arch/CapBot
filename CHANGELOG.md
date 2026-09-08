@@ -3,6 +3,69 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 13 — Crew memory] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Crew/CrewMemory.cs` — the memory layer (BOUNDED RECALLABLE DATA
+  ONLY): `CrewMemoryEntry` fact rows (Kind = Location/TaskOutcome/CrewEvent,
+  Text/Outcome payloads ≤32 chars, CreatedTimeMs/LastSeenMs stamps,
+  UpdateCount) in per-agent rings; `CrewMemorySystem` (≤32 = MaxAgents
+  agents, ≤8 = MaxMemoriesPerAgent entries per agent, deterministic upsert
+  semantics — same key updates in place, new distinct fact evicts the
+  oldest entry by LastSeenMs with tie → lowest insertion index; bounded
+  registry refusal for NEW agents only; recall paths
+  `Recall`/`RecallTaskOutcome`/`RecallAll` that stamp reads via the
+  `SetNowMsProvider` clock seam (production: TaskClock.NowMs);
+  `ForgetAgent` lifecycle hook; `StatsOf` + bounded diagnostics; listener
+  lines collected under the lock and fired AFTER release; ResetForTests).
+  No game references, no tick driver, no world reads, no
+  scheduler/claims/executor/personality/experience influence.
+- `Core/Crew/MemoryLogBridge.cs` — attaches CapBotLog (CREW) as the memory
+  system's decision listener at boot (same pattern as
+  CrewAgentLogBridge/PersonalityLogBridge/ExperienceLogBridge).
+- `docs/CREW_MEMORY.md` — full contract: entry shape, write paths, upsert +
+  eviction semantics, recall paths, registry rules, authority, performance,
+  verified-API table (none used), security, future integration points,
+  failure modes, tests.
+- `tests/MemoryTests.cs` — 170 assertions covering the Phase 13 scenarios
+  (M01–M12): end-to-end outcome memory through the real Sync funnel,
+  location upsert + read stamping, crew-event text as DATA, bounded ring
+  (8/agent, cross-kind oldest-by-LastSeenMs eviction, updates never evict),
+  bounded registry (32-agent cap, refusal, slot freeing, existing-agent
+  writes at cap), invalid-input refusal, no cross-agent contamination,
+  scheduler/claims/priority/personality/experience isolation under churn,
+  recall stamping via the clock seam + recall-favored eviction, fail-safe
+  funnel (throwing listener and full-registry refusal leave agent state and
+  task resolution untouched), ForgetAgent lifecycle + no resurrection, and
+  upsert determinism (keys, kinds, later-outcome wins, stats).
+
+### Changed
+- `Core/Crew/CrewAgentRegistry.cs` — ClearTask extended additively: after
+  the agent lock is released (next to the Phase 12 experience hook), a
+  fail-safe memory write (`CrewMemorySystem.RememberTaskOutcome`) runs in
+  its own try/catch — a faulting memory layer can never affect agent state
+  or task resolution. Agent state shape and P10 semantics unchanged.
+- `CapBot.csproj` — +2 Compile entries (`Core\Crew\CrewMemory.cs`,
+  `Core\Crew\MemoryLogBridge.cs`).
+- `Mod.cs` — Phase 13 boot block: `MemoryLogBridge.Ensure()` +
+  `CrewMemorySystem.SetNowMsProvider(TaskClock.NowMs)`.
+- `tests/run_tests.ps1` — +1 domain compile entry (`CrewMemory.cs`) and
+  +1 suite (`MemoryTests.cs`).
+- `tests/TaskRecoveryTests.cs` — TestMain runs twelve suites (`f12` =
+  MemoryTests); TOTAL line updated.
+
+### Notes
+- Zero PULSAR APIs used (pure C# over the Phase 10 ClearTask funnel +
+  explicit APIs); no Harmony patch change (still 11 patch classes; WorldTick
+  Postfix 256 IL bytes unchanged).
+- The P6 snapshot remains the only authoritative world observation —
+  location memory is an explicit-API cache, no snapshot-path changes.
+- Consumers are later phases (role preferences, planning, Captain Brain
+  2.0, navigation recovery); Phase 13 implements no decision consumer.
+- Verified: build 0 warnings/0 errors; tests TOTAL 1308/1308 (twelve
+  suites; MemoryTests 170 assertions M01–M12); reflection 161 types/142
+  named, P13 type surfaces + constants (32/8/32) exact, P6–P12 intact.
+
 ## [Phase 12 — Crew experience] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added
