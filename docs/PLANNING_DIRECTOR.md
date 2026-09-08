@@ -11,7 +11,11 @@ deterministic planning layer as a bounded **situation-assessment** director:
 it tracks planning-relevant situations as data and emits bounded decision
 lines. Phase 23 (dynamic task creation) builds on this layer — shipped as
 `MissionWorkDirector` (`docs/MISSION_WORK_DIRECTOR.md`), which consumes the
-MISSIONWORK episode surface below.
+MISSIONWORK episode surface below. Phase 24 (self-adjustment) consumes this
+layer's counters as outcome data — shipped as the recommend-only
+`AdjustmentDirector` (`docs/ADJUSTMENT_DIRECTOR.md`), which polls
+`DriftReportCount`/`CapacityGateBlockCount` deltas and never mutates
+planning state.
 
 **Design basis note:** no master-plan document exists in the workspace
 defining Phase 22 (verified by the P22 research report — direct "Phase

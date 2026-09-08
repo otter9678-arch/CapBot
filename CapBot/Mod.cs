@@ -267,6 +267,21 @@ namespace CapBot
             CapBot.Core.Planning.MissionWorkDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Planning.MissionWorkDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Planning.MissionWorkDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            // ---- Phase 24: adjustment observer (bounded outcome readback) ----
+            // The self-adjustment phase as DATA: polls the pipeline's PUBLIC
+            // readbacks (TaskRegistry live snapshot, CaptainDirector /
+            // PlanningDirector bounded counters) on its own cadence and emits
+            // bounded recommend-only signals (CHURN / STARVE / DRIFT). It
+            // authors NOTHING, mutates NO task, and never touches another
+            // phase's knobs — P3 recovery owns every lifecycle decision. No
+            // config toggle (the P18/P22/P23 deterministic-director
+            // precedent); the deny-by-default authority seam keeps clients
+            // silent. Poll-based by construction: every listener seam in the
+            // tree is single-slot and boot-occupied by LogBridges.
+            CapBot.Core.Adjustment.AdjustmentLogBridge.Ensure();
+            CapBot.Core.Adjustment.AdjustmentDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Adjustment.AdjustmentDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Adjustment.AdjustmentDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

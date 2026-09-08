@@ -3010,6 +3010,24 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.MISSIONWORK, "Mission work director reconcile failed", ex);
             }
+            // ---- Phase 24: adjustment observer (bounded outcome readback) ----
+            // Polls public pipeline readbacks (registry live snapshot +
+            // director counters) and emits bounded recommend-only CHURN /
+            // STARVE / DRIFT signals. Authors NOTHING, mutates NO task,
+            // never touches another phase's configuration; P3 recovery owns
+            // every lifecycle decision. Runs AFTER the P23 block so its
+            // counter deltas observe this tick's authoring/reconcile
+            // outcomes. Poll-based (single-slot listener seams are
+            // boot-occupied); deny-by-default authority keeps clients
+            // silent. No new Harmony patch class (11-class ceiling kept).
+            try
+            {
+                CapBot.Core.Adjustment.AdjustmentDirector.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.ADJUSTMENT, "Adjustment observer tick failed", ex);
+            }
         }
     }
     [HarmonyPatch(typeof(PLBotController), "HandleMovement")]

@@ -3,6 +3,63 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 24 — Adjustment observer (bounded outcome readback)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Adjustment/AdjustmentDirector.cs` — the "self-adjustment /
+  re-planning" phase shipped as DATA (the P24 research report verified the
+  design basis: no master-plan mandate exists in the workspace; "re-targeting
+  is re-planning, not recovery" is reserved by TASK_RECOVERY.md:95-96 and P3
+  owns every task lifecycle mutation, and the capability covenant leaves no
+  safe new authoring channel). A bounded deterministic OBSERVER that polls
+  PUBLIC readbacks (TaskRegistry live snapshot; CaptainDirector /
+  PlanningDirector bounded counters — the same public diagnostics the P18
+  calm gate reads) on a 5 s cadence and emits bounded recommend-only
+  signals: `ADJ:CHURN` (a live task is Failed or carries retries — the
+  pipeline struggling with its own work), `ADJ:STARVE` (registry
+  saturated at the live cap, or an authoring-refusal / capacity-gate
+  counter DELTA since the previous readable pass), `ADJ:DRIFT` (P22
+  premise-drift reports increased — premise-carrying task families may be
+  stale, the planning-granularity mirror of the P19 stale-premise screens
+  at meta granularity). Every signal line carries
+  `(recommend-only; no behavior change in Phase 24)`. Anti-churn: one-shot
+  record semantics (first true => report, persisting => silent refresh,
+  re-fire => rate-limited by `AdjustmentRecheckBlockMs`=20000 from the
+  last report, clear+decay => fresh record re-arms), first readable pass
+  arms the baseline only, hygiene decay at `ActiveExpiryMs`=30000, bounded
+  tracked set (≤8) + history (≤16) + ≤4 lines/pass + ≤3 task ids per
+  churn detail. Poll-based by construction (every listener seam in the
+  tree is single-slot and boot-occupied by LogBridges). Reads are
+  fail-closed on seam faults; snapshots fail-safe per the shared 20 s
+  standard. NEVER mutates a task, authors anything, or touches another
+  phase's configuration (BackoffBaseMs/BackoffMultiplier are documented
+  test-settable configuration — untouched). Downstream consumers (named
+  by the tree): P25 adaptive learning, P28 persistence, P29 dashboard.
+  No config toggle (P18/P22/P23 deterministic-director precedent).
+- `Core/Adjustment/AdjustmentLogBridge.cs` + `CapBotLog.ADJUSTMENT` —
+  boot attach of the new `ADJUSTMENT` log subsystem (additive).
+- `Mod.cs` P24 boot block (bridge + authority/now/world seams) and
+  `Patch.cs` WorldTick postfix block (guarded `Evaluate` after the P23
+  block; 11 patch classes preserved). `CapBot.csproj` +2 Compile entries.
+- `tests/AdjustmentDirectorTests.cs` (ADJ01–ADJ10, ~90 assertions) + suite
+  registration (23 domain files, 14 suites).
+- `docs/ADJUSTMENT_DIRECTOR.md` — the P24 contract + data-posture
+  documentation (signal vocabulary, one-shot record semantics, MUST-NOT
+  list, config/multiplayer posture, ADJ01–ADJ10 inventory, verification
+  results).
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2275 failed=0` ×3 consecutive (runs 3–5; suite now
+  23 domain files, 14 suites).
+- Reflection (`verify_build_p24.ps1`): 80/0 — static class + nested
+  `AdjustmentRecord` + bridge; 12 public + 4 private members probed; 13
+  consts; IL ownership scans (zero forbidden refs: lifecycle mutators,
+  scheduler/recovery/executor/claims/validator/dispatcher, Photon,
+  scene scans, capability RPCs; reads = TaskRegistry.LiveSnapshot +
+  LiveCount only); WorldTick postfix references `AdjustmentDirector.
+  Evaluate`; Harmony patch classes == 11; P22/P23 types intact.
+
 ## [Phase 23 — Mission work director (dynamic task creation)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added
