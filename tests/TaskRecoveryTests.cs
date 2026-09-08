@@ -272,7 +272,7 @@ namespace CapBot.TaskTests
         }
     }
 
-    // Runs all four suites in sequence; run_tests.ps1 gates on the exit code
+    // Runs all seven suites in sequence; run_tests.ps1 gates on the exit code
     // and the final TOTAL line containing failed=0.
     internal static class TestMain
     {
@@ -284,9 +284,10 @@ namespace CapBot.TaskTests
             int f4 = ExecutionClaimTests.Run();
             int f5 = WorldStateTests.Run();
             int f6 = CapabilityTests.Run();
+            int f7 = ExecutionTests.Run();
             Console.WriteLine("");
-            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed + WorldStateTests.LastPassed + CapabilityTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4 + f5 + f6));
-            return (f1 + f2 + f3 + f4 + f5 + f6) == 0 ? 0 : 1;
+            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed + WorldStateTests.LastPassed + CapabilityTests.LastPassed + ExecutionTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4 + f5 + f6 + f7));
+            return (f1 + f2 + f3 + f4 + f5 + f6 + f7) == 0 ? 0 : 1;
         }
     }
 }

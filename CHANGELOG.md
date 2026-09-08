@@ -3,6 +3,90 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 8 — Task executor] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Executor/ExecutionResult.cs` — the execution result contract:
+  `ExecutionOutcome` (Success / FailureRetryable / FailurePermanent /
+  Rejected / Unavailable / Cancelled), the bounded immutable
+  `ExecutionResult` (reason ≤ 200, ≤ 8 diagnostic metadata entries, key
+  ≤ 32 / value ≤ 128, `WithMeta` derived copies), and `ICapabilityDispatcher`
+  — the ONLY pathway from an approved task to a gameplay action. No attempt
+  ever throws across the seam; everything is data, never executed.
+- `Core/Executor/TaskExecutor.cs` — the static executor engine (pure C#):
+  per-attempt pipeline resolve live task → consume scheduler grant
+  (`TryTakeLease`, exactly-one-executor-pass) → `TryStart` through the P2
+  contract → build `CapabilityRequest` from task fields + "CapabilityId"/
+  "Argument" metadata (untrusted; registry-validated) → P7 gate-ladder
+  validation → P5 `TryClaim` (attemptEpoch = RetryCount — each recovery
+  retry is a new action identity) → dispatch EXACTLY ONE registered
+  capability → `RecordExecutionResult` (sticky success, duplicate/stale
+  ignored) → lifecycle resolution (Success → TryComplete; failure/rejection
+  → TryFail handing to P3 recovery; NO retry logic — recovery owns retry,
+  backoff, abandon). Validate-before-claim ordering documented (the P7
+  claim-probe seam makes claim-then-validate self-conflict; all gates still
+  run before any action and the claim remains the last gate). Tick gate
+  250 ms, `MaxAttemptsPerTick = 4`, no dispatcher ⇒ `Unavailable`
+  (fail-closed), dispatcher faults wrapped as FailureRetryable, invariant
+  violations logged and left to recovery. Every refusal resolves the task
+  through the lifecycle — nothing wedges. `SetDispatcher`,
+  `SetDecisionListener`, `Enabled`, `ResetForTests`.
+- `Core/Executor/PulsarCapabilityDispatcher.cs` — the game-facing
+  dispatcher: static, code-reviewed branches on CapabilityId calling
+  VERIFIED PULSAR APIs only (signatures verified by direct reflection this
+  session; call shapes copied from compile-proven shipped sites).
+  `SET_CAPTAIN_ORDER` → `PLServer.CaptainSetOrderID(Int32)` direct call
+  (order validated against the static vocabulary {1,4,6,8,9,10,11,12,13}
+  from shipped `ComputeDesiredOrder`); `ISSUE_MOVE_ORDER` →
+  `pawn.photonView.RPC("IssueMoveOrder", PhotonTargets.All, sector.Position)`
+  (impl is private in Assembly-CSharp — reachable only via its [PunRPC]
+  route; Vector3 derived only from `PLSectorInfo.Position`, never parsed
+  from untrusted text); `SET_CAPTAIN_TARGET` → direct
+  `PLShipInfoBase.Captain_SetTargetShip(Int32)` (target syncs via stream —
+  no PhotonTargets.All duplicate pattern); course-goal channels via the
+  exact shipped `PLServer.Instance.photonView.RPC(..., PhotonTargets.All,
+  ...)` shapes with sector existence verified against the galaxy table;
+  `READ_WORLD_SNAPSHOT` → pure `WorldStateService.Latest` read. A
+  registered capability WITHOUT a branch is refused (`Rejected`) —
+  registration never makes a capability executable. No reflection dispatch,
+  no method-name lookup, no runtime compilation, no interpretation of task
+  metadata/chat/mission text as commands.
+- `Core/Executor/ExecutorLogBridge.cs` — boots the executor decision
+  listener into `CapBotLog` (TASK subsystem): accepted/rejected,
+  capability/authority/precondition failures, duplicate execution, stale
+  callbacks, claim releases, invariant violations.
+- `docs/EXECUTOR.md` — the Phase 8 contract document (flow, ordering note,
+  capability→API table with verification basis, tick driver, logging,
+  tests).
+- `tests/ExecutionTests.cs` — 98 assertions covering all 20 mandated
+  scenarios (successful execution, unknown capability, disabled capability,
+  invalid task, invalid owner, invalid target, failed precondition, wrong
+  authority, missing claim, duplicate claim, duplicate execution request,
+  stale callback, cancelled task, completed task, recovery-owned task,
+  retryable failure, permanent failure, scheduler grant requirement,
+  deterministic execution identity, multiplayer authority gating) plus the
+  tick driver. **Suite total now 665/665** (97 + 57 + 89 + 106 + 80 + 138
+  + 98).
+
+### Changed
+- `Patch.cs` — the Phase 6 `WorldTick` postfix (11th Harmony patch,
+  PLController.Update) extended IN PLACE (no new patch) to also drive, host-
+  side only (`PhotonNetwork.isMasterClient`, fail-closed try/catch — the
+  shipped authority gate), `TaskScheduler.Tick` + `TaskRecoveryManager.Tick`
+  + `TaskExecutor.Tick`. Each call individually exception-guarded; all
+  subsystems self-throttle (1 s scheduler/recovery, 250 ms executor), so
+  the per-frame anchor yields vanilla decision cadence. INERT until tasks
+  exist.
+- `Mod.cs` — Phase 8 boot block: `ExecutorLogBridge.Ensure()`,
+  `TaskExecutor.SetDispatcher(new PulsarCapabilityDispatcher())`,
+  `ExecutionClaims.SetAuthorityPolicy` wired to `PhotonNetwork.
+  isMasterClient` (fail-closed: any fault denies authority; clients never
+  execute — vanilla's request→master pattern untouched).
+- `CapBot.csproj` — four `Core\Executor\` Compile entries.
+- `tests/run_tests.ps1` / `tests/TaskRecoveryTests.cs` (TestMain) — added
+  the ExecutionResult/TaskExecutor domain files and the f7 ExecutionTests
+  suite to the harness.
+
 ## [Phase 7 — Safe task capability registry] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

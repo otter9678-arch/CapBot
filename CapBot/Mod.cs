@@ -54,6 +54,21 @@ namespace CapBot
             CapBot.Core.Capabilities.CapabilityLogBridge.Ensure();
             CapBot.Core.Capabilities.RegisteredCapabilities.RegisterBuiltIns();
             CapBot.Core.Capabilities.RegisteredCapabilities.AttachProductionSeams();
+            // Phase 8: attach executor logging, attach the static
+            // code-reviewed capability dispatcher and wire the claims
+            // authority policy to master-client state (fail-closed: any
+            // fault querying PhotonNetwork denies authority — clients never
+            // execute; the vanilla request->master pattern is untouched).
+            // The layer remains INERT until tasks exist: nothing creates
+            // tasks until the P9+ directors, and the tick driver only runs
+            // host-side (Patch.cs WorldTick gate).
+            CapBot.Core.Executor.ExecutorLogBridge.Ensure();
+            CapBot.Core.Executor.TaskExecutor.SetDispatcher(new CapBot.Core.Executor.PulsarCapabilityDispatcher());
+            ExecutionClaims.SetAuthorityPolicy(delegate
+            {
+                try { return PhotonNetwork.isMasterClient; }
+                catch (System.Exception) { return false; }
+            });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

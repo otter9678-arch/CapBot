@@ -116,6 +116,10 @@
     <Compile Include="Core\Capabilities\CapabilityRegistry.cs" />
     <Compile Include="Core\Capabilities\RegisteredCapabilities.cs" />
     <Compile Include="Core\Capabilities\CapabilityLogBridge.cs" />
+    <Compile Include="Core\Executor\ExecutionResult.cs" />
+    <Compile Include="Core\Executor\TaskExecutor.cs" />
+    <Compile Include="Core\Executor\PulsarCapabilityDispatcher.cs" />
+    <Compile Include="Core\Executor\ExecutorLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

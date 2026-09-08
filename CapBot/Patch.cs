@@ -2780,6 +2780,17 @@ namespace CapBot
     // refresh (internal ~1 s throttle = vanilla decision cadence). The source
     // never mutates game state; this guard keeps any unexpected failure from
     // touching vanilla controller behavior (same posture as the captain tick).
+    //
+    // Phase 8: this postfix is ALSO the task-system tick driver. Host-side
+    // only (PhotonNetwork.isMasterClient — the shipped authority gate,
+    // Patch.cs:102/Autonomy.cs:26): the scheduler, recovery manager and
+    // executor are pure bookkeeping that must run on the authoritative host,
+    // never on clients. Each subsystem self-throttles (1 s scheduler/recovery
+    // gate, 250 ms executor gate), so a per-frame anchor yields the intended
+    // cadence without new Harmony patches. Everything here stays INERT until
+    // tasks exist (nothing creates tasks until the P9+ directors); each call
+    // is individually exception-guarded so one subsystem can never take down
+    // the others or vanilla Update.
     [HarmonyPatch(typeof(PLController), "Update")]
     static class WorldTick
     {
@@ -2792,6 +2803,35 @@ namespace CapBot
             catch (System.Exception ex)
             {
                 CapBotLog.Error(CapBotLog.TASK, "World refresh tick failed", ex);
+            }
+            bool isMaster = false;
+            try { isMaster = PhotonNetwork.isMasterClient; }
+            catch (System.Exception) { isMaster = false; }
+            if (!isMaster) return;
+            try
+            {
+                int nowMs = CapBot.Core.Tasks.TaskClock.NowMs;
+                CapBot.Core.Tasks.TaskScheduler.Tick(nowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.TASK, "Scheduler tick failed", ex);
+            }
+            try
+            {
+                CapBot.Core.Tasks.TaskRecoveryManager.Tick(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.TASK, "Recovery tick failed", ex);
+            }
+            try
+            {
+                CapBot.Core.Executor.TaskExecutor.Tick(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.TASK, "Executor tick failed", ex);
             }
         }
     }
