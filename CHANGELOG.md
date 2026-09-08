@@ -3,6 +3,68 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 11 — Crew personalities] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Crew/CrewPersonality.cs` — the personality layer (DATA ONLY): five
+  fixed traits (`Discipline/Boldness/Sociability/Diligence/Adaptability`,
+  ints 0..100, closed vocabulary), immutable `CrewPersonality` records keyed
+  by the Phase 10 stable AgentId, `PersonalityFactory` with three sources —
+  identity-derived (deterministic FNV-1a over "P|<agentId>|<TRAIT-SALT>",
+  byte-scaled to 0..100: same crew member always gets the same personality
+  across rejoins/class changes/rounds, no randomness, no wall clock),
+  explicit clamped values (future-phase hook), and neutral all-50;
+  `PersonalityArchetypes` static vocabulary (SENTINEL/VANGUARD/COORDINATOR/
+  TECHNICIAN/ADAPTER/BALANCED, dominant ≥70, ties → first trait in enum
+  order); `RoleAffinity` deterministic 0..100 per-role scores from fixed
+  weight tables summing to 100 (Unknown/Other uniform; null ⇒ −1; tables
+  returned as defensive copies); `CrewPersonalityRegistry` bounded ≤32
+  (= MaxAgents) with identity-integrity writes (record.AgentId must equal
+  key), derive-or-existing `DeriveFor` (never silent replacement), explicit
+  replace counted, Remove lifecycle hook, derive-on-demand affinity/archetype
+  conveniences, bounded diagnostics, listener fired outside the lock,
+  ResetForTests. No game references, no tick driver, no world reads, no
+  task/claim/scheduler/executor influence.
+- `Core/Crew/PersonalityLogBridge.cs` — attaches CapBotLog (CREW) as the
+  registry's decision listener at boot (same pattern as CrewAgentLogBridge).
+- `docs/CREW_PERSONALITIES.md` — full contract: what a personality is/is not,
+  deterministic derivation, archetypes, role affinity, registry rules,
+  authority/multiplayer, performance, verified-API table (none used),
+  security, future integration points, failure modes, tests.
+- `tests/PersonalityTests.cs` — 116 assertions covering the Phase 11
+  scenarios (P01–P12): deterministic identity-derived personalities and
+  distinctness across agents, archetype tokens (incl. threshold tie-first),
+  role-differentiated affinity with bounded scores and immutable weight
+  tables, clamping and invalid-input refusal, explicit assign/replace
+  counting, neutral + remove lifecycle, registry stability across time,
+  no cross-agent contamination (bot/human distinctness), scheduler/claims
+  isolation under personality churn, no cross-round drift after reset,
+  bounded registry (cap refusal, replacement-at-cap, slot freeing), and
+  no invalid-data ingestion (forged archetypes, stolen records).
+
+### Changed
+- `CapBot.csproj` — +2 Compile entries (`Core\Crew\CrewPersonality.cs`,
+  `Core\Crew\PersonalityLogBridge.cs`).
+- `Mod.cs` — Phase 11 boot block: `PersonalityLogBridge.Ensure()` only
+  (the layer is inert data; consumers are later phases).
+- `tests/run_tests.ps1` — compiles the personality domain file and
+  `tests\PersonalityTests.cs` (ten suites; TOTAL gate unchanged).
+- `tests/TaskRecoveryTests.cs` — TestMain runs `PersonalityTests.Run()` as
+  f10; TOTAL aggregates ten suites.
+
+### Notes
+- Zero PULSAR APIs used by the personality layer (pure C# over the P10 agent
+  identity). The research doc's PLAIIO/AIData profile channel was deliberately
+  NOT used — it would touch the vanilla AI brain-swap surface and vanilla
+  save files (out of scope for an additive bounded data layer).
+- No new Harmony patch and no change to the WorldTick postfix (verified
+  byte-identical, 256 IL bytes; 11 patch classes unchanged).
+- No in-game behavior change: personalities are derived on demand and read
+  by nothing yet; scheduler grants, owner-busy gating, claims, and task
+  priorities are proven unchanged under personality churn (test P09).
+- Phase 12 (experience) is NOT implemented here: traits are static derived
+  values; `SetPersonality` exists only as the future write path.
+
 ## [Phase 10 — Crew agents] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

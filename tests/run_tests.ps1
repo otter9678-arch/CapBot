@@ -1,10 +1,10 @@
 ﻿# Dev-side test runner for the CapBot pure-C# task domains (Phase 2 lifecycle,
 # Phase 3 recovery, Phase 4 scheduler, Phase 5 claims, Phase 6 world state,
 # Phase 7 capability registry, Phase 8 task executor, Phase 9 emergency
-# director, Phase 10 crew agents). Compiles the pure domain files + all nine
-# test suites with Roslyn csc (no game/PML references) into a temp exe, runs
-# it, reports the combined summary. Gates on the TOTAL line containing
-# failed=0.
+# director, Phase 10 crew agents, Phase 11 crew personalities). Compiles the
+# pure domain files + all ten test suites with Roslyn csc (no game/PML
+# references) into a temp exe, runs it, reports the combined summary. Gates
+# on the TOTAL line containing failed=0.
 $ErrorActionPreference = 'Stop'
 $repo = 'D:\Vortex Downloads & Mods\LoversLab Mods\CapBot-Alpha-1.2.2-Vortex (1)\CapBot-repo'
 $cscCandidates = @(
@@ -41,6 +41,7 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'CapBot\Core\Emergency\EmergencyDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Crew\CrewAgent.cs') `
   (Join-Path $repo 'CapBot\Core\Crew\CrewAgentRegistry.cs') `
+  (Join-Path $repo 'CapBot\Core\Crew\CrewPersonality.cs') `
   (Join-Path $repo 'tests\TaskLifecycleTests.cs') `
   (Join-Path $repo 'tests\TaskRecoveryTests.cs') `
   (Join-Path $repo 'tests\TaskSchedulerTests.cs') `
@@ -49,7 +50,8 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'tests\CapabilityTests.cs') `
   (Join-Path $repo 'tests\ExecutionTests.cs') `
   (Join-Path $repo 'tests\EmergencyTests.cs') `
-  (Join-Path $repo 'tests\CrewAgentTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
+  (Join-Path $repo 'tests\CrewAgentTests.cs') `
+  (Join-Path $repo 'tests\PersonalityTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
 if ($LASTEXITCODE -ne 0) { Write-Output 'COMPILE FAILED'; exit 3 }
 
 $output = & $exe 2>&1

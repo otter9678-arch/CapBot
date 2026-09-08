@@ -127,6 +127,8 @@
     <Compile Include="Core\Crew\CrewAgent.cs" />
     <Compile Include="Core\Crew\CrewAgentRegistry.cs" />
     <Compile Include="Core\Crew\CrewAgentLogBridge.cs" />
+    <Compile Include="Core\Crew\CrewPersonality.cs" />
+    <Compile Include="Core\Crew\PersonalityLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

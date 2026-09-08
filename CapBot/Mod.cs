@@ -96,6 +96,11 @@ namespace CapBot
                 try { return PLPlayer.GetClassNameFromID(classId); }
                 catch (System.Exception) { return null; }
             });
+            // Phase 11: attach personality-registry logging. The personality
+            // layer is INERT data-only: records are derived on demand from the
+            // stable agent identity (no tick driver, no world reads, no task /
+            // claim / execution influence). Consumers are later phases.
+            CapBot.Core.Crew.PersonalityLogBridge.Ensure();
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).
