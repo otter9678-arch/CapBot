@@ -125,6 +125,13 @@ namespace CapBot.Core.Crew
             public long Restored;          // Phase 28: rows inserted from the save blob
             public long RestoreSkipped;    // Phase 28: whole-agent skips (any live memory wins)
             public long RestoreRefused;    // Phase 28: invalid payload rows
+            // P44: memory-agent lifecycle counters (mandated, truthful — each
+            // increments only on a real lifecycle event, never from agent
+            // existence alone).
+            public long MemoryCreated;     // EnsureMemoryAgent created a fresh empty store
+            public long MemoryRestored;    // EnsureMemoryAgent restored persisted rows into a store
+            public long MemoryReused;      // EnsureMemoryAgent returned an existing store
+            public long InitFailures;      // EnsureMemoryAgent failed (never counted as an agent)
         }
 
         private static readonly RegistryState S = new RegistryState();
@@ -438,6 +445,98 @@ namespace CapBot.Core.Crew
             return true;
         }
 
+        // ---- P44: retention/removal reconciliation (mandated counters) --------
+        //
+        // The memory twin of the P40 personality reconcile's removal pass:
+        // a REMOVED agent (no longer a crew member, confirmed by the agent
+        // registry) has its memory store removed so /capbotstatus counts the
+        // live crew exactly. MEMORY IS RETAINED for every other lifecycle
+        // state — Active, Inactive (temporarily absent), SPAWNING,
+        // TEMP_UNAVAILABLE — a null pawn, sector transition, or MoreBots
+        // recreation must NEVER reach this path (only confirmed removal).
+        // Retention policy: memory for removed agents is dropped (bounded
+        // registry, agent identity is deterministic — a rejoin re-creates
+        // the same AgentId and restore re-attaches persisted rows).
+        public static int ReconcileRetention(List<string> removedAgentIds)
+        {
+            if (removedAgentIds == null || removedAgentIds.Count == 0) return 0;
+            int removed = 0;
+            for (int i = 0; i < removedAgentIds.Count; i++)
+            {
+                if (ForgetAgent(removedAgentIds[i])) removed++;
+            }
+            return removed;
+        }
+
+        // P44: number of stores retained through the last reconcile window
+        // (the registry count itself — exposed under the mandated name).
+        public static int RetainedCount { get { return AgentCount; } }
+
+        // ---- P44: EnsureMemoryAgent — the single authoritative init path -----
+        //
+        // The memory-agent lifecycle hook (the memory twin of P40's
+        // EnsurePersonality): every LIVE crew agent ends up with exactly one
+        // memory store keyed by the SAME stable AgentId. Idempotent by
+        // construction — repeated calls for a known agent are no-ops that
+        // return true (MemoryReused), never duplicates. A fresh store is
+        // empty; persisted rows arrive later through the insert-only
+        // CrewPersistence.Restore path (live state always wins), which this
+        // method never races because restore is synchronous and this method
+        // is called from sync-tail/creation hooks (never per frame).
+        //
+        // FALSE-COUNTER RULE: the registry count (AgentCount) changes ONLY
+        // here (a real store creation). Callers' agent existence never
+        // increments anything. On failure: InitFailures++ + one structured
+        // MemoryInitFailed diagnostic line; never counted as an agent.
+        public static bool EnsureMemoryAgent(string agentId, int nowMs, string reason)
+        {
+            if (!PersonalityFactory.IsValidAgentId(agentId))
+            {
+                lock (m_Lock) S.InitFailures++;
+                Emit("MemoryInitFailed stableAgentId=" + (agentId ?? "-")
+                    + " playerId=- reason=invalidAgentId exceptionType=none recoverable=false");
+                return false;
+            }
+            try
+            {
+                lock (m_Lock)
+                {
+                    if (S.Agents.ContainsKey(agentId))
+                    {
+                        S.MemoryReused++;
+                        return true;
+                    }
+                    if (S.Agents.Count >= MaxAgents)
+                    {
+                        S.InitFailures++;
+                        Emit("MemoryInitFailed stableAgentId=" + agentId
+                            + " playerId=- reason=registryFull exceptionType=none recoverable=true");
+                        return false;
+                    }
+                    S.Agents[agentId] = new AgentMemory();
+                    S.MemoryCreated++;
+                }
+                Emit("MemoryAgentCreated stableAgentId=" + agentId
+                    + " reason=" + (string.IsNullOrEmpty(reason) ? "unspecified" : reason)
+                    + " t=" + nowMs.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                lock (m_Lock) S.InitFailures++;
+                Emit("MemoryInitFailed stableAgentId=" + agentId
+                    + " playerId=- reason=exception exceptionType=" + ex.GetType().Name
+                    + " recoverable=true");
+                return false;
+            }
+        }
+
+        // P44 readbacks (mandated memory-agent lifecycle counters).
+        public static long InitFailureCount { get { lock (m_Lock) return S.InitFailures; } }
+        public static long MemoryCreatedCount { get { lock (m_Lock) return S.MemoryCreated; } }
+        public static long MemoryRestoredCount { get { lock (m_Lock) return S.MemoryRestored; } }
+        public static long MemoryReusedCount { get { lock (m_Lock) return S.MemoryReused; } }
+
         // Lookup without creation (null when absent/invalid).
         public static AgentMemoryStats StatsOf(string agentId)
         {
@@ -489,9 +588,13 @@ namespace CapBot.Core.Crew
             lock (m_Lock)
             {
                 lines.Add("memoryAgents=" + S.Agents.Count
-                    + " created=" + S.AgentsCreated + " writes=" + S.Writes
-                    + " recalls=" + S.Recalls + " evictions=" + S.Evictions
-                    + " refused=" + S.Refused);
+                    + " memoryCreated=" + S.MemoryCreated
+                    + " memoryRestored=" + S.MemoryRestored
+                    + " memoryReused=" + S.MemoryReused
+                    + " initFailures=" + S.InitFailures);
+                lines.Add("memory writes=" + S.Writes + " recalls=" + S.Recalls
+                    + " evictions=" + S.Evictions + " refused=" + S.Refused
+                    + " restoredRows=" + S.Restored);
             }
             return lines;
         }
@@ -588,6 +691,9 @@ namespace CapBot.Core.Crew
             {
                 liveAtStart = new HashSet<string>(S.Agents.Keys, StringComparer.Ordinal);
             }
+            // P44: agents whose memory store was counted as Restored in THIS
+            // batch (one count per store, however many rows came back).
+            HashSet<string> restoreCounted = new HashSet<string>(StringComparer.Ordinal);
             int inserted = 0;
             for (int i = 0; i < rows.Count; i++)
             {
@@ -641,7 +747,18 @@ namespace CapBot.Core.Crew
                 // authority). Upsert re-validates the agent id and payload.
                 if (Upsert(row.AgentId, row.Kind, row.TaskId, row.Text, row.Outcome, row.LastSeenMs))
                 {
-                    lock (m_Lock) { S.Restored++; }
+                    lock (m_Lock)
+                    {
+                        S.Restored++;
+                        // P44: a row inserted for a previously-absent agent
+                        // means that agent's memory store just came back from
+                        // the save — count the store once per batch.
+                        if (!restoreCounted.Contains(row.AgentId))
+                        {
+                            restoreCounted.Add(row.AgentId);
+                            S.MemoryRestored++;
+                        }
+                    }
                     inserted++;
                 }
             }
@@ -666,6 +783,10 @@ namespace CapBot.Core.Crew
                 S.Restored = 0;
                 S.RestoreSkipped = 0;
                 S.RestoreRefused = 0;
+                S.MemoryCreated = 0;
+                S.MemoryRestored = 0;
+                S.MemoryReused = 0;
+                S.InitFailures = 0;
                 m_OnDecision = null;
                 m_NowMsProvider = null;
             }

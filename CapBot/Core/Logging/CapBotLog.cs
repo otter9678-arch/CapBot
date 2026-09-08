@@ -36,6 +36,7 @@ namespace CapBot.Core.Logging
         public const string MISSIONWORK = "MISSIONWORK"; // Phase 23: mission work director subsystem (additive)
         public const string ADJUSTMENT = "ADJUSTMENT"; // Phase 24: adjustment observer subsystem (additive)
         public const string LEARNING = "LEARNING";   // Phase 25: adaptive learning subsystem (additive)
+        public const string COMMAND = "COMMAND";     // Phase 41: unified command gate subsystem (additive)
 
         private const int PerMessageIntervalMs = 8000; // same key: at most one line / 8 s
         private const int MaxMessagesPerWindow = 96;   // global flood guard (P37: 24 starved real bursts)

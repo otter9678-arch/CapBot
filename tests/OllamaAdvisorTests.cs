@@ -199,8 +199,8 @@ namespace CapBot.TaskTests
                 "OA02b request body carries no URL (host is the transport's decision)");
             Check(s_Transport.LastRequestJson.IndexOf("\"stream\":false", StringComparison.Ordinal) >= 0,
                 "OA02b non-streaming request");
-            Check(s_Transport.LastRequestJson.IndexOf("\"model\":\"qwen2.5:latest\"", StringComparison.Ordinal) >= 0,
-                "OA02c default model in request");
+            Check(s_Transport.LastRequestJson.IndexOf("\"model\":\"qwen3:latest\"", StringComparison.Ordinal) >= 0,
+                "OA02c default model in request (P44 owner mandate: qwen3:latest)");
             // Second eval inside the same cadence window: no second request.
             Eval();
             Check(s_Transport.CallCount == 1, "OA02d cadence gate blocks same-window re-dispatch");
@@ -231,7 +231,7 @@ namespace CapBot.TaskTests
             Advance(OllamaAdvisor.MinRecheckMs);
             s_Snap = FreshCalm(s_Clock.NowMs);
             Eval(); // consume
-            Check(HasLineContaining("OllamaAdvice model=qwen2.5:latest advice=ADVICE:"), "OA04a advice line emitted");
+            Check(HasLineContaining("OllamaAdvice model=qwen3:latest advice=ADVICE:"), "OA04a advice line emitted");
             Check(OllamaAdvisor.GetAdviceAccepted() == 1, "OA04a accepted counted");
             Check(OllamaAdvisor.GetRequestsSucceeded() == 1, "OA04a success counted");
             Check(OllamaAdvisor.GetLastAdvice().StartsWith("ADVICE:", StringComparison.Ordinal), "OA04b last-advice readback");
@@ -390,15 +390,17 @@ namespace CapBot.TaskTests
 
             // ---- OA14: thinking-model request shape (P36 qwen3 live finding) -----
             FreshSetup();
-            // qwen3:latest joined the vocabulary (index 3).
-            Check(OllamaAdvisor.KnownModels.Length == 4, "OA14a model vocabulary extended");
-            Check(OllamaAdvisor.ClampModelIndex(3) == 3, "OA14b index 3 valid");
-            Check(OllamaAdvisor.ModelName(3) == "qwen3:latest", "OA14c index 3 resolves qwen3");
+            // P44: qwen3:latest is the DEFAULT (index 0); the vocabulary keeps
+            // four entries with qwen3 first (owner mandate: no substitution).
+            Check(OllamaAdvisor.KnownModels.Length == 4, "OA14a model vocabulary bounded");
+            Check(OllamaAdvisor.KnownModels[0] == "qwen3:latest", "OA14i default model is qwen3:latest (owner mandate)");
+            Check(OllamaAdvisor.ModelName(0) == "qwen3:latest", "OA14j index 0 resolves qwen3");
+            Check(OllamaAdvisor.ModelName(1) == "qwen2.5:latest", "OA14k legacy model at index 1");
             // Request for a thinking model carries "think":false; legacy models do not.
-            string q3 = OllamaAdvisor.BuildRequestJson(FreshCalm(1000), 3, 1000);
+            string q3 = OllamaAdvisor.BuildRequestJson(FreshCalm(1000), 0, 1000);
             Check(q3 != null && q3.IndexOf("\"think\":false", StringComparison.Ordinal) >= 0,
-                "OA14d qwen3 request disables thinking");
-            string legacy = OllamaAdvisor.BuildRequestJson(FreshCalm(1000), 0, 1000);
+                "OA14d default (qwen3) request disables thinking");
+            string legacy = OllamaAdvisor.BuildRequestJson(FreshCalm(1000), 1, 1000);
             Check(legacy != null && legacy.IndexOf("\"think\"", StringComparison.Ordinal) < 0,
                 "OA14e legacy request carries no think flag");
             // Non-requesting accessor stays consistent for the sibling advisor.
@@ -406,11 +408,37 @@ namespace CapBot.TaskTests
             Check(!OllamaAdvisor.IsRequestingModelThinking("qwen2.5:latest"), "OA14g thinking probe false for legacy");
             Check(!OllamaAdvisor.IsRequestingModelThinking(null), "OA14h thinking probe null-safe");
 
+            // ---- OA15: P44 model identity probe (owner mandate) -------------------
+            FreshSetup();
+            Check(OllamaAdvisor.RequiredModel == "qwen3:latest", "OA15a required model is qwen3:latest");
+            // Unwired probe: reported honestly as unknown.
+            bool avail = OllamaAdvisor.RunModelProbe();
+            Check(!avail && !OllamaAdvisor.ModelAvailabilityKnown, "OA15b unwired probe = unknown, not fabricated");
+            // Available model -> true + mandated diagnostic lines.
+            OllamaAdvisor.SetModelProbe(delegate (string m) { return m == "qwen3:latest" ? null : "wrong model probed"; });
+            Check(OllamaAdvisor.RunModelProbe(), "OA15c available model reports true");
+            List<string> diag = OllamaAdvisor.ModelDiagnosticLines();
+            Check(diag.Count >= 3
+                && diag[0] == "OllamaConfiguredModel=qwen3:latest"
+                && diag[1] == "OllamaRequestModel=qwen3:latest"
+                && diag[2] == "OllamaModelAvailable=true",
+                "OA15d mandated diagnostic lines (available)");
+            // Unavailable model -> false + EXACT error text surfaced.
+            OllamaAdvisor.SetModelProbe(delegate (string m) { return "model 'qwen3:latest' not in local Ollama library (/api/tags)"; });
+            Check(!OllamaAdvisor.RunModelProbe(), "OA15e unavailable model reports false");
+            diag = OllamaAdvisor.ModelDiagnosticLines();
+            Check(diag.Count == 4 && diag[2] == "OllamaModelAvailable=false"
+                && diag[3].IndexOf("OllamaModelProbeError=", StringComparison.Ordinal) == 0
+                && diag[3].IndexOf("not in local Ollama library", StringComparison.Ordinal) > 0,
+                "OA15f exact probe error surfaced");
+            // No automatic substitution: the probe never changes ModelIndex.
+            Check(OllamaAdvisor.GetModelIndex() == 0, "OA15g probe never substitutes the model");
+
             // ---- OA13: readbacks + reset determinism ------------------------------
             FreshSetup();
             List<string> lines = OllamaAdvisor.StatusLines();
             Check(lines.Count == 2, "OA13a two status lines");
-            Check(lines[0].IndexOf("OllamaAdvisor: enabled=yes port=11434 model=qwen2.5:latest", StringComparison.Ordinal) == 0,
+            Check(lines[0].IndexOf("OllamaAdvisor: enabled=yes port=11434 model=qwen3:latest", StringComparison.Ordinal) == 0,
                 "OA13b status format");
             Eval();
             WaitForPark(2000);

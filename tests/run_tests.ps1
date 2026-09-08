@@ -50,6 +50,7 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'CapBot\Core\Combat\CombatDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Captain\CaptainDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Validation\DecisionValidator.cs') `
+  (Join-Path $repo 'CapBot\Core\Commands\CommandGate.cs') `
   (Join-Path $repo 'CapBot\Core\Ollama\OllamaAdvisor.cs') `
   (Join-Path $repo 'CapBot\Core\Qwen\CrewAdvisor.cs') `
   (Join-Path $repo 'CapBot\Core\Planning\PlanningDirector.cs') `
@@ -58,6 +59,9 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'CapBot\Core\Learning\AdaptiveLearningDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Tasks\MultiplayerAuthorityMonitor.cs') `
   (Join-Path $repo 'CapBot\Core\Compatibility\CompatManager.cs') `
+  (Join-Path $repo 'CapBot\Core\Compatibility\ConflictModel.cs') `
+  (Join-Path $repo 'CapBot\Core\Compatibility\ConflictEngine.cs') `
+  (Join-Path $repo 'CapBot\Core\Compatibility\ProtectedModList.cs') `
   (Join-Path $repo 'CapBot\Core\Persistence\CrewPersistence.cs') `
   (Join-Path $repo 'CapBot\Core\Diagnostics\StatusHub.cs') `
   (Join-Path $repo 'CapBot\Core\Update\UpdatePolicy.cs') `
@@ -71,6 +75,7 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'tests\ExecutionTests.cs') `
   (Join-Path $repo 'tests\EmergencyTests.cs') `
   (Join-Path $repo 'tests\CrewAgentTests.cs') `
+  (Join-Path $repo 'tests\CrewPresenceTests.cs') `
   (Join-Path $repo 'tests\PersonalityTests.cs') `
   (Join-Path $repo 'tests\ExperienceTests.cs') `
   (Join-Path $repo 'tests\MemoryTests.cs') `
@@ -88,12 +93,14 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'tests\AdaptiveLearningTests.cs') `
   (Join-Path $repo 'tests\MultiplayerHardeningTests.cs') `
   (Join-Path $repo 'tests\CompatManagerTests.cs') `
+  (Join-Path $repo 'tests\ConflictEngineTests.cs') `
   (Join-Path $repo 'tests\PersistenceTests.cs') `
   (Join-Path $repo 'tests\StatusDiagnosticsTests.cs') `
   (Join-Path $repo 'tests\UpdatePolicyTests.cs') `
   (Join-Path $repo 'tests\PerfGateTests.cs') `
   (Join-Path $repo 'tests\QaInvariantTests.cs') `
-  (Join-Path $repo 'tests\PersonalityLifecycleTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
+  (Join-Path $repo 'tests\PersonalityLifecycleTests.cs') `
+  (Join-Path $repo 'tests\CommandGateTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
 if ($LASTEXITCODE -ne 0) { Write-Output 'COMPILE FAILED'; exit 3 }
 
 $output = & $exe 2>&1 | ForEach-Object { "$_" }

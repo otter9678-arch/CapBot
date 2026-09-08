@@ -57,10 +57,10 @@ namespace CapBot.Core.Qwen
 
         public static readonly string[] KnownModels = new string[]
         {
-            "qwen2.5:latest",   // default (P21 shares the P20 vocabulary)
+            "qwen3:latest",     // P44 OWNER MANDATE default (shares the P20 vocabulary; think:false)
+            "qwen2.5:latest",   // legacy default
             "qwen:latest",
-            "qwen2.5-coder:latest",
-            "qwen3:latest"      // thinking model; request carries "think":false (P36)
+            "qwen2.5-coder:latest"
         };
 
         public const int ModelDefault = 0;

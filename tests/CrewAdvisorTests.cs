@@ -173,8 +173,8 @@ namespace CapBot.TaskTests
                 "CA02b request body carries no URL (host is the transport's decision)");
             Check(s_Transport.LastRequestJson.IndexOf("\"stream\":false", StringComparison.Ordinal) >= 0,
                 "CA02b non-streaming request");
-            Check(s_Transport.LastRequestJson.IndexOf("\"model\":\"qwen2.5:latest\"", StringComparison.Ordinal) >= 0,
-                "CA02c default model in request");
+            Check(s_Transport.LastRequestJson.IndexOf("\"model\":\"qwen3:latest\"", StringComparison.Ordinal) >= 0,
+                "CA02c default model in request (P44 owner mandate: qwen3:latest)");
             // Crew picture reaches the prompt: lastOutcome=COMPLETED (the
             // assignment round-trip above), roster counts present.
             Check(s_Transport.LastRequestJson.IndexOf("lastOutcome=COMPLETED", StringComparison.Ordinal) >= 0,
@@ -210,7 +210,7 @@ namespace CapBot.TaskTests
             Advance(CrewAdvisor.MinRecheckMs);
             s_Snap = FreshCalm(s_Clock.NowMs);
             Eval(); // consume
-            Check(HasLineContaining("CrewAdvice model=qwen2.5:latest advice=ADVICE:"), "CA04a advice line emitted");
+            Check(HasLineContaining("CrewAdvice model=qwen3:latest advice=ADVICE:"), "CA04a advice line emitted");
             Check(CrewAdvisor.GetAdviceAccepted() == 1, "CA04a accepted counted");
             Check(CrewAdvisor.GetRequestsSucceeded() == 1, "CA04a success counted");
             Check(CrewAdvisor.GetLastAdvice().StartsWith("ADVICE:", StringComparison.Ordinal), "CA04b last-advice readback");

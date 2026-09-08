@@ -152,3 +152,81 @@ delegate + manager idempotence + same-name re-registration no-op).
   Mod ctor wiring IL-probed (PulsarModLoader + ACTk preloads fixed — the
   probe that had to SKIP in P25/P26 now passes); Harmony patch
   classes == 11; CapBotLog.COMPAT intact; prior-phase types intact.
+
+## 7. Conflict engine (Phase 46, `Core/Compatibility/`)
+
+Deterministic classification + quarantine state machine for the standing
+mod-conflict directive. The engine DECIDES; the production layer (future
+phase) executes any physical quarantine and reports outcomes back. LLM
+input is a recommendation only and can never reach the state machine.
+
+- **Model (`ConflictModel.cs`):** `ConflictClass` A (safe overlap →
+  KEEP_BOTH) / B (manageable → COMPATIBILITY_FIX) / C (feature conflict →
+  DISABLE_FEATURE) / D (mod conflict → quarantine-eligible); `ConflictConfidence`
+  UNVERIFIED < PROBABLE < CONFIRMED; 12 `SymptomKind`s; 8 `RefusalReason`s
+  encoding the directive's never-remove-for list (shared dependency, Harmony
+  usage, touching PLPlayer/PLBot, filename similarity, static speculation,
+  protected mod, insufficient evidence, safe isolation available);
+  `ConflictRules.Classify` = the authoritative ladder + shared audit
+  vocabulary (`ClassText/ConfidenceText/ActionText/RefusalText`).
+- **Causality contract:** removal-removes-failure (A/B: symptom with mod,
+  absent without) is necessary; reintroduction-reproduces is required for
+  CONFIRMED. Without the reintroduction leg the verdict is PROBABLE and the
+  action is OBSERVE — even for overwhelming counts (the MoreBots honesty
+  invariant, test CE17, mirrors the real archived A/B: 21,807 IndexOOB but
+  no reintroduction test ⇒ observe, never quarantine).
+- **Quarantine path:** only `Class D + CONFIRMED` reaches
+  `Remediation.Quarantine`. State machine: `QuarantineRecommended →
+  Quarantined` (executor confirms the physical move) `→ RestoredForRetest →
+  CompatibleAfterRetest | QuarantineAgain`. Loop protection: the 3rd
+  `QUARANTINE_AGAIN` event latches **Safe Mode** (idempotent, reasoned).
+- **Protected mods (`ProtectedModList.cs`):** game/runtime/infra
+  assemblies + CapBot itself + Quality Improver (master-prompt rule) are
+  structurally unquarantinable — refusal=PROTECTED_MOD wins over ANY
+  symptom or A/B evidence (test CE21 end-to-end).
+- **Evidence intake (bounded):** `SetModProfile` (one boot-time snapshot
+  from PML `GetAllMods`, flags enriched later by the runtime Harmony audit —
+  never name strings), `RecordSymptom` (latest wins), `RecordComparison`
+  (latest A/B wins), ≤32 tracked mods.
+- **Audit:** every `Evaluate` emits a rate-limited
+  `CompatibilityDecision mod= class= confidence= action= [refusal=] reason=`
+  line — re-emitted only when the verdict text changes or 60s elapsed.
+  Also `CompatibilityQuarantined` / `CompatibilityRetestRestored` /
+  `CompatibilitySafeMode enabled` lines, and
+  `ReportDuplicateCapBot` → `action=STOP_DUPLICATE_EXECUTION` audit (the
+  caller must stop duplicate CapBot execution; duplicate CapBot plugins
+  must never run concurrently).
+- **Status:** `CompatStatus(mod)` vocabulary Loaded / Compatible /
+  Conflict / Quarantined (+ reason); `StatusLines()` ≤14 lines. Exposed as
+  `/capbotstatus conflicts` section and `/capbotcompat [mod]` chat command
+  (read-only echo of engine verdicts; host-only).
+- **Purity:** pure C# domain — zero PULSAR/PML/Harmony/file-IO references
+  (the P19 lesson); the engine performs NO file moves itself.
+
+### Boot wiring (Mod.cs, additive)
+
+1. `ConflictLogBridge.Ensure()` — decision listener onto `CapBotLog.COMPAT`.
+2. Inventory feed — one `GetAllMods()` snapshot at boot:
+   `ConflictEngine.SetModProfile(name, IsProtected(name), false, …)`;
+   whole feed try/catch-wrapped (fault ⇒ empty registry, fail-safe).
+
+### What Phase 46 deliberately does NOT do
+
+- No physical quarantine executor yet (file moves + conflict.json writing
+  are a future phase; the state machine is ready and testable).
+- No runtime Harmony-map enrichment of `usesHarmony` flags yet.
+- No A/B automation (experiments stay manual one-variable runs).
+- No Safe Mode behavioral changes yet (latch + audit only; the boot-safety
+  gate `DisabledUntilCompatibilityTest` lands with the executor).
+
+### Tests
+
+`tests/ConflictEngineTests.cs` CE01–CE21 (142 assertions): refusal ladder;
+protected-mod precedence; symptom-without-A/B ⇒ observe; non-implicating
+A/B ⇒ keep-both; partial causality ⇒ PROBABLE/OBSERVE; full causality ⇒
+CONFIRMED/quarantine state machine incl. idempotent re-confirm; Class C
+never quarantines; symptom→class mapping table; rate limiting; loop
+protection + safe mode; restore/retest clean; invalid transitions;
+duplicate-CapBot audit; bounded status surface; determinism; audit-line
+vocabulary; MoreBots honesty mirror; tracking bounds; reset; status
+edges; protected-list membership. Suite total after P46: 3220/0.

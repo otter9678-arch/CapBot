@@ -81,6 +81,56 @@ namespace CapBot.Core.Crew
         Removed = 3,
     }
 
+    // ---- P44 (directive 2): PRESENCE state machine (orthogonal to Lifecycle) --
+    //
+    // The record Lifecycle above answers "is this agent in the current crew
+    // snapshot / retained in the registry". PRESENCE answers the owner mandate
+    // separately: is this crew member's GAME AVATAR verifiably ALIVE? The two
+    // are orthogonal on purpose — MoreBots-created crew bots appear ALIVE in
+    // the crew list while their pawn/AIData briefly lags (spawn delay, sector
+    // transition, pawn recreation, network sync); the old false-DEAD display
+    // came from treating that lag as death.
+    //
+    //   UNKNOWN          — not yet classified (pre-spawn, first-seen agents)
+    //   SPAWNING         — creation signal seen, avatar not yet confirmed
+    //   ALIVE            — avatar observed alive (positive evidence, present crew)
+    //   TEMP_UNAVAILABLE — observed-absent / pawn-null / unverified data while
+    //                      the agent is still a retained crew member. NEVER a
+    //                      death verdict (TEMP_UNAVAILABLE != DEAD).
+    //   DEAD             — ONLY via CanConfirmAgentDeath strong evidence.
+    //   REMOVED          — MoreBots/game CONFIRMED removal (distinct from the
+    //                      transient DEAD verdict; a removal is not a death).
+    //
+    // DEATH RULE (mandate): only strong evidence may transition an agent to
+    // DEAD. Missing/unknown/absent/stale data is TEMP_UNAVAILABLE, never DEAD.
+    public enum AgentPresenceState
+    {
+        Unknown = 0,
+        Spawning = 1,
+        Alive = 2,
+        TempUnavailable = 3,
+        Dead = 4,
+        Removed = 5,
+    }
+
+    public static class AgentPresence
+    {
+        // Bounded static text for diagnostics/status (compared and logged;
+        // never parsed or dispatched on).
+        public static string Text(AgentPresenceState state)
+        {
+            switch (state)
+            {
+                case AgentPresenceState.Alive: return "ALIVE";
+                case AgentPresenceState.Spawning: return "SPAWNING";
+                case AgentPresenceState.TempUnavailable: return "TEMP_UNAVAILABLE";
+                case AgentPresenceState.Dead: return "DEAD";
+                case AgentPresenceState.Removed: return "REMOVED";
+                default: return "UNKNOWN";
+            }
+        }
+    }
+
     // One crew agent. Mutable domain object owned by CrewAgentRegistry: all
     // mutation happens inside the registry's lock during Sync or through its
     // explicit task-assignment APIs. Every field is data only.
@@ -104,6 +154,17 @@ namespace CapBot.Core.Crew
         public readonly int CreatedTimeMs;
         public int LastSyncTimeMs;             // last snapshot confirm of presence
         public int AbsentSinceMs;              // -1 = present
+
+        // ---- P44 (directive 2): PRESENCE state (orthogonal to Lifecycle) ----
+        // Presence transitions run ONLY through CrewAgentRegistry presence
+        // logic (UpdatePresenceFromSnapshot / death-confirmation gate); every
+        // transition emits a bounded CaptainAgentPresence line with the
+        // reason + evidence (mandate: log every transition).
+        public AgentPresenceState Presence;
+        public string PresenceReason;          // static short reason per transition
+        public string DeathEvidence;           // evidence text; null unless DEAD
+        public int PresenceSinceMs;            // -1 = never transitioned
+        public int DeathObservedMs;            // -1 = no observed death on record (TempUnavailable tracking)
 
         // ---- world-state association (cached observation, NOT ownership) ----
         // The Phase 6 snapshot remains the authoritative world observation;
@@ -146,6 +207,14 @@ namespace CapBot.Core.Crew
             CreatedTimeMs = createdTimeMs;
             LastSyncTimeMs = createdTimeMs;
             AbsentSinceMs = -1;
+            // P44 (directive 2): a brand-new agent starts as SPAWNING — the
+            // creation signal is seen, the avatar is not yet confirmed. Only
+            // a live snapshot with a live pawn promotes to ALIVE.
+            Presence = AgentPresenceState.Spawning;
+            PresenceReason = "created";
+            DeathEvidence = null;
+            PresenceSinceMs = createdTimeMs;
+            DeathObservedMs = -1;
             LastKnownTLIName = null;
             CurrentTaskId = 0;
             CurrentTaskType = null;

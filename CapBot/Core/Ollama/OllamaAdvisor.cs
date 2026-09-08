@@ -62,12 +62,16 @@ namespace CapBot.Core.Ollama
 
         // Bounded model table (no SaveValue<string>: model selection is a
         // config int index into this fixed vocabulary, cycle button in menu).
+        // P44 (owner mandate): index 0 — the DEFAULT — is qwen3:latest. The
+        // owner's Ollama model is qwen3:latest; no silent substitution to
+        // qwen:latest / qwen2.5-coder is ever done (requests carry exactly
+        // the configured model name).
         public static readonly string[] KnownModels = new string[]
         {
-            "qwen2.5:latest",     // 0 — default (7.6B, measured warm ~240 ms)
-            "qwen:latest",        // 1 — smallest (4B, measured warm ~125 ms)
-            "qwen2.5-coder:latest", // 2 — coder variant (present locally)
-            "qwen3:latest"        // 3 — thinking model; request carries "think":false (P36)
+            "qwen3:latest",       // 0 — OWNER MANDATE default (thinking model; request carries "think":false)
+            "qwen2.5:latest",     // 1 — legacy default (7.6B, measured warm ~240 ms)
+            "qwen:latest",        // 2 — smallest (4B, measured warm ~125 ms)
+            "qwen2.5-coder:latest" // 3 — coder variant (present locally)
         };
 
         // Thinking models burn ordinary completion tokens on a reasoning
@@ -96,6 +100,80 @@ namespace CapBot.Core.Ollama
         {
             return IsThinkingModel(model);
         }
+
+        // ---- P44: owner-mandated model identity + availability probe ---------
+        //
+        // The owner's Ollama model is qwen3:latest (index 0). Requests carry
+        // EXACTLY the configured model name — never a silent substitute. The
+        // probe seam (wired in Mod.cs to a bounded loopback /api/tags GET)
+        // reports availability truthfully; a fault records the EXACT error
+        // text (mandate: "fail clearly and report the exact error"). No
+        // automatic model switching exists anywhere in this stack.
+        public static string RequiredModel { get { return KnownModels[0]; } }
+
+        // Probe seam: model name -> null when available, else exact error.
+        private static Func<string, string> m_ModelProbe;
+        private static bool m_ModelAvailableKnown;   // false = never probed
+        private static bool m_ModelAvailable;
+        private static string m_ModelProbeError = string.Empty;
+
+        public static void SetModelProbe(Func<string, string> probe)
+        {
+            lock (m_Lock) m_ModelProbe = probe;
+        }
+
+        // Runs the wired probe (thread-safe; bounded by the probe itself —
+        // the production probe is a loopback GET with a hard timeout).
+        // Called at startup (one-shot) and by tests with fakes.
+        public static bool RunModelProbe()
+        {
+            Func<string, string> probe;
+            lock (m_Lock) probe = m_ModelProbe;
+            if (probe == null)
+            {
+                lock (m_Lock) { m_ModelAvailableKnown = false; m_ModelProbeError = "probe not wired"; }
+                return false;
+            }
+            string error;
+            try { error = probe(RequiredModel); }
+            catch (Exception ex) { error = ex.GetType().Name + ": " + ex.Message; }
+            bool available = string.IsNullOrEmpty(error);
+            lock (m_Lock)
+            {
+                m_ModelAvailableKnown = true;
+                m_ModelAvailable = available;
+                m_ModelProbeError = available ? string.Empty : (error ?? "unknown error");
+            }
+            return available;
+        }
+
+        // The mandated three-line startup diagnostic (+ exact error when
+        // unavailable). ConfiguredModel is the owner requirement text;
+        // RequestModel is what requests actually carry (the same string —
+        // substitution is impossible by construction).
+        public static List<string> ModelDiagnosticLines()
+        {
+            List<string> lines = new List<string>(4);
+            string current;
+            bool known, available;
+            string error;
+            lock (m_Lock)
+            {
+                current = ModelName(s_State.ModelIndex);
+                known = m_ModelAvailableKnown;
+                available = m_ModelAvailable;
+                error = m_ModelProbeError;
+            }
+            lines.Add("OllamaConfiguredModel=" + RequiredModel);
+            lines.Add("OllamaRequestModel=" + current);
+            lines.Add("OllamaModelAvailable=" + (known ? (available ? "true" : "false") : "unknown"));
+            if (known && !available) lines.Add("OllamaModelProbeError=" + error);
+            return lines;
+        }
+
+        internal static bool ModelAvailabilityKnown { get { lock (m_Lock) return m_ModelAvailableKnown; } }
+        internal static bool ModelAvailable { get { lock (m_Lock) return m_ModelAvailable; } }
+        internal static string ModelProbeError { get { lock (m_Lock) return m_ModelProbeError; } }
 
         public const string TargetKindNone = "NONE";   // advisory prompts carry no game target
 
@@ -828,6 +906,10 @@ namespace CapBot.Core.Ollama
                 m_WorldProvider = null;
                 m_DecisionListener = null;
                 m_Transport = null;
+                m_ModelProbe = null;
+                m_ModelAvailableKnown = false;
+                m_ModelAvailable = false;
+                m_ModelProbeError = string.Empty;
             }
             s_WorkerRunning = 0;
         }

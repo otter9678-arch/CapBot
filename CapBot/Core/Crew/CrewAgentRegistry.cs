@@ -75,6 +75,13 @@ namespace CapBot.Core.Crew
             public string LastUncertainReason;
             public bool LastAuthorityKnown;   // false = never evaluated
             public bool LastAuthorityValue;
+            // P44 (directive 2): false-DEAD presence-machine counters.
+            public long PresenceChanges;       // any presence transition
+            public long DeathConfirmations;    // strong-evidence DEAD only
+            public long TempUnavailables;      // observed-absent transitions
+            public long Reconciles;            // ReconcileCrewAgent executions
+            public long ReconcileRefusals;     // unknown identity / bad agentId refusals
+            public long LastReconcileMs = -1;  // reconcile cadence anchor
         }
 
         private static readonly RegistryState S = new RegistryState();
@@ -123,6 +130,42 @@ namespace CapBot.Core.Crew
         public static long AssignmentRefusedCount { get { lock (m_Lock) return S.AssignmentsRefused; } }
         public static long TaskObservationCount { get { lock (m_Lock) return S.TaskObservations; } }
         public static string LastUncertainReason { get { lock (m_Lock) return S.LastUncertainReason; } }
+        // P44 (directive 2): presence-machine readbacks (truthful counters).
+        public static long PresenceChangeCount { get { lock (m_Lock) return S.PresenceChanges; } }
+        public static long DeathConfirmationCount { get { lock (m_Lock) return S.DeathConfirmations; } }
+        public static long TempUnavailableCount { get { lock (m_Lock) return S.TempUnavailables; } }
+        public static long ReconcileCount { get { lock (m_Lock) return S.Reconciles; } }
+        public static long ReconcileRefusalCount { get { lock (m_Lock) return S.ReconcileRefusals; } }
+        public static long AliveAgentCount
+        {
+            get { lock (m_Lock) return CountPresence(AgentPresenceState.Alive); }
+        }
+        public static long TempUnavailableAgentCount
+        {
+            get { lock (m_Lock) return CountPresence(AgentPresenceState.TempUnavailable); }
+        }
+        public static long DeadAgentCount
+        {
+            get { lock (m_Lock) return CountPresence(AgentPresenceState.Dead); }
+        }
+        public static long RemovedAgentCount
+        {
+            get { lock (m_Lock) return CountPresence(AgentPresenceState.Removed); }
+        }
+        public static long SpawningAgentCount
+        {
+            get { lock (m_Lock) return CountPresence(AgentPresenceState.Spawning); }
+        }
+
+        private static long CountPresence(AgentPresenceState presence)
+        {
+            long n = 0;
+            foreach (KeyValuePair<string, CrewAgent> kv in S.Agents)
+            {
+                if (kv.Value.Presence == presence) n++;
+            }
+            return n;
+        }
 
         private static int CountLifecycle(CrewAgentLifecycle lifecycle)
         {
@@ -169,7 +212,8 @@ namespace CapBot.Core.Crew
                     CrewAgent a = kv.Value;
                     lines.Add(a.AgentId + "|pid=" + a.PlayerId + (a.IsBot ? "|bot" : "|human")
                         + "|role=" + a.Role + "|class=" + a.ClassId
-                        + "|life=" + a.Lifecycle + "|capt=" + (a.IsCaptain ? "1" : "0")
+                        + "|life=" + a.Lifecycle + "|presence=" + AgentPresence.Text(a.Presence)
+                        + "|capt=" + (a.IsCaptain ? "1" : "0")
                         + "|task=" + (a.CurrentTaskId > 0 ? a.CurrentTaskId.ToString(System.Globalization.CultureInfo.InvariantCulture) : "-")
                         + "|upd=" + a.UpdateCount);
                 }
@@ -190,6 +234,12 @@ namespace CapBot.Core.Crew
                 lines.Add("stale=" + S.StaleRejections + " assigned=" + S.AssignmentsAccepted
                     + " assignRefused=" + S.AssignmentsRefused + " taskObs=" + S.TaskObservations
                     + " authChanges=" + S.AuthorityChanges);
+                lines.Add("presence spawn=" + SpawningAgentCount + " alive=" + AliveAgentCount
+                    + " temp=" + TempUnavailableAgentCount + " dead=" + DeadAgentCount
+                    + " removed=" + RemovedAgentCount
+                    + " changes=" + S.PresenceChanges + " deaths=" + S.DeathConfirmations
+                    + " tempEvents=" + S.TempUnavailables
+                    + " reconcile=" + S.Reconciles + " reconcileRefused=" + S.ReconcileRefusals);
             }
             return lines;
         }
@@ -412,6 +462,12 @@ namespace CapBot.Core.Crew
             // complete), OUTSIDE the agent lock, fail-safe; bounded to at most
             // one pass of 32 ensure-derives per 1 s sync cadence.
             ReconcilePersonalities(removedThisPass, nowMs);
+
+            // P44: memory reconciliation — same position/discipline as the
+            // P40 personality reconcile: retention pass (confirmed removals)
+            // then the idempotent ensure pass over every live agent.
+            s_LastSyncNowMs = nowMs;
+            ReconcileMemories(removedThisPass);
             return mutations;
         }
 
@@ -508,6 +564,7 @@ namespace CapBot.Core.Crew
             agent.UpdateCount++;
             agent.LastSyncTimeMs = nowMs;
             agent.AbsentSinceMs = -1;
+            UpdatePresenceFromSnapshot(agent, c, nowMs);
 
             if (agent.TeamId != c.TeamId) { agent.TeamId = c.TeamId; agent.LastChangeReason = "team"; }
             if (agent.ClassId != c.ClassId)
@@ -547,6 +604,144 @@ namespace CapBot.Core.Crew
             catch (Exception) { return null; }
         }
 
+        // ---- P44 (directive 2): PRESENCE state machine ----------------------------
+        //
+        // Orthogonal to Lifecycle: Lifecycle answers "in the crew snapshot /
+        // retained in the registry"; Presence answers "is this crew member's
+        // game avatar verifiably alive". The false-DEAD rule (owner mandate):
+        // missing/unknown/stale data is TEMP_UNAVAILABLE, NEVER DEAD — only
+        // CanConfirmAgentDeath strong evidence transitions to DEAD, and only
+        // a confirmed removal (removal-grace expiry / RemoveAgent) transitions
+        // to REMOVED. Every transition emits one bounded diagnostic line.
+        private static void UpdatePresenceFromSnapshot(CrewAgent agent, CrewMemberSnapshot c, int nowMs)
+        {
+            // REMOVED never softens (the record is leaving the live map).
+            if (agent.Presence == AgentPresenceState.Removed) return;
+
+            if (c.AliveKnown)
+            {
+                if (c.Alive)
+                {
+                    // Positive alive evidence lifts even a DEAD verdict (game-
+                    // reported revival); absence never does.
+                    TransitionPresence(agent, AgentPresenceState.Alive, "snapshot: pawn present, game reports alive", nowMs);
+                    return;
+                }
+                // AliveKnown && !Alive: the game itself reports the pawn dead.
+                if (CanConfirmAgentDeath(agent, "game reports pawn dead", nowMs))
+                {
+                    TransitionPresence(agent, AgentPresenceState.Dead, "game reports pawn dead", nowMs);
+                    return;
+                }
+                // Gate refused confirmation — record the first observation and
+                // hold in TEMP_UNAVAILABLE (never a silent DEAD).
+                TransitionPresence(agent, AgentPresenceState.TempUnavailable, "game reports pawn dead (awaiting confirmation)", nowMs);
+                return;
+            }
+
+            // AliveKnown == false: pawn missing/unreadable at capture time —
+            // the exact false-DEAD trap (spawn delay, sector transition, pawn
+            // recreation, MoreBots recreation). TEMP_UNAVAILABLE, never DEAD.
+            // A DEAD verdict also never softens on missing data. A still-
+            // SPAWNING agent (creation seen, avatar never yet confirmed)
+            // stays SPAWNING — temp-unavailable is reserved for data lost
+            // AFTER the avatar was observed.
+            if (agent.Presence == AgentPresenceState.Dead) return;
+            if (agent.Presence == AgentPresenceState.Spawning) return;
+            TransitionPresence(agent, AgentPresenceState.TempUnavailable, "pawn missing/unknown in snapshot", nowMs);
+        }
+
+        // Strong-evidence death gate (mandate: never display DEAD without it).
+        // Evidence tiers:
+        //   1. ALREADY-CONFIRMED death observation on this record
+        //      (DeathObservedMs >= 0): confirmed once, stays DEAD.
+        //   2. Repeated: the same death report observed on 2+ consecutive
+        //      syncs spanning >= 1 s — a transient capture artifact cannot
+        //      satisfy this.
+        private static bool CanConfirmAgentDeath(CrewAgent agent, string evidence, int nowMs)
+        {
+            if (agent.DeathObservedMs >= 0) return true; // previously confirmed
+            if (agent.PresenceReason != null
+                && agent.PresenceReason.IndexOf("awaiting confirmation", StringComparison.Ordinal) >= 0)
+            {
+                // Second consecutive death report: confirm only if it spans at
+                // least one sync interval (>= 1 s) — transient artifacts reset
+                // on the very next ALIVE snapshot and never re-reach here.
+                if (agent.PresenceSinceMs >= 0 && unchecked(nowMs - agent.PresenceSinceMs) >= MinRecheckMs)
+                {
+                    agent.DeathObservedMs = nowMs;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Single transition funnel: sets all presence fields, bumps counters,
+        // emits the bounded CaptainAgentPresence diagnostic line.
+        private static void TransitionPresence(CrewAgent agent, AgentPresenceState next, string reason, int nowMs)
+        {
+            if (agent.Presence == next && string.Equals(agent.PresenceReason, reason, StringComparison.Ordinal)) return;
+            string old = AgentPresence.Text(agent.Presence);
+            bool changed = agent.Presence != next;
+            agent.Presence = next;
+            agent.PresenceReason = reason;
+            agent.PresenceSinceMs = nowMs;
+            if (changed)
+            {
+                S.PresenceChanges++;
+                if (next == AgentPresenceState.Dead) S.DeathConfirmations++;
+                if (next == AgentPresenceState.TempUnavailable) S.TempUnavailables++;
+            }
+            Emit("CaptainAgentPresence id=" + agent.AgentId + " pid=" + agent.PlayerId
+                + " from=" + old + " to=" + AgentPresence.Text(next)
+                + " reason=" + reason + " t=" + nowMs);
+        }
+
+        // Idempotent MoreBots-player reconciliation (directive B item 6): one
+        // logical agent per stable PlayerId. Reconnects a recreated pawn/PLBot/
+        // AIData to the EXISTING record — personality, memory, task state all
+        // preserved (identity is the stable AgentId; nothing is rebuilt).
+        // Repeated calls produce the same logical agent; refusals are counted,
+        // never thrown.
+        public static bool ReconcileCrewAgent(int playerId, bool isBot, int nowMs)
+        {
+            if (unchecked((uint)playerId) > 0x7FFFFFFFu || playerId < 0)
+            {
+                lock (m_Lock) S.ReconcileRefusals++;
+                Emit("CaptainAgentReconcileRefused pid=" + playerId + " (invalid identity)");
+                return false;
+            }
+            string agentId = MakeAgentId(playerId, isBot);
+            lock (m_Lock)
+            {
+                CrewAgent a;
+                if (!S.Agents.TryGetValue(agentId, out a))
+                {
+                    S.ReconcileRefusals++;
+                    Emit("CaptainAgentReconcileRefused pid=" + playerId + " bot=" + (isBot ? "1" : "0") + " (unknown agent)");
+                    return false;
+                }
+                S.Reconciles++;
+                S.LastReconcileMs = nowMs;
+                // Reconnect semantics: any terminal/temporary verdict left by
+                // stale data is lifted the next time a live snapshot confirms
+                // the player; the reconcile itself only stamps cadence and
+                // re-marks the record live — the NEXT sync's presence pass
+                // (UpdatePresenceFromSnapshot) is the only ALIVE authority.
+                a.LastSyncTimeMs = nowMs;
+                a.AbsentSinceMs = -1;
+            }
+            // Identity/personality/memory/task metadata all hang off the SAME
+            // stable AgentId — the reconnect is automatically complete. The
+            // idempotent ensure keeps them present if a transient failure had
+            // skipped their creation (mirrors CreateAgent's hooks).
+            EnsurePersonality(agentId, nowMs);
+            EnsureMemoryAgent(agentId, nowMs, "reconcile");
+            Emit("CaptainAgentReconciled id=" + agentId + " pid=" + playerId
+                + " bot=" + (isBot ? "1" : "0") + " t=" + nowMs);
+            return true;
+        }
+
         private static void DeactivateAgent(CrewAgent agent, int nowMs, string reason)
         {
             agent.Lifecycle = CrewAgentLifecycle.Inactive;
@@ -554,6 +749,10 @@ namespace CapBot.Core.Crew
             agent.LastChangeReason = reason;
             agent.UpdateCount++;
             S.Deactivated++;
+            // P44: observed absence is a TEMP_UNAVAILABLE signal, never death.
+            // (Lifecycle Inactive + presence retained = grace-window crew member.)
+            if (agent.Presence != AgentPresenceState.Dead && agent.Presence != AgentPresenceState.Removed)
+                TransitionPresence(agent, AgentPresenceState.TempUnavailable, "observed absent: " + reason, nowMs);
             Emit("AgentDeactivated " + agent.AgentId + " pid=" + agent.PlayerId + " (" + reason + ")");
         }
 
@@ -577,6 +776,11 @@ namespace CapBot.Core.Crew
             S.Removed++;
             removed.Lifecycle = CrewAgentLifecycle.Removed;
             removed.LastChangeReason = reason;
+            // P44: a CONFIRMED removal is REMOVED (distinct from DEAD); never
+            // put a temporarily-unavailable agent on this path (the caller
+            // only reaches here after the removal grace expired).
+            if (removed.Presence != AgentPresenceState.Dead)
+                TransitionPresence(removed, AgentPresenceState.Removed, "confirmed removal: " + reason, nowMs);
             Emit("AgentRemoved " + agentId + " pid=" + removed.PlayerId + " (" + reason + ")");
         }
 
@@ -680,8 +884,78 @@ namespace CapBot.Core.Crew
             // result. Every created agent leaves its creation sync with a
             // personality record (idempotent: existing record wins).
             EnsurePersonality(agentId, nowMs);
+            // P44: memory hook — same discipline, same lock-free position.
+            // Every created agent leaves its creation sync with exactly one
+            // memory store keyed by the SAME stable AgentId (idempotent:
+            // existing store wins; failure emits MemoryInitFailed and never
+            // fakes the counter).
+            EnsureMemoryAgent(agentId, nowMs, "agentCreated");
             return true;
         }
+
+        // ---- P44: memory lifecycle reconciliation (fail-safe, additive) ---
+        //
+        // The memory twin of the P40 personality reconcile (same position in
+        // Sync, same fail-safe discipline): every LIVE (Active or Inactive —
+        // still a crew member) agent carries exactly one memory store keyed
+        // by the stable AgentId; a REMOVED agent's store is dropped so
+        // /capbotstatus counts the live crew exactly. MEMORY IS RETAINED
+        // through every temporary lifecycle state — Inactive (absent pawn),
+        // SPAWNING, TEMP_UNAVAILABLE, sector transitions, MoreBots pawn
+        // recreation — only a CONFIRMED removal (removal grace expired)
+        // reaches the retention pass.
+        //
+        // Fail-safe: outside the agent lock, every memory call in its own
+        // try/catch, Sync's return value and agent state never affected by
+        // a memory fault. Inert while a save blob is being applied (the
+        // restore is insert-only; live state wins — same probe the
+        // personality reconcile uses).
+        private static void EnsureMemoryAgent(string agentId, int nowMs, string reason)
+        {
+            try { CrewMemorySystem.EnsureMemoryAgent(agentId, nowMs, reason); }
+            catch (Exception) { }
+        }
+
+        private static void ReconcileMemories(List<string> removedAgentIds)
+        {
+            try
+            {
+                if (CrewPersistence.IsRestoring) return;
+                // Retention pass FIRST: a removed agent's memory store must
+                // go even when every remaining agent already has one (the
+                // ensure pass below early-returns in that steady state).
+                if (removedAgentIds != null && removedAgentIds.Count > 0)
+                {
+                    int removed = CrewMemorySystem.ReconcileRetention(removedAgentIds);
+                    if (removed > 0)
+                        Emit("MemoryReconciled removed=" + removed
+                            + " store(s) for confirmed-removed agents");
+                }
+                List<string> toEnsure = null;
+                lock (m_Lock)
+                {
+                    foreach (KeyValuePair<string, CrewAgent> kv in S.Agents)
+                    {
+                        CrewAgent a = kv.Value;
+                        if (a.Lifecycle == CrewAgentLifecycle.Removed) continue;
+                        if (toEnsure == null) toEnsure = new List<string>(4);
+                        toEnsure.Add(a.AgentId);
+                    }
+                }
+                if (toEnsure == null) return;
+                for (int i = 0; i < toEnsure.Count; i++)
+                {
+                    // Cheap idempotent re-check before the ensure call (the
+                    // ensure itself is also idempotent — MemoryReused).
+                    EnsureMemoryAgent(toEnsure[i], s_LastSyncNowMs, "reconcile");
+                }
+            }
+            catch (Exception) { }
+        }
+
+        // Last Sync nowMs (reconcile runs after the sync completes; the
+        // timestamps only feed diagnostics).
+        private static int s_LastSyncNowMs = -1;
 
         // ---- task-assignment surface (assignment metadata only) --------------------------
         //
@@ -797,6 +1071,43 @@ namespace CapBot.Core.Crew
             }
         }
 
+        // ---- executor-facing owner-presence readback (P45 bounded wait) --------
+        //
+        // Answers "is this task owner's agent currently dispatchable" for the
+        // scheduler's bounded-wait gate. Owner vocabulary: "CAPTAIN" (the
+        // bot crew member carrying the captain flag) and "BOT:<playerId>".
+        // Unknown formats/unknown agents answer Unknown — never a block.
+        public static AgentPresenceState PresenceForOwner(string ownerActorId)
+        {
+            if (string.IsNullOrEmpty(ownerActorId)) return AgentPresenceState.Unknown;
+            lock (m_Lock)
+            {
+                if (ownerActorId == "CAPTAIN")
+                {
+                    foreach (KeyValuePair<string, CrewAgent> kv in S.Agents)
+                    {
+                        CrewAgent a = kv.Value;
+                        if (a.IsCaptain && a.IsBot) return a.Presence;
+                    }
+                    return AgentPresenceState.Unknown;
+                }
+                if (ownerActorId.Length > 4 && ownerActorId.StartsWith("BOT:", StringComparison.Ordinal))
+                {
+                    int botId;
+                    if (!int.TryParse(ownerActorId.Substring(4),
+                        System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out botId))
+                        return AgentPresenceState.Unknown;
+                    foreach (KeyValuePair<string, CrewAgent> kv in S.Agents)
+                    {
+                        CrewAgent a = kv.Value;
+                        if (a.IsBot && a.PlayerId == botId) return a.Presence;
+                    }
+                }
+                return AgentPresenceState.Unknown;
+            }
+        }
+
         // Test/dev isolation only. Never call in game code.
         public static void ResetForTests()
         {
@@ -819,6 +1130,12 @@ namespace CapBot.Core.Crew
                 S.LastUncertainReason = null;
                 S.LastAuthorityKnown = false;
                 S.LastAuthorityValue = false;
+                S.PresenceChanges = 0;
+                S.DeathConfirmations = 0;
+                S.TempUnavailables = 0;
+                S.Reconciles = 0;
+                S.ReconcileRefusals = 0;
+                S.LastReconcileMs = -1;
                 m_AuthorityProbe = null;
                 m_NowMsProvider = null;
                 m_WorldProvider = null;

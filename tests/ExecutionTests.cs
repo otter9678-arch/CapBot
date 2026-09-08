@@ -56,6 +56,10 @@ namespace CapBot.TaskTests
             ExecutionClaims.ResetForTests();
             CapabilityRegistry.ResetForTests();
             TaskExecutor.ResetForTests();
+            // Phase 41: the command gate keeps cross-task semantic records
+            // (success/failure windows) — isolate every scenario from the
+            // previous one's outcomes, exactly like every other layer.
+            CapBot.Core.Commands.CommandGate.ResetForTests();
 
             RegisteredCapabilities.RegisterBuiltIns();
             CapabilityRegistry.SetNowMsProvider(delegate { return s_Now; });

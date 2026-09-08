@@ -210,6 +210,18 @@ namespace CapBot.Core.Tasks
                     if (OwnerHasGrant(t.OwnerActorId, nowMs) || ContainsOwner(busyOwners, t.OwnerActorId))
                     { Emit("Refuse #" + t.TaskId + " owner busy: " + t.OwnerActorId); continue; }
 
+                    // P45 bounded wait (directive B item 10): an owner whose
+                    // agent is SPAWNING/TEMP_UNAVAILABLE must NOT receive a
+                    // dispatch — the task stays Queued (wait, not spin). This
+                    // is a defer, never a retry: no counters move, no lease is
+                    // consumed, one deduped diagnostic per owner+presence.
+                    CapBot.Core.Crew.AgentPresenceState ownerPresence = CapBot.Core.Crew.CrewAgentRegistry.PresenceForOwner(t.OwnerActorId);
+                    if (ownerPresence == CapBot.Core.Crew.AgentPresenceState.Spawning || ownerPresence == CapBot.Core.Crew.AgentPresenceState.TempUnavailable)
+                    {
+                        EmitBoundedOwnerWait(t.OwnerActorId, ownerPresence);
+                        continue;
+                    }
+
                     Grant(t, nowMs);
                     granted++;
                 }
@@ -237,6 +249,21 @@ namespace CapBot.Core.Tasks
             }
 
             return granted;
+        }
+
+        // P45: deduped bounded-wait diagnostic — one line per owner+presence
+        // until the state changes (no per-pass log storm).
+        private static readonly Dictionary<string, string> m_LastWaitEmit = new Dictionary<string, string>(StringComparer.Ordinal);
+        private static void EmitBoundedOwnerWait(string ownerActorId, CapBot.Core.Crew.AgentPresenceState presence)
+        {
+            string tag = presence.ToString();
+            string last;
+            lock (m_Lock)
+            {
+                if (m_LastWaitEmit.TryGetValue(ownerActorId, out last) && last == tag) return;
+                m_LastWaitEmit[ownerActorId] = tag;
+            }
+            Emit("OwnerBoundedWait owner=" + ownerActorId + " presence=" + tag + " action=deferred (task stays Queued)");
         }
 
         private static void SortCandidates(List<CapBotTask> list, int nowMs)
@@ -526,6 +553,7 @@ namespace CapBot.Core.Tasks
             {
                 m_Leases.Clear();
                 m_Preemptions.Clear();
+                m_LastWaitEmit.Clear();
                 m_OnDecision = null;
                 m_LastTickMs = -1;
                 m_Enabled = true;
@@ -552,6 +580,7 @@ namespace CapBot.Core.Tasks
                 }
                 if (dropped > 0)
                 {
+                    lock (m_Lock) m_LastWaitEmit.Clear();
                     Emit("SchedulerLeasesClearedAuthorityLost leases=" + dropped);
                 }
                 return dropped;

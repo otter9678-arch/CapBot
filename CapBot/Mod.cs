@@ -218,6 +218,20 @@ namespace CapBot
             CapBot.Core.Ollama.OllamaAdvisor.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Ollama.OllamaAdvisor.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             CapBot.Core.Ollama.OllamaAdvisor.SetTransport(new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value));
+            // P44 (owner mandate): qwen3:latest is the REQUIRED advisor model
+            // (KnownModels[0]). OllamaModel is a persisted INDEX into the
+            // model table; an index saved before the P44 reorder points at a
+            // DIFFERENT model (observed live: stale index 1 -> qwen2.5:latest
+            // while the diagnostic truthfully reported the mismatch). Pin the
+            // stale index to the mandated default with an explicit, logged
+            // correction — never a silent substitution. The menu cycle keeps
+            // working in-session; the mandate default wins at every boot.
+            if (Config.OllamaModel.Value != 0)
+            {
+                CapBot.Core.Logging.CapBotLog.Info(CapBot.Core.Logging.CapBotLog.OLLAMA,
+                    "OllamaModelPinned required=qwen3:latest previousIndex=" + Config.OllamaModel.Value + " reason=ownerMandate");
+                Config.OllamaModel.Value = 0;
+            }
             CapBot.Core.Ollama.OllamaAdvisor.ApplyConfig(
                 Config.OllamaAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
             // ---- Phase 21: crew advisor (Qwen integration, RECOMMEND-ONLY) ----
@@ -237,6 +251,39 @@ namespace CapBot
             CapBot.Core.Qwen.CrewAdvisor.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             CapBot.Core.Qwen.CrewAdvisor.SetTransport(new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value));
             CapBot.Core.Qwen.CrewAdvisor.ApplyConfig(Config.QwenAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
+            // ---- P44: owner-mandated model identity probe (one-shot, startup) ----
+            // The owner's Ollama model is qwen3:latest (KnownModels[0]); no
+            // silent substitution exists (requests carry the configured name
+            // verbatim). Availability is verified against the local server
+            // (/api/tags, loopback, 5 s timeout) on a background thread and
+            // the mandated diagnostic (OllamaConfiguredModel/RequestModel/
+            // ModelAvailable + exact probe error) is logged once.
+            CapBot.Core.Ollama.OllamaAdvisor.SetModelProbe(
+                new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value).ProbeModelAvailable);
+            System.Threading.Thread modelProbeThread = new System.Threading.Thread(delegate()
+            {
+                CapBot.Core.Ollama.OllamaAdvisor.RunModelProbe();
+                foreach (string diagLine in CapBot.Core.Ollama.OllamaAdvisor.ModelDiagnosticLines())
+                    CapBot.Core.Logging.CapBotLog.Info(CapBot.Core.Logging.CapBotLog.OLLAMA, diagLine);
+            });
+            modelProbeThread.IsBackground = true;
+            modelProbeThread.Name = "CapBot-ModelProbe";
+            modelProbeThread.Start();
+            // ---- Phase 41: unified command gate (cross-task semantic dedup + no-op suppression) ----
+            // ONE gate every command source passes through (built-in authors,
+            // custom/future authors, advisor-originated authoring): semantic
+            // fingerprints (never task ids) dedup cross-task; authoritative
+            // no-op probes suppress already-satisfied commands; stale
+            // premises are superseded after sector transitions. Fail-open on
+            // uncertainty; diagnostics-only on the allow path; suppressed
+            // duplicates resolve through the lifecycle (never retried
+            // forever — recovery's retry/stall discipline is untouched).
+            // Custom/scripted/future capabilities get the same gates by
+            // construction: unknown capability ids are CannotDetermine at the
+            // no-op probe (fail-open) and still fingerprinted for dedup.
+            CapBot.Core.Commands.CommandGateLogBridge.Ensure();
+            CapBot.Core.Commands.CommandGate.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            CapBot.Core.Commands.CommandGate.SetNoOpProbe(CapBot.Core.Commands.PulsarNoOpProbes.Probe);
             // ---- Phase 22: planning director (deterministic situation assessment) ----
             // Ownership scope: a bounded deterministic CONSUMER of the P6
             // snapshot that tracks planning situations as data (premise drift,
@@ -330,6 +377,7 @@ namespace CapBot
             // (any fault → false → nothing installs). No Harmony targets, no
             // tick driver, no WorldTick block.
             CapBot.Core.Compatibility.CompatLogBridge.Ensure();
+            CapBot.Core.Compatibility.ConflictLogBridge.Ensure();
             CapBot.Core.Compatibility.CompatManager.SetIsLoadedProvider(delegate (string modName)
             {
                 try { return PulsarModLoader.ModManager.Instance.IsModLoaded(modName); }
@@ -339,6 +387,27 @@ namespace CapBot
                 "MoreBots class-0 crash guard",
                 new string[] { "MoreBots" },
                 delegate { MoreBotsCompatPatch.Install(); });
+            // ---- Phase 46: conflict engine inventory feed ----
+            // One bounded boot-time snapshot of the loaded PML mod list into the
+            // engine's profile registry (no per-frame scans, the P46 perf rule).
+            // The engine is evidence-driven: without a recorded symptom it
+            // classifies every mod Compatible and quarantines nothing.
+            try
+            {
+                foreach (PulsarModLoader.PulsarMod loadedMod in PulsarModLoader.ModManager.Instance.GetAllMods())
+                {
+                    if (loadedMod == null || string.IsNullOrEmpty(loadedMod.Name)) continue;
+                    bool isProtected = CapBot.Core.Compatibility.ProtectedModList.IsProtected(loadedMod.Name);
+                    CapBot.Core.Compatibility.ConflictEngine.SetModProfile(
+                        loadedMod.Name, isProtected,
+                        false,  // usesHarmony: profile enriched by the runtime Harmony audit, not name strings
+                        false, false, false, false);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.COMPAT, "ConflictEngine inventory feed failed (fail-safe: empty registry)", ex);
+            }
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

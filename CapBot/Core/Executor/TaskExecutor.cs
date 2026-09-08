@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using CapBot.Core.Capabilities;
+using CapBot.Core.Commands;
 using CapBot.Core.Tasks;
 
 namespace CapBot.Core.Executor
@@ -132,8 +133,24 @@ namespace CapBot.Core.Executor
 
             // Snapshot the granted set (Queued tasks holding an unexpired
             // lease) outside any executor state. Bounded by the live cap.
+            // ---- Phase 41: unified command gate (cross-task dedup, pre-lease) ----
+            // Every source's commands (built-in authors, custom/future authors,
+            // advisor-originated authoring) land here. A suppressed duplicate
+            // is resolved through the lifecycle BEFORE it can consume a
+            // scheduler grant or an executor slot — "a new task ID must NOT
+            // be enough to justify another execution". Fail-open: any Allow
+            // verdict continues through the unchanged pipeline.
             int attempts = 0;
             List<CapBotTask> live = TaskRegistry.LiveSnapshot();
+            for (int i = 0; i < live.Count; i++)
+            {
+                CapBotTask candidate = live[i];
+                if (candidate.State != TaskState.Queued) continue;
+                GateVerdict verdict = CommandGate.Check(candidate, nowMs);
+                if (verdict == GateVerdict.Allow) continue;
+                CommandGate.ResolveSuppressed(candidate, "command gate: " + verdict.ToString());
+                Emit("CommandGateSuppressed #" + candidate.TaskId + " verdict=" + verdict);
+            }
             for (int i = 0; i < live.Count && attempts < MaxAttemptsPerTick; i++)
             {
                 CapBotTask t = live[i];
@@ -181,6 +198,18 @@ namespace CapBot.Core.Executor
             if (!live.TryStart())
                 return Finish(task, ExecutionResult.Rejected("start refused (state=" + live.State + ")"),
                     "ExecutorRefused #" + live.TaskId + " start refused (state=" + live.State + ")");
+
+            // ---- Phase 41: gate re-check AFTER start (TOCTOU closure) ----
+            // The world can move between the Tick-scan check and this start
+            // (sector transition, another task's completion, a recovery
+            // retry's new epoch). Same fail-open rule; a post-start
+            // suppression is a Rejected result — the started task resolves
+            // through the lifecycle (FailStarted), never wedged.
+            GateVerdict startVerdict = CommandGate.Check(live, nowMs);
+            if (startVerdict != GateVerdict.Allow)
+                return FailStarted(live, "command gate: " + startVerdict.ToString(),
+                    ExecutionResult.Rejected("command gate " + startVerdict)
+                        .WithMeta("gateVerdict", startVerdict.ToString()));
 
             // 4) capability binding from task metadata (untrusted data).
             string capabilityId = live.GetMetadata(MetadataCapabilityId);
@@ -262,6 +291,10 @@ namespace CapBot.Core.Executor
 
             // 9) resolve the task through the lifecycle contract. Recovery
             //    owns what happens after a failure — no retry logic here.
+            // ---- Phase 41: feed the outcome back to the semantic gate ----
+            // (cross-task success/failure windows; the per-attempt ledger
+            // stays the owner of per-identity outcomes).
+            CommandGate.RecordOutcome(live, result.IsSuccess, nowMs);
             switch (status)
             {
                 case ResultStatus.Recorded:

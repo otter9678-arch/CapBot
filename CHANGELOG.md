@@ -3,6 +3,84 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 46 — Mod Conflict Detection Engine (core)] — unreleased (built from Alpha 1.2.2 source)
+
+Foundation of the standing mod-conflict directive: the deterministic
+engine that CLASSIFIES mod conflicts and drives a quarantine state
+machine — pure C# domain, no file IO, no Harmony/PML calls; physical
+quarantine execution lands in a later phase.
+
+### Added
+- `Core/Compatibility/ConflictModel.cs`: ConflictClass A–D ladder
+  (KEEP_BOTH / COMPATIBILITY_FIX / DISABLE_FEATURE / QUARANTINE),
+  ConflictConfidence UNVERIFIED<PROBABLE<CONFIRMED, 12 symptom kinds,
+  8 never-remove-for refusal reasons, `ConflictRules.Classify` +
+  symptom→class mapping + shared audit vocabulary.
+- `Core/Compatibility/ConflictEngine.cs`: bounded (≤32) evidence
+  registry; rate-limited `CompatibilityDecision` audit lines; quarantine
+  state machine (Recommended→Quarantined→RestoredForRetest→
+  CompatibleAfterRetest|QuarantineAgain) with loop protection (3rd
+  re-confirmation latches Safe Mode); duplicate-CapBot STOP audit;
+  `CompatStatus` vocabulary (Loaded/Compatible/Conflict/Quarantined).
+- `Core/Compatibility/ProtectedModList.cs`: never-auto-remove list
+  (game/runtime/infra assemblies, CapBot itself, Quality Improver) —
+  refusal wins over any symptom or A/B evidence.
+- `Core/Compatibility/ConflictLogBridge.cs` + Mod.cs boot wiring
+  (log bridge + one bounded PML inventory snapshot at boot).
+- `/capbotcompat [mod]` chat command (read-only verdict echo, host-only)
+  and `/capbotstatus conflicts` section (StatusHub).
+
+### Verified
+- Tests: 3220/3220 (+142 `ConflictEngineTests` CE01–CE21, including the
+  MoreBots honesty invariant: partial causality (no reintroduction leg)
+  ⇒ OBSERVE, never QUARANTINE).
+- Build: Release 0 warnings; P46 DLL 434,176 bytes, deployed with
+  SHA256 parity (`8A95B366…`), backup `CapBot.dll.pre_p46.bak` (= P45).
+- Live boot: 8 PML mods loaded, conflict-engine inventory feed 0
+  failures, 0 boot exceptions.
+
+## [Phases 44–45 — Memory lifecycle, qwen3 pin, presence machine, MoreBots compat fix] — unreleased (built from Alpha 1.2.2 source)
+
+### Fixed
+- **Zero memory agents**: `CrewMemorySystem.EnsureMemoryAgent`
+  (idempotent, truthful `MemoryInitFailed` diagnostics) hooked at agent
+  creation and sync-tail reconcile; restore window guarded.
+- **qwen3 substitution**: `Config.OllamaModel` is a persisted INDEX — a
+  stale pre-P44 index selected qwen2.5:latest after the KnownModels
+  reorder. Boot-time `OllamaModelPinned` correction now forces
+  qwen3:latest every boot (menu cycling still works in-session).
+- **False bot DEAD**: root-caused to MoreBots' GetAIData prefix
+  (`ClassData[classID-1]`, class 0 ⇒ IndexOutOfRangeException storm;
+  A/B evidence 55,621→31 exception lines after owner uninstall).
+  P45 compat fix: the unpatch now targets the patched ORIGINAL
+  (`AccessTools.Method(typeof(PLPlayer),"GetAIData")`) instead of the
+  patch method (previous form was a silent no-op), verified via
+  `PatchProcessor.GetPatchInfo`, FAILED_SAFE latch on failure.
+- **Presence state machine** (`AgentPresenceState`
+  UNKNOWN/SPAWNING/ALIVE/TEMP_UNAVAILABLE/DEAD/REMOVED, orthogonal to
+  lifecycle): death requires sustained evidence; missing data never
+  kills (TEMP_UNAVAILABLE); REMOVED never softens; revival lifts DEAD;
+  idempotent `ReconcileCrewAgent`; scheduler defers grants to
+  Spawning/TempUnavailable owners (bounded deduped diagnostic).
+
+### Added
+- `tests/CrewPresenceTests.cs` (71 checks P01–P21) +
+  `tests/ConflictEngineTests.cs` (142 checks) wired into the runner.
+- Captain presence diagnostics (`CaptainAgentPresence`,
+  `CaptainAgentReconciled/Refused`) and presence counters on
+  `/capbotstatus`.
+
+### Verified
+- Tests: 3078/0 after P45 (71 presence checks; suite previously 3007/0
+  after P44's 15 memory scenarios).
+- Live TEST A control (P45 deployed, MoreBots absent): 8 mods, MoreBots
+  Harmony owner 0 patches, 2 exception lines total, 0 ExGal skips,
+  captain + all agents SPAWNING→ALIVE (zero DEAD), memory 7/7 1:1,
+  executor 1 SUCCESS + 2 deduped duplicates, qwen3:latest pinned and
+  available, MoreBots guard correctly skipped. ExpandedGalaxy A/B moot:
+  no reproducible symptom remains to attribute (NOT PROVEN RESPONSIBLE).
+- MoreBots/BetterAI remain absent by owner action — not reinstalled.
+
 ## [Phase 40 — Crew Personality Lifecycle Initialization] — unreleased (built from Alpha 1.2.2 source)
 
 ### Fixed

@@ -3300,6 +3300,9 @@ namespace CapBot
     {
         private static bool _installed;
         private static bool _triedInstall;
+        private static bool _failedSafe;
+        private static System.Type _moreBotsConfigType;
+        private static int _reflectionFailures;
 
         internal static void Install()
         {
@@ -3310,7 +3313,11 @@ namespace CapBot
                 bool moreBotsLoaded = false;
                 try { moreBotsLoaded = PulsarModLoader.ModManager.Instance.IsModLoaded("MoreBots"); }
                 catch (System.Exception ex) { CapBotLog.Error(CapBotLog.COMPAT, "Mod-list check failed during MoreBots compat install", ex); }
-                if (!moreBotsLoaded) return;
+                if (!moreBotsLoaded)
+                {
+                    CapBotLog.Info(CapBotLog.COMPAT, "CompatSkipped name=MoreBots reason=notLoaded");
+                    return;
+                }
 
                 // MoreBots' types are internal; find the prefix by walking its assembly.
                 System.Reflection.MethodInfo prefixInfo = null;
@@ -3334,10 +3341,40 @@ namespace CapBot
                 // Patching a prefix-on-prefix fails IL compilation, so instead we
                 // remove MoreBots' prefix entirely and install a safe replacement
                 // (same behavior for classes 1-4, no crash for class 0).
-                CapBotHarmony.Instance.Unpatch(prefixInfo, HarmonyPatchType.Prefix, "Mest.MoreBots");
+                //
+                // P45 FIX: Harmony's Unpatch(method, type, owner) removes patches
+                // FROM `method` — it must receive the PATCHED ORIGINAL
+                // (PLPlayer.GetAIData). The previous call passed MoreBots' prefix
+                // method itself, which unpatched nothing yet still logged success
+                // (live-verified: 25,775 IndexOOB after "install" — PML's own
+                // unload-time UnpatchAll of the same owner DID remove it, proving
+                // the owner id was correct and only the target method was wrong).
+                var original = AccessTools.Method(typeof(PLPlayer), "GetAIData");
+                CapBotHarmony.Instance.Unpatch(original, HarmonyPatchType.Prefix, "Mest.MoreBots");
+
+                // Verify the removal took effect before claiming success.
+                bool removed = true;
+                var patchInfo = HarmonyLib.PatchProcessor.GetPatchInfo(original);
+                if (patchInfo != null)
+                {
+                    foreach (HarmonyLib.Patch p in patchInfo.Prefixes)
+                    {
+                        if (p.owner == "Mest.MoreBots") { removed = false; break; }
+                    }
+                }
+                if (!removed)
+                {
+                    // FAILED_SAFE: one structured diagnostic, no retry loop —
+                    // CapBot continues safely without the MoreBots integration.
+                    _failedSafe = true;
+                    CapBotLog.Error(CapBotLog.COMPAT,
+                        "CompatUnpatchFailed name=MoreBots target=PLPlayer.GetAIData owner=Mest.MoreBots state=FAILED_SAFE action=continue-without-integration");
+                    return;
+                }
+
                 InstallSafePrefix();
                 _installed = true;
-                CapBotLog.Info(CapBotLog.COMPAT, "MoreBots class-0 crash prefix removed; safe replacement installed");
+                CapBotLog.Info(CapBotLog.COMPAT, "CompatInstalled name=MoreBots unpatch=verified target=PLPlayer.GetAIData safePrefix=installed");
             }
             catch (System.Exception e)
             {
@@ -3353,9 +3390,22 @@ namespace CapBot
             _safePrefixInstalled = true;
             try
             {
+                var original = AccessTools.Method(typeof(PLPlayer), "GetAIData");
                 var safe = new HarmonyMethod(typeof(MoreBotsCompatPatch).GetMethod(nameof(SafeAIDataPrefix), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static));
-                CapBotHarmony.Patch(AccessTools.Method(typeof(PLPlayer), "GetAIData"), prefix: safe);
-                CapBotLog.Info(CapBotLog.COMPAT, "Safe AI-data prefix installed (replaces MoreBots GetAIDataPatch)");
+                CapBotHarmony.Patch(original, prefix: safe);
+
+                // Verify our prefix is actually registered under our owner id.
+                bool verified = false;
+                var info = HarmonyLib.PatchProcessor.GetPatchInfo(original);
+                if (info != null)
+                {
+                    foreach (HarmonyLib.Patch p in info.Prefixes)
+                    {
+                        if (p.owner == "pokegustavo.CapBot.compat") { verified = true; break; }
+                    }
+                }
+                if (verified) CapBotLog.Info(CapBotLog.COMPAT, "Safe AI-data prefix installed (verified) (replaces MoreBots GetAIDataPatch)");
+                else CapBotLog.Error(CapBotLog.COMPAT, "SafePrefixVerifyFailed target=PLPlayer.GetAIData owner=pokegustavo.CapBot.compat");
             }
             catch (System.Exception e)
             {
@@ -3367,6 +3417,10 @@ namespace CapBot
 
         private static bool SafeAIDataPrefix(PLPlayer __instance, ref AIDataIndividual __result)
         {
+            // P45: bounded reflection. FAILED_SAFE stops all per-call reflection
+            // work after repeated failures; the absent latch avoids re-resolving
+            // a type that is never coming back (MoreBots unloaded mid-session).
+            if (_failedSafe || _moreBotsAbsent) return true;
             if (__instance == null || !PhotonNetwork.isMasterClient) return true;
             if (__instance.TeamID != 0 || !__instance.IsBot) return true;
             if (__instance.GetClassID() == 0) return true; // CapBot: vanilla + our postfix
@@ -3375,8 +3429,13 @@ namespace CapBot
             try
             {
                 int classID = Mathf.Clamp(__instance.GetClassID(), 1, 4);
-                var cfgType = AccessTools.TypeByName("MoreBots.Mod+Config");
-                if (cfgType == null) return true;
+                if (_moreBotsConfigType == null) _moreBotsConfigType = AccessTools.TypeByName("MoreBots.Mod+Config");
+                var cfgType = _moreBotsConfigType;
+                if (cfgType == null)
+                {
+                    _moreBotsAbsent = true;
+                    return true;
+                }
                 var bindingDict = AccessTools.Field(cfgType, "BindingAIData")?.GetValue(null) as System.Collections.IDictionary;
                 var loadedDict = AccessTools.Field(cfgType, "LoadedAIData")?.GetValue(null);
                 var selectedKeyField = AccessTools.Field(cfgType, "selectedKey");
@@ -3417,10 +3476,15 @@ namespace CapBot
             }
             catch (System.Exception ex)
             {
-                CapBotLog.Debug(CapBotLog.COMPAT, "MoreBots reflection failed; falling through to vanilla", ex);
+                _reflectionFailures++;
+                if (_reflectionFailures >= 16) _failedSafe = true;
+                if (!_failedSafe || _reflectionFailures == 16)
+                    CapBotLog.Debug(CapBotLog.COMPAT, "MoreBots reflection failed; falling through to vanilla", ex);
                 return true; // fall through to vanilla on any reflection issue
             }
         }
+
+        private static bool _moreBotsAbsent;
     }
 
     internal static class CapBotHarmony

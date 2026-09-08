@@ -80,5 +80,43 @@ namespace CapBot.Core.Ollama
                 return null; // timeout/refused/aborted = soft failure
             }
         }
+
+        // ---- P44: one-shot model availability probe (owner mandate) ----------
+        //
+        // GET /api/tags (bounded loopback call) — null when the model is
+        // listed, else the EXACT error text. Never substitutes a model; the
+        // caller reports the error verbatim. Worker-thread or startup use
+        // only (hard 5 s timeout — never blocks the game thread).
+        public string ProbeModelAvailable(string modelName)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(modelName)) return "model name empty";
+                Uri uri = new Uri("http://" + LoopbackHost + ":" + m_Port.ToString(CultureInfo.InvariantCulture) + "/api/tags");
+                using (CancellationTokenSource cts = new CancellationTokenSource(5000))
+                {
+                    Task<HttpResponseMessage> sendTask = m_Client.GetAsync(uri, cts.Token);
+                    sendTask.Wait(cts.Token);
+                    using (HttpResponseMessage response = sendTask.Result)
+                    {
+                        if (!response.IsSuccessStatusCode)
+                            return "HTTP " + (int)response.StatusCode + " from /api/tags";
+                        Task<string> readTask = response.Content.ReadAsStringAsync();
+                        readTask.Wait(cts.Token);
+                        string body = readTask.Result;
+                        if (!string.IsNullOrEmpty(body) && body.IndexOf("\"name\":\"" + modelName + "\"", StringComparison.Ordinal) >= 0)
+                            return null;
+                        return "model '" + modelName + "' not in local Ollama library (/api/tags)";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Exact error per the mandate: type + innermost message.
+                Exception inner = ex;
+                while (inner.InnerException != null) inner = inner.InnerException;
+                return ex.GetType().Name + ": " + inner.Message;
+            }
+        }
     }
 }

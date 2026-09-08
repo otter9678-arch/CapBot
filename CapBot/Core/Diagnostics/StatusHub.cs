@@ -62,10 +62,11 @@ namespace CapBot.Core.Diagnostics
         private static readonly string[] KnownSections = new string[]
         {
             "hub", "registry", "recovery", "scheduler", "claims", "executor",
-            "world", "emergency", "agents", "personalities", "experience",
-            "memory", "navigation", "missions", "economy", "combat", "captain",
-            "validator", "planning", "missionwork", "adjustment", "learning",
-            "mpmonitor", "ollama", "crewadvisor", "compat", "capabilities"
+            "commands", "world", "emergency", "agents", "personalities",
+            "experience", "memory", "navigation", "missions", "economy",
+            "combat", "captain", "validator", "planning", "missionwork",
+            "adjustment", "learning", "mpmonitor", "ollama", "crewadvisor",
+            "compat", "conflicts", "capabilities"
         };
 
         public static bool IsKnownSection(string section)
@@ -150,6 +151,9 @@ namespace CapBot.Core.Diagnostics
                 });
             }
 
+            // ---- command gate (P41; mandate §16 counters) --------------------------
+            if (Want(section, "commands")) AddAll(lines, SafeLines("commands", delegate { return CapBot.Core.Commands.CommandGate.StatusLines(); }));
+
             // ---- directors (P9-P25) ----------------------------------------------
             if (Want(section, "emergency")) AddAll(lines, SafeLines("emergency", delegate { return CapBot.Core.Emergency.EmergencyDirector.StatusLines(); }));
             if (Want(section, "agents")) AddAll(lines, SafeLines("agents", delegate { return CrewAgentRegistry.StatusLines(); }));
@@ -172,8 +176,9 @@ namespace CapBot.Core.Diagnostics
             if (Want(section, "ollama")) AddAll(lines, SafeLines("ollama", delegate { return CapBot.Core.Ollama.OllamaAdvisor.StatusLines(); }));
             if (Want(section, "crewadvisor")) AddAll(lines, SafeLines("crewadvisor", delegate { return CapBot.Core.Qwen.CrewAdvisor.StatusLines(); }));
 
-            // ---- compat (P27) ------------------------------------------------------
+            // ---- compat (P27) + conflict engine (P46) ------------------------------
             if (Want(section, "compat")) AddAll(lines, SafeLines("compat", delegate { return CompatManager.StatusLines(); }));
+            if (Want(section, "conflicts")) AddAll(lines, SafeLines("conflicts", delegate { return CapBot.Core.Compatibility.ConflictEngine.StatusLines(); }));
 
             // Capability registry needs nowMs.
             if (Want(section, "capabilities")) AddAll(lines, SafeLines("capabilities", delegate { return CapabilityRegistry.StatusLines(nowMs); }));

@@ -111,6 +111,11 @@
     <Compile Include="Core\Tasks\MPLogBridge.cs" />
     <Compile Include="Core\Compatibility\CompatManager.cs" />
     <Compile Include="Core\Compatibility\CompatLogBridge.cs" />
+    <Compile Include="Core\Compatibility\ConflictModel.cs" />
+    <Compile Include="Core\Compatibility\ConflictEngine.cs" />
+    <Compile Include="Core\Compatibility\ConflictLogBridge.cs" />
+    <Compile Include="Core\Compatibility\ProtectedModList.cs" />
+    <Compile Include="CompatCommand.cs" />
     <Compile Include="Core\Persistence\CrewPersistence.cs" />
     <Compile Include="CrewPersistenceAdapter.cs" />
     <Compile Include="Core\Diagnostics\StatusHub.cs" />
@@ -154,6 +159,9 @@
     <Compile Include="Core\Captain\CaptainDirector.cs" />
     <Compile Include="Core\Captain\CaptainLogBridge.cs" />
     <Compile Include="Core\Validation\DecisionValidator.cs" />
+    <Compile Include="Core\Commands\CommandGate.cs" />
+    <Compile Include="Core\Commands\CommandGateLogBridge.cs" />
+    <Compile Include="Core\Commands\PulsarNoOpProbes.cs" />
     <Compile Include="Core\Validation\DecisionLogBridge.cs" />
     <Compile Include="Core\Ollama\OllamaAdvisor.cs" />
     <Compile Include="Core\Ollama\OllamaHttpTransport.cs" />

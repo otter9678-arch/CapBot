@@ -448,7 +448,151 @@ namespace CapBot.TaskTests
             CrewMemorySystem.AgentMemoryStats st = CrewMemorySystem.StatsOf(u);
             Check(st != null && st.EntryCount == 5 && st.Writes == 8, "M12 stats entry/write counts");
             Check(CrewMemorySystem.Lines().Count == 5, "M12 Lines bounded");
-            Check(CrewMemorySystem.StatusLines().Count == 1, "M12 StatusLines bounded");
+            Check(CrewMemorySystem.StatusLines().Count == 2, "M12 StatusLines bounded");
+
+            // ---- M13: P44 memory-agent lifecycle (EnsureMemoryAgent + reconcile) ----
+            // 13.1 New agent (sync creation) creates exactly one memory agent.
+            FreshSetup();
+            string ag = Id(111, true);
+            s_Snap = Snap(s_Clock.NowMs, Member(111, true, 4, false, true, 0.9f));
+            Advance(1000);
+            CrewAgentRegistry.Sync(s_Clock.NowMs);
+            Check(CrewAgentRegistry.GetAgent(ag) != null, "M13.1 agent created via sync");
+            Check(CrewMemorySystem.AgentCount == 1, "M13.1 exactly one memory agent (real registry count)");
+            Check(CrewMemorySystem.MemoryCreatedCount == 1, "M13.1 created counter = 1");
+            Check(HasLineContaining("MemoryAgentCreated stableAgentId=" + ag), "M13.1 MemoryAgentCreated emitted");
+            // Personality and memory share the SAME stable AgentId.
+            CrewPersonality pp = CrewPersonalityRegistry.Get(ag);
+            Check(pp != null && pp.AgentId == ag, "M13.1 personality keyed by the same stableAgentId");
+
+            // 13.2 Repeated EnsureMemoryAgent remains one (idempotent). The
+            // sync-tail reconcile already ran one ensure pass (reuse +1).
+            long reusedBefore = CrewMemorySystem.MemoryReusedCount;
+            for (int i = 0; i < 5; i++)
+            {
+                Check(CrewMemorySystem.EnsureMemoryAgent(ag, s_Clock.NowMs, "repeat"), "M13.2 ensure #" + i + " returns true");
+            }
+            Check(CrewMemorySystem.AgentCount == 1, "M13.2 still exactly one store");
+            Check(CrewMemorySystem.MemoryReusedCount == reusedBefore + 5, "M13.2 reuse counter +5");
+            Check(CrewMemorySystem.MemoryCreatedCount == 1, "M13.2 created counter unchanged");
+
+            // 13.3 Role change retains memory (same stable identity).
+            int memBefore = CrewMemorySystem.MemoryCountOf(ag);
+            CrewMemorySystem.RememberLocation(ag, "Bridge", s_Clock.NowMs);
+            memBefore = CrewMemorySystem.MemoryCountOf(ag);
+            s_Snap = Snap(s_Clock.NowMs, Member(111, true, 2, false, true, 0.9f)); // class 4 -> 2 role change
+            Advance(1100);
+            CrewAgentRegistry.Sync(s_Clock.NowMs);
+            Check(CrewAgentRegistry.GetAgent(ag) != null, "M13.3 agent record survives role change");
+            Check(CrewMemorySystem.MemoryCountOf(ag) == memBefore, "M13.3 memory retained through role change");
+            Check(CrewMemorySystem.AgentCount == 1, "M13.3 no duplicate store after role change");
+
+            // 13.4/13.5/13.6 Pawn recreation (agent vanishes then returns) retains memory;
+            // a temporary null pawn never destroys the store.
+            s_Snap = Snap(s_Clock.NowMs, new CrewMemberSnapshot[0]); // pawn gone
+            Advance(1100);
+            CrewAgentRegistry.Sync(s_Clock.NowMs);
+            Check(CrewAgentRegistry.GetAgent(ag) != null, "M13.4 agent kept during absence (grace window)");
+            Check(CrewMemorySystem.AgentCount == 1, "M13.4 memory retained while pawn temporarily null");
+            s_Snap = Snap(s_Clock.NowMs, Member(111, true, 2, false, true, 0.9f)); // recreation
+            Advance(1100);
+            CrewAgentRegistry.Sync(s_Clock.NowMs);
+            Check(CrewAgentRegistry.GetAgent(ag) != null, "M13.5 agent reconnected after recreation");
+            Check(CrewMemorySystem.MemoryCountOf(ag) == memBefore, "M13.5 memory reconnected (same store, same facts)");
+            Check(CrewMemorySystem.AgentCount == 1, "M13.5 no duplicate store after pawn recreation");
+
+            // 13.7 Sector transition retains memory (world changes, agent identity does not).
+            List<ShipSnapshot> sectorShips = new List<ShipSnapshot>();
+            sectorShips.Add(new ShipSnapshot(1, "player", true, 0, false, 1f, 0.5f, false, 0, -1, 0, 10f));
+            s_Snap = new WorldSnapshot(
+                s_Clock.NowMs, true, true, 9, WorldAuthority.MasterDerived,
+                sectorShips, new List<CrewMemberSnapshot> { Member(111, true, 2, false, true, 0.9f) },
+                new List<MissionSnapshot>(),
+                new ThreatSnapshot(null, 0, 0, 0, -1, float.NaN, float.NaN),
+                new NavigationSnapshot(9, "Sector Nine", -1, false, -1, null, false, float.NaN, float.NaN, float.NaN, false),
+                new ResourceSnapshot(1000, null, -1, 10, float.NaN),
+                new List<WorldObjectSnapshot>(),
+                WorldAuthority.Synchronized, WorldAuthority.Synchronized, WorldAuthority.MasterDerived, WorldAuthority.LocallyObserved,
+                -1, float.NaN);
+            Advance(1100);
+            CrewAgentRegistry.Sync(s_Clock.NowMs);
+            Check(CrewMemorySystem.MemoryCountOf(ag) == memBefore, "M13.7 memory retained through sector transition");
+            Check(CrewMemorySystem.AgentCount == 1, "M13.7 no duplicate store after sector transition");
+
+            // 13.8 Save/load restores memory (persistence round trip through the real restore path).
+            byte[] blob = CapBot.Core.Persistence.CrewPersistence.Encode(CapBot.Core.Persistence.CrewPersistence.Capture());
+            Check(blob != null, "M13.8 save blob encoded");
+            CrewMemorySystem.ResetForTests();
+            CrewPersonalityRegistry.ResetForTests();
+            CrewAgentRegistry.ResetForTests();
+            Check(CrewMemorySystem.AgentCount == 0, "M13.8 registry empty before load");
+            Check(CapBot.Core.Persistence.CrewPersistence.Decode(blob) != null, "M13.8 save blob decodes");
+            Check(CapBot.Core.Persistence.CrewPersistence.Restore(CapBot.Core.Persistence.CrewPersistence.Decode(blob)) > 0, "M13.8 restore inserted rows");
+            Check(CrewMemorySystem.AgentCount == 1, "M13.8 memory agent restored");
+            Check(CrewMemorySystem.MemoryRestoredCount == 1, "M13.8 restored counter = 1 (per store)");
+            Check(CrewMemorySystem.MemoryCountOf(ag) == memBefore, "M13.8 all facts restored");
+            // Repeated load produces no duplicates (insert-only, live wins).
+            int rowsSecond = CapBot.Core.Persistence.CrewPersistence.Restore(CapBot.Core.Persistence.CrewPersistence.Decode(blob));
+            Check(CrewMemorySystem.AgentCount == 1, "M13.9 repeated load creates no duplicate stores");
+            Check(CrewMemorySystem.MemoryRestoredCount == 1, "M13.9 restored counter not inflated by repeat load");
+
+            // 13.10 Two stable agents produce two distinct memories.
+            FreshSetup();
+            string b1 = Id(121, true);
+            string b2 = Id(122, true);
+            s_Snap = Snap(s_Clock.NowMs, Member(121, true, 4, false, true, 0.9f), Member(122, true, 3, false, true, 0.9f));
+            Advance(1000);
+            CrewAgentRegistry.Sync(s_Clock.NowMs);
+            Check(CrewAgentRegistry.AgentCount == 2, "M13.10 two crew agents");
+            Check(CrewMemorySystem.AgentCount == 2, "M13.10 two distinct memory agents");
+            Check(b1 != b2, "M13.10 distinct stable ids");
+            CrewMemorySystem.RememberLocation(b1, "Bridge", s_Clock.NowMs);
+            Check(CrewMemorySystem.MemoryCountOf(b2) == 0, "M13.10 memories isolated per stableAgentId");
+
+            // 13.11 Failure does not fake the counter (structured diagnostic, not counted).
+            FreshSetup();
+            long failuresBefore = CrewMemorySystem.InitFailureCount;
+            Check(!CrewMemorySystem.EnsureMemoryAgent("garbage", s_Clock.NowMs, "test"), "M13.11 invalid id refused");
+            Check(CrewMemorySystem.InitFailureCount == failuresBefore + 1, "M13.11 failure counted, not an agent");
+            Check(CrewMemorySystem.AgentCount == 0, "M13.11 registry count unchanged by failure");
+            Check(HasLineContaining("MemoryInitFailed"), "M13.11 MemoryInitFailed emitted");
+            Check(HasLineContaining("reason=invalidAgentId"), "M13.11 structured reason present");
+
+            // 13.12 Status count equals registry count (truthful reporting).
+            Check(CrewMemorySystem.AgentCount == CrewMemorySystem.RetainedCount, "M13.12 status count == registry count");
+            List<string> memStatus = CrewMemorySystem.StatusLines();
+            Check(memStatus[0].IndexOf("memoryAgents=" + CrewMemorySystem.AgentCount, StringComparison.Ordinal) >= 0,
+                "M13.12 status line reports the real count");
+
+            // 13.13 Memory is bounded (registry cap 32; refusal never counted as an agent).
+            FreshSetup();
+            for (int pid = 1; pid <= 32; pid++)
+            {
+                CrewMemorySystem.EnsureMemoryAgent(Id(3000 + pid, true), s_Clock.NowMs, "boundtest");
+            }
+            Check(CrewMemorySystem.AgentCount == 32, "M13.13 registry bounded at 32");
+            Check(!CrewMemorySystem.EnsureMemoryAgent(Id(3333, true), s_Clock.NowMs, "boundtest"), "M13.13 33rd ensure refused");
+            Check(CrewMemorySystem.AgentCount == 32, "M13.13 refusal did not inflate the count");
+            Check(HasLineContaining("reason=registryFull"), "M13.13 registryFull diagnostic emitted");
+
+            // 13.14 Memory deduplication works (validated events only, upsert semantics).
+            FreshSetup();
+            string dd = Id(141, true);
+            CrewMemorySystem.EnsureMemoryAgent(dd, s_Clock.NowMs, "dedup");
+            CrewMemorySystem.RememberTaskOutcome(dd, 77, CrewAgentRegistry.OutcomeCompleted, s_Clock.NowMs);
+            CrewMemorySystem.RememberTaskOutcome(dd, 77, CrewAgentRegistry.OutcomeCompleted, s_Clock.NowMs + 1);
+            Check(CrewMemorySystem.MemoryCountOf(dd) == 1, "M13.14 duplicate event deduped to one row");
+
+            // 13.15 LLM cannot directly mutate memory (no write path from advice
+            // text; memory writes flow ONLY through validated event funnels —
+            // RememberTaskOutcome refuses unknown outcome vocabulary, so a
+            // raw LLM string can never become a memory row).
+            FreshSetup();
+            string llm = Id(151, true);
+            CrewMemorySystem.EnsureMemoryAgent(llm, s_Clock.NowMs, "llm");
+            Check(!CrewMemorySystem.RememberTaskOutcome(llm, 5, "ADVICE: do something harmful", s_Clock.NowMs),
+                "M13.15 raw LLM text refused by the outcome vocabulary gate");
+            Check(CrewMemorySystem.MemoryCountOf(llm) == 0, "M13.15 no memory row from LLM text");
 
             Console.WriteLine("SUITE MemoryTests passed=" + s_Passed + " failed=" + s_Failed);
             return s_Failed;
