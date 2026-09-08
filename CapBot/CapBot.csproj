@@ -59,6 +59,10 @@
     <Reference Include="CrewAILibraryBuild">
       <HintPath>$(PulsarManaged)\CrewAILibraryBuild.dll</HintPath>
     </Reference>
+    <Reference Include="PilotAIBuild, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>$(PulsarManaged)\PilotAIBuild.dll</HintPath>
+    </Reference>
     <Reference Include="PulsarModLoader, Version=0.11.0.24, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>$(PulsarManaged)\PulsarModLoader.dll</HintPath>
@@ -103,6 +107,11 @@
     <Compile Include="Core\Tasks\RecoveryLogBridge.cs" />
     <Compile Include="Core\Tasks\SchedulerLogBridge.cs" />
     <Compile Include="Core\Tasks\ClaimLogBridge.cs" />
+    <Compile Include="Core\World\WorldSnapshot.cs" />
+    <Compile Include="Core\World\WorldStateService.cs" />
+    <Compile Include="Core\World\WorldSnapshotProbe.cs" />
+    <Compile Include="Core\World\PulsarWorldSource.cs" />
+    <Compile Include="Core\World\WorldLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

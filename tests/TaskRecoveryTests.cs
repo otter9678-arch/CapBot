@@ -282,9 +282,10 @@ namespace CapBot.TaskTests
             int f2 = TaskRecoveryTests.Run();
             int f3 = TaskSchedulerTests.Run();
             int f4 = ExecutionClaimTests.Run();
+            int f5 = WorldStateTests.Run();
             Console.WriteLine("");
-            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4));
-            return (f1 + f2 + f3 + f4) == 0 ? 0 : 1;
+            Console.WriteLine("TOTAL passed=" + (TaskLifecycleTests.LastPassed + TaskRecoveryTests.LastPassed + TaskSchedulerTests.LastPassed + ExecutionClaimTests.LastPassed + WorldStateTests.LastPassed) + " failed=" + (f1 + f2 + f3 + f4 + f5));
+            return (f1 + f2 + f3 + f4 + f5) == 0 ? 0 : 1;
         }
     }
 }

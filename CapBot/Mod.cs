@@ -37,6 +37,14 @@ namespace CapBot
             // claims are deny-by-default until Phase 8 wires the authority
             // policy to master-client state — nothing can claim or execute).
             ClaimLogBridge.Ensure();
+            // Phase 6: attach world-state logging and the read-oriented world
+            // observation layer. The service is dormant until the frame tick
+            // (WorldTick patch) calls Refresh; the snapshot probe is attached
+            // as recovery's real world probe but recovery still has no tick
+            // driver — no gameplay routes through world state yet.
+            CapBot.Core.World.WorldLogBridge.Ensure();
+            CapBot.Core.World.WorldStateService.SetSource(new CapBot.Core.World.PulsarWorldSource());
+            TaskRecoveryManager.Probe = new CapBot.Core.World.WorldSnapshotProbe();
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

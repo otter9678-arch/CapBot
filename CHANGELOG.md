@@ -3,6 +3,103 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 6 — Game/World State observation layer] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/World/WorldSnapshot.cs` — immutable, bounded, value-style snapshots:
+  `WorldSnapshot` root (session/game-started/host/hub, ships, crew, missions,
+  threats, navigation, resources, world objects, per-section
+  `WorldAuthority`), section types (`ShipSnapshot`, `CrewMemberSnapshot`,
+  `MissionSnapshot`, `ThreatSnapshot`, `NavigationSnapshot`,
+  `ResourceSnapshot`, `WorldObjectSnapshot`), `WorldTransition`
+  (`SECTOR_CHANGED`/`WARP_STARTED`/`WARP_ENDED`). All collections bounded at
+  construction (ships ≤ 24, crew ≤ 16, missions ≤ 16, world objects ≤ 16,
+  hostiles ≤ 16, course goals ≤ 8, research ≤ 8); names truncated; NaN/-1/
+  null = unknown sentinels; no game-object references held. Player ship is
+  `Ships[0]`, captain is `Crew[0]` (ordering contract).
+  `WorldSnapshot.Empty` = never-captured placeholder.
+- `Core/World/WorldStateService.cs` — pure C# cache/transition detector:
+  throttled `Refresh(nowMs)` (1 s default = vanilla decision cadence),
+  transition detection from last-seen sector/warp values (survives
+  `SetSource` resets; listener fires OUTSIDE the lock, never on first
+  capture, ≤ 4 per refresh), sticky
+  `HasUnacknowledgedSectorChange()`/`AcknowledgeSectorChanged()` for
+  slow-cadence consumers, freshness (`GetFreshness`, 10 s `MaxSnapshotAgeMs`),
+  diagnostics (`RefreshCount`/`ErrorCount`/`LastError`), `ResetForTests`.
+  Pluggable `IWorldSource` seam; dormant by construction until a source is
+  set AND a tick caller refreshes.
+- `Core/World/WorldSnapshotProbe.cs` — recovery's real `ITaskWorldProbe`
+  (Phase 3 deliverable) answering from the latest snapshot. **Fail-open on
+  uncertainty**: never-captured/stale/empty-view snapshots never drive
+  destructive recovery actions; positive evidence only (SHIP/MISSION target
+  presence, crew membership for `CAPTAIN`/`BOT:<id>` owners with
+  `AliveKnown` death evidence; populated-crew absence = positive).
+  `CapabilityAvailable` defers to P7; `WorldInvalidatesTask` stays false (no
+  invented premise semantics). Injectable snapshot/time providers for
+  deterministic tests.
+- `Core/World/PulsarWorldSource.cs` — game-facing `IWorldSource` reading
+  verified registries ONLY (`PLServer.Instance` GameHasStarted/AllPlayers/
+  AllMissions/CurrentCrewCredits/ResearchMaterials/CurrentUpgradeMats/
+  m_ShipCourseGoals/GetCurrentSector, `PLEncounterManager.Instance` AllShips/
+  PlayerShip, PLShipInfoBase MyStats/HostileShips/TargetShip/GetCombatLevel/
+  AlertLevel/InWarp/WarpChargeStage/WarpTargetID/MyFlightAI caches,
+  PLPlayer GetPlayerName/GetPlayerID/IsBot/GetClassID/TeamID/GetPawn/
+  MyCurrentTLI/ActiveMainPriority, PLBotController stuck metrics via
+  PLPlayer.MyBot, PLMissionBase objectives, MyFlightAI.cachedRepairDepotList/
+  cachedWarpStationList, PLBeaconInfo beacons). Zero FindObjectsOfType, zero
+  scene scans. Non-throwing by section (`PartialErrorCount`/
+  `LastPartialError` diagnostics); hostiles read from the game's own
+  `HostileShips` list (Quality Improver-safe: never calls hostility logic).
+- `Core/World/WorldLogBridge.cs` — attaches Phase 1 `CapBotLog` (TASK) as
+  the transition listener at mod boot; the world domain contains zero
+  logging calls.
+- `CapBot.csproj` (modified) — compile entries for the five new files +
+  `PilotAIBuild.dll` reference (transitive base-class assembly of the
+  flight-AI type).
+- `Mod.cs` (modified) — boot wiring: `WorldLogBridge.Ensure()`,
+  `WorldStateService.SetSource(new PulsarWorldSource())`,
+  `TaskRecoveryManager.Probe = new WorldSnapshotProbe()`.
+- `Patch.cs` (modified) — `WorldTick` Harmony postfix on `PLController.Update`:
+  the only new game hook; calls the read-only throttled refresh, exception-
+  guarded so it can never alter controller behavior.
+- `docs/WORLD_STATE.md` — full contract: data flow, snapshot model (bounds,
+  sentinels, authority marks, ordering contracts), service semantics
+  (throttle, transitions, sticky flag, freshness), source read-only/non-
+  throwing posture, fail-open probe decision table, multiplayer/host-
+  migration constraints, performance, security posture, not-in-phase list.
+- `tests/WorldStateTests.cs` — 80 dev-side assertions (not shipped) covering
+  the mandated scenarios: null/missing objects (Empty + null sections), no
+  crew, multiple bots, missing captain (positive absence), sector
+  transition (incl. never-fabricated from unknown ids), no active mission,
+  multiple missions, destroyed targets (SHIP/MISSION positive-absence),
+  invalid/stale refs (stale = fail-open, boundary exactness), host/client
+  authority marking, deterministic construction (identical summary lines),
+  bounded collection sizes (all seven bounds). Service: throttle, dormant
+  null-source, freshness, transitions (first-capture silence, warp edges,
+  SetSource reset), source-throw containment, reset. Harness
+  `run_tests.ps1` + TestMain wired for five suites. Combined TOTAL:
+  **passed=429 failed=0** (97 lifecycle + 57 recovery + 89 scheduler +
+  106 claims + 80 world).
+
+### Notes
+- Observation layer only: reads authoritative game state into bounded
+  immutable snapshots. It executes nothing, mutates nothing, issues no
+  orders, and adds no RPCs. The refresh tick is read-only; the probe is
+  attached but recovery still has no tick driver, so no gameplay routes
+  through world state yet — existing behavior is unchanged.
+- Hostility semantics are deliberately assumption-free (Quality Improver can
+  replace `ShouldBeHostileToShip`): the authoritative hostile set is the
+  game's own `HostileShips` id list; team counts are raw observations.
+  Combat-level semantics INFERRED per research §6.6, carried as data only.
+- Mission objective *types* are not readable on `PLMissionObjective`
+  instances (no `ObjType` member): snapshots carry completion counts + first
+  incomplete objective text instead.
+- `PLWarpStation`/`PLRepairDepot` have no static registries; world objects
+  read the player ship's own flight-AI cached lists (shipped-code-proven).
+- Not implemented (later phases): capability registry, executor, directors,
+  Captain Brain 2.0, Decision Validator, LLM integration, dynamic task
+  generation, persistence, UI, secure updater, performance refactoring.
+
 ## [Phase 5 — Duplicate execution protection (claims/leases/idempotency)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

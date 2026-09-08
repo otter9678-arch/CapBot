@@ -2776,6 +2776,25 @@ namespace CapBot
             }
         }
     }
+    // Phase 6: world-state refresh anchor. Drives the read-only world snapshot
+    // refresh (internal ~1 s throttle = vanilla decision cadence). The source
+    // never mutates game state; this guard keeps any unexpected failure from
+    // touching vanilla controller behavior (same posture as the captain tick).
+    [HarmonyPatch(typeof(PLController), "Update")]
+    static class WorldTick
+    {
+        static void Postfix()
+        {
+            try
+            {
+                CapBot.Core.World.WorldStateService.Refresh(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.TASK, "World refresh tick failed", ex);
+            }
+        }
+    }
     [HarmonyPatch(typeof(PLBotController), "HandleMovement")]
     class Rotation
     {
