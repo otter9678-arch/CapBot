@@ -133,6 +133,8 @@
     <Compile Include="Core\Crew\ExperienceLogBridge.cs" />
     <Compile Include="Core\Crew\CrewMemory.cs" />
     <Compile Include="Core\Crew\MemoryLogBridge.cs" />
+    <Compile Include="Core\Navigation\NavigationRecovery.cs" />
+    <Compile Include="Core\Navigation\NavigationLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

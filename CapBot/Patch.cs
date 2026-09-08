@@ -2870,6 +2870,22 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.CREW, "Crew agent sync failed", ex);
             }
+            try
+            {
+                CapBot.Core.Navigation.NavigationRecoveryDirector.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.NAVIGATION, "Navigation recovery evaluate failed", ex);
+            }
+            try
+            {
+                CapBot.Core.Navigation.NavigationRecoveryDirector.ReconcileTasks(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.NAVIGATION, "Navigation recovery reconcile failed", ex);
+            }
         }
     }
     [HarmonyPatch(typeof(PLBotController), "HandleMovement")]

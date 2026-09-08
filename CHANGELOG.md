@@ -3,6 +3,106 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 14 — Navigation recovery] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Navigation/NavigationRecovery.cs` — the navigation recovery director
+  (BOUNDED DETERMINISTIC COORDINATION ONLY): `NavRule` enum
+  (CourseLost=1/GoalReached=2/StuckStall=3); `NavPlanRecord` plan rows
+  (PlanId "NAV:<rule>:S<sectorId>", TaskId 0 = report-only,
+  TaskResolvedMs −1 = unresolved, LastSeenMs, UpdateCount, HasLiveTask);
+  `NavigationRecoveryDirector` (active plans ≤ 8 = MaxActivePlans with
+  oldest-by-LastSeenMs shedding (tie → lowest key order, `NavPlanShed`
+  line), history ≤ 16 = MaxHistory, un-refreshed plans expire after
+  30 s = ActiveExpiryMs, re-arm blocked 20 s = RequeueBlockMs after task
+  resolution, dwell hysteresis CourseLost 10 s / GoalReached 15 s, decision
+  cadence 5 s = MinRecheckMs, recovery priority 20 — above normal work
+  (1..8 + aging), below emergencies (110+)). Rules: CourseLost (no goals +
+  not in warp + known sector, persisted ≥ 10 s → ADD_COURSE_GOAL task
+  re-affirming the CURRENT sector — never an invented destination),
+  GoalReached (first goal == current sector, persisted ≥ 15 s →
+  REMOVE_COURSE_GOAL task), StuckStall (vanilla stuck signature: moved
+  < 1 m in 5 s while seeking > 7 s WITH an active course → REPORT-ONLY
+  plan + one NavStallReport line; a task without CapabilityId metadata
+  fails at start per the P8 executor contract, so stalls are data records,
+  never tasks). Task recipe: CAPTAIN-owned NAV_RECOVERY task (maxRetries 1,
+  timeout 120 s) + metadata NavId/NavRule/Preemptible="true"/CapabilityId/
+  Argument + Register + TryQueue through the standard pipeline.
+  Fail-safe gates: authority (deny-by-default seam, fail-closed — clients
+  never evaluate), cadence, snapshot staleness (>20 s / future /
+  never-captured / !GameStarted → NavRecoveryUncertain), unknown rule
+  inputs (NaN metrics / −1 sectors / in-warp / missing section never
+  trigger). ReconcileTasks resolves plans whose task went terminal or
+  vanished (plan re-arms after the requeue block); the task itself is
+  never touched (lifecycle/recovery own it). Counter readbacks + bounded
+  deterministic diagnostics (Lines ≤ one per active plan, StatusLines = 2).
+  ResetForTests.
+- `Core/Navigation/NavigationLogBridge.cs` — attaches CapBotLog
+  (NAVIGATION) as the director's decision listener at boot (same pattern
+  as EmergencyLogBridge/MemoryLogBridge).
+- `docs/NAVIGATION_RECOVERY.md` — full contract: rules + dwell windows,
+  plan/task shapes, lifecycle bookkeeping, data flow, integration points,
+  authority model, performance, verified-API table (ADD_/REMOVE_COURSE_GOAL
+  only — no new game APIs), failure modes, tests, deliberate scope
+  boundaries.
+- `tests/NavigationTests.cs` — 74 assertions covering N01–N12: CourseLost
+  end-to-end (task shape, metadata, target = current sector, queued
+  through the standard pipeline, duplicate suppression), dwell +
+  requeue-block re-arm, GoalReached + negatives (second goal, in-warp,
+  unknown sector), StuckStall report-only (no task ever, report once,
+  not repeated), plan lifecycle (expire → history, bounded shed at 8 with
+  NavPlanShed), fail-safe inputs (null/stale/not-started/NaN), authority
+  deny-by-default (null/faulting/non-master), ReconcileTasks (vanished
+  task → resolution), no unauthorized execution (task stays Queued, no
+  lease, no claim, TryClaim → RejectedNotAuthoritative), pipeline
+  isolation under nav churn, cadence + counters + diagnostics.
+
+### Changed
+- `Patch.cs` — WorldTick Postfix extended IN PLACE: after the emergency
+  blocks, `NavigationRecoveryDirector.Evaluate(nowMs)` +
+  `ReconcileTasks(nowMs)`, each in its own try/catch
+  (`CapBotLog.NAVIGATION`). Postfix IL bytes 256 → 325 (expected change;
+  no new patch class — the permanent ceiling of 11 is preserved).
+- `CapBot.csproj` — +2 Compile entries
+  (`Core\Navigation\NavigationRecovery.cs`,
+  `Core\Navigation\NavigationLogBridge.cs`).
+- `Mod.cs` — Phase 14 boot block after the memory seams:
+  `NavigationLogBridge.Ensure()` +
+  `NavigationRecoveryDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative)`
+  + `SetNowMsProvider(TaskClock.NowMs)` +
+  `SetWorldProvider(WorldStateService.Latest)`.
+- `tests/run_tests.ps1` — +2 domain compile entries
+  (`Core\Navigation\NavigationRecovery.cs`) and +1 suite
+  (`NavigationTests.cs`, last).
+- `tests/TaskRecoveryTests.cs` — TestMain runs thirteen suites (`f13` =
+  NavigationTests); TOTAL line updated.
+
+### Notes
+- Zero NEW PULSAR APIs: course-goal mutation rides the already-verified P7
+  capability channels (ADD_COURSE_GOAL → PLServer.AddCourseGoal(Int32)
+  [PunRPC], REMOVE_COURSE_GOAL → PLServer.RemoveCourseGoal(Int32)
+  [PunRPC]); the vanilla navigation stack (PLFlightAI/PLBotController/
+  PLStarmap/m_ShipCourseGoals) is untouched.
+- StuckStall is report-only by the P8 executor contract (a task without
+  CapabilityId metadata → FailStarted): vanilla stuck-teleport owns
+  physical unsticking; the director coordinates only.
+- Recovery = re-affirming the CURRENT sector; the director never invents
+  destinations and never replans warp.
+- Consumers are later phases (Captain Brain 2.0 planning, mission
+  director); Phase 14 implements no consumer beyond the bounded plan
+  records.
+- Verified: build 0 warnings/0 errors; tests TOTAL 1382/1382 (thirteen
+  suites; NavigationTests 74 assertions N01–N12); reflection 167 types/
+  147 named, P14 type surfaces + all 15 constants exact (MinRecheckMs=5000,
+  MaxActivePlans=8, MaxHistory=16, RecoveryTaskTimeoutMs=120000,
+  CourseLostDwellMs=10000, GoalDwellMs=15000, RequeueBlockMs=20000,
+  ActiveExpiryMs=30000, MaxStaleSnapshotMs=20000, RecoveryPriority=20,
+  TaskTypeRecovery=NAV_RECOVERY, OwnerCaptain=CAPTAIN,
+  TargetKindSector=SECTOR, StuckDistMovedMeters=1,
+  StuckTimeSeekingSec=7), NavRule values 1/2/3, P6–P13 intact,
+  harmony_patch_classes=11, WorldTick Postfix IL 325 bytes (expected
+  in-place growth from 256), new namespace CapBot.Core.Navigation.
+
 ## [Phase 13 — Crew memory] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

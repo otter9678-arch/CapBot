@@ -114,6 +114,19 @@ namespace CapBot
             // experience, or world state.
             CapBot.Core.Crew.MemoryLogBridge.Ensure();
             CapBot.Core.Crew.CrewMemorySystem.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            // Phase 14: attach navigation-recovery logging and wire its seams.
+            // The director stays INERT until the tick driver (WorldTick) calls
+            // Evaluate host-side; with the authority probe it is deny-by-default
+            // (clients never produce recovery plans). Plans are DATA: tasks are
+            // created through the registry and executed ONLY through the
+            // scheduler (P4) / claims (P5) / capability validation (P7) /
+            // executor (P8) pipeline — the director never executes a
+            // capability, never RPCs, and never touches the vanilla navigation
+            // stack (stuck-teleport and PLFlightAI remain vanilla-owned).
+            CapBot.Core.Navigation.NavigationLogBridge.Ensure();
+            CapBot.Core.Navigation.NavigationRecoveryDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Navigation.NavigationRecoveryDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Navigation.NavigationRecoveryDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).
