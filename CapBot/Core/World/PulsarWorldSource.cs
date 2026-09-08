@@ -363,6 +363,31 @@ namespace CapBot.Core.World
             // Null sections render as bounded "unknown" defaults; the snapshot
             // itself is always constructible.
             WorldAuthority sessionAuthority = isHost ? WorldAuthority.MasterDerived : WorldAuthority.LocallyObserved;
+
+            // ---- Phase 9 emergency inputs (player ship only, fail-safe) -----
+            // Fire count from the game's own verified counter; reactor temp
+            // fraction from PLShipStats reactor properties. Any failure leaves
+            // the field "unknown" (-1 / NaN) — the emergency detector treats
+            // unknown data as no-emergency by contract.
+            int fireCount = -1;
+            float reactorTempFraction = float.NaN;
+            if (playerShip != null)
+            {
+                try
+                {
+                    PLShipInfo fullShip = playerShip as PLShipInfo;
+                    if (fullShip != null) fireCount = fullShip.CountNonNullFires();
+                }
+                catch (Exception ex) { RecordPartial("fire count", ex); }
+                try
+                {
+                    PLShipStats stats = playerShip.MyStats;
+                    if (stats != null && stats.ReactorTempMax > 0f)
+                        reactorTempFraction = stats.ReactorTempCurrent / stats.ReactorTempMax;
+                }
+                catch (Exception ex) { RecordPartial("reactor temp", ex); }
+            }
+
             return new WorldSnapshot(
                 nowMs, gameStarted, isHost, hubId, sessionAuthority,
                 ships,
@@ -375,7 +400,9 @@ namespace CapBot.Core.World
                 WorldAuthority.Synchronized,   // hostile list is server-authored/synced; team tallies are raw counts (documented)
                 WorldAuthority.Synchronized,   // sector identity + course goals replicate to all peers
                 WorldAuthority.MasterDerived,  // credits/research are host-computed economy values
-                WorldAuthority.LocallyObserved);
+                WorldAuthority.LocallyObserved,
+                fireCount,
+                reactorTempFraction);
         }
 
         // ---- per-element builders (each null-safe, each bounded) ---------------

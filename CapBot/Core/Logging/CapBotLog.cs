@@ -28,6 +28,7 @@ namespace CapBot.Core.Logging
         public const string COMPAT = "COMPAT";
         public const string UPDATER = "UPDATER";
         public const string UI = "UI";
+        public const string EMERGENCY = "EMERGENCY"; // Phase 9: emergency director subsystem (additive)
 
         private const int PerMessageIntervalMs = 8000; // same key: at most one line / 8 s
         private const int MaxMessagesPerWindow = 24;   // global flood guard

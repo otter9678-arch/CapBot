@@ -319,6 +319,13 @@ namespace CapBot.Core.World
         public readonly WorldAuthority ResourceAuthority;
         public readonly WorldAuthority WorldObjectsAuthority;
 
+        // ---- Phase 9 additions (emergency detection inputs) -------------------
+        // -1 / NaN = unknown (never triggers a rule — detectors fail safe on
+        // unknown data). Carried as plain data; the P6 contract (bounded,
+        // immutable, no game-object refs) is unchanged.
+        public readonly int PlayerShipFireCount;               // PLShipInfo.CountNonNullFires(), -1 = unknown
+        public readonly float PlayerShipReactorTempFraction;   // ReactorTempCurrent/ReactorTempMax, NaN = unknown
+
         private static readonly WorldSnapshot s_Empty = new WorldSnapshot();
         public static WorldSnapshot Empty { get { return s_Empty; } }
         public bool IsNeverCaptured { get { return SnapshotTimeMs < 0; } }
@@ -339,8 +346,12 @@ namespace CapBot.Core.World
             NavigationAuthority = WorldAuthority.Unknown;
             ResourceAuthority = WorldAuthority.Unknown;
             WorldObjectsAuthority = WorldAuthority.Unknown;
+            PlayerShipFireCount = -1;
+            PlayerShipReactorTempFraction = float.NaN;
         }
 
+        // Original constructor — preserved verbatim (all Phase 6–8 callers and
+        // tests keep compiling); Phase 9 fields default to "unknown".
         public WorldSnapshot(
             int snapshotTimeMs, bool gameStarted, bool isHost, int currentHubId,
             WorldAuthority sessionAuthority,
@@ -372,6 +383,34 @@ namespace CapBot.Core.World
             NavigationAuthority = navigationAuthority;
             ResourceAuthority = resourceAuthority;
             WorldObjectsAuthority = worldObjectsAuthority;
+            PlayerShipFireCount = -1;
+            PlayerShipReactorTempFraction = float.NaN;
+        }
+
+        // Phase 9 constructor: adds the two emergency detection inputs (fire
+        // count, reactor temp fraction) without touching any existing caller.
+        public WorldSnapshot(
+            int snapshotTimeMs, bool gameStarted, bool isHost, int currentHubId,
+            WorldAuthority sessionAuthority,
+            IReadOnlyList<ShipSnapshot> ships,
+            IReadOnlyList<CrewMemberSnapshot> crew,
+            IReadOnlyList<MissionSnapshot> missions,
+            ThreatSnapshot threats,
+            NavigationSnapshot navigation,
+            ResourceSnapshot resources,
+            IReadOnlyList<WorldObjectSnapshot> worldObjects,
+            WorldAuthority threatAuthority,
+            WorldAuthority navigationAuthority,
+            WorldAuthority resourceAuthority,
+            WorldAuthority worldObjectsAuthority,
+            int playerShipFireCount,
+            float playerShipReactorTempFraction)
+            : this(snapshotTimeMs, gameStarted, isHost, currentHubId, sessionAuthority,
+                   ships, crew, missions, threats, navigation, resources, worldObjects,
+                   threatAuthority, navigationAuthority, resourceAuthority, worldObjectsAuthority)
+        {
+            PlayerShipFireCount = playerShipFireCount < 0 ? -1 : playerShipFireCount;
+            PlayerShipReactorTempFraction = playerShipReactorTempFraction;
         }
 
         private static IReadOnlyList<T> Bounded<T>(IReadOnlyList<T> source, int max)

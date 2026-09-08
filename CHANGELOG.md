@@ -3,6 +3,111 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 9 — Emergency director] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Emergency/EmergencyState.cs` — the deterministic override-layer
+  vocabulary: `EmergencySeverity` (None/Warning/Elevated/Severe/Critical),
+  `EmergencyType` (CriticalHull, CriticalCrewHealth, Fire, ReactorCritical,
+  DangerousCombat, ImminentDeath reserved, NavigationFailure, FuelCritical,
+  CoolantCritical, ObjectiveCritical; WarpFailure deliberately NOT detected —
+  no verified failing-vs-charging rule), the six-state `EmergencyState`
+  machine with the legal-transition table (`EmergencyStates.CanTransition`
+  + `IllegalReason`; Normal→Monitoring→Warning→Emergency→Critical→Recovery→
+  Normal, Recovery the only re-entry to Normal), `EmergencyPrecedence`
+  (mandated 9-class order: crew survival > ship survival > catastrophe >
+  combat > navigation > mission > economy > maintenance; priority =
+  100 + class*10 + severity bump — normal work tops out at 13 with aging,
+  so any emergency outranks all normal tasks), the bounded immutable
+  `EmergencyDecision` (reason ≤ 200 / target ≤ 64, all 15 mandated fields),
+  `ActiveEmergency` (dedup record with LastSeenMs/escalating severity) and
+  `EmergencyIdentity` ("EID:<TYPE>:<hash8>" via the shared FNV-1a
+  `ActionIdentity.ComputeStableHash` — stable across re-evaluations).
+- `Core/Emergency/EmergencyDetector.cs` — the pure rule engine over the P6
+  snapshot (zero game access, zero clock reads, zero LINQ, quiet path
+  allocation-free). Nine rules, thresholds as public consts: CriticalHull
+  (hull ≤ .25/.35/.50), CriticalCrewHealth (worst alive bot ≤ .25/.35/.50),
+  Fire (CountNonNullFires ≥ 3 Severe / ≥ 1 Warning), ReactorCritical
+  (temp ≥ 95%/90% of max), DangerousCombat (≥1 authoritative hostile;
+  Severe if ≥3 hostiles or combat-level gap ×1.33 — INFERRED, data-only),
+  NavigationFailure (moved <1 m in 5 s while seeking >7 s — vanilla stuck
+  trigger, coordination-only), FuelCritical (capsules ≤ 1/2),
+  CoolantCritical (≤ 15%/30%), ObjectiveCritical (exactly 1 objective left,
+  coordination-only). Fail-safe on every unknown input (NaN fractions,
+  -1 counts/ids, missing sections, dead/unknown crew never trigger).
+  Realizations are existing registered capabilities only (orders 9/6/1,
+  SET_CAPTAIN_TARGET) — validated again by the registry + executor before
+  any action.
+- `Core/Emergency/EmergencyDirector.cs` — the deterministic director
+  (pure C#, System-only): one evaluation per MinRecheckMs (5 s — no per-frame
+  loop), fail-safe world gates (null / never-captured / stale >20 s /
+  future-dated / !GameStarted → `EmergencyUncertain` logged, nothing
+  created), deny-by-default authority seam (no probe or faulting probe ⇒
+  no-op), dedup against bounded ACTIVE records (re-detection refreshes
+  LastSeenMs + escalates severity only — never a second task), bounded
+  shedding (active ≤ 8 sheds oldest, history ≤ 16, ActiveExpiryMs 30 s,
+  TaskRequeueBlockMs 20 s), emergency task creation through the P2 lifecycle
+  ONLY (type EMERGENCY, owner CAPTAIN, priority from EmergencyPrecedence,
+  maxRetries 1, timeout 120 s, metadata EmergencyId/EmergencyType/
+  Preemptible="true"/CapabilityId/Argument; preemption is REQUESTED through
+  the P4 scheduler's own policy-gated path — the director never pauses,
+  fails or cancels anything), hysteresis-gated state machine
+  (StateDwellMs 5 s, RecoveryHoldMs 10 s, illegal transitions counted and
+  never applied), ReconcileTasks resolves records whose emergency task
+  reached a terminal state (task itself left to lifecycle/recovery),
+  StatusLines diagnostics, ResetForTests. Pluggable fail-closed seams:
+  authority probe, nowMs provider, world provider, decision listener.
+- `Core/Emergency/EmergencyLogBridge.cs` — boots the director's decision
+  listener into `CapBotLog` (new EMERGENCY subsystem const).
+- `docs/EMERGENCY.md` — the Phase 9 contract document (principle, pipeline,
+  state machine, precedence, rules table, identity/dedup, preemption
+  contract, verified-API table, world dependencies, multiplayer model,
+  performance, unsupported types, failure modes, tests).
+
+### Changed
+- `Core/World/WorldSnapshot.cs` — additive Phase 9 extension: new readonly
+  fields `PlayerShipFireCount` (int, -1 = unknown) and
+  `PlayerShipReactorTempFraction` (float, NaN = unknown); original 16-arg
+  constructor preserved verbatim (both fields default to unknown); new 18-arg
+  constructor chains via `: this(...)`. All Phase 6–8 callers/tests compile
+  unchanged.
+- `Core/World/PulsarWorldSource.cs` — Capture() fills the two new fields from
+  VERIFIED public APIs (`PLShipInfo.CountNonNullFires()`,
+  `PLShipStats.ReactorTempCurrent/ReactorTempMax`), each try/catch-guarded
+  into `RecordPartial` (partial-failure bookkeeping, -1/NaN on fault).
+- `Mod.cs` — Phase 9 boot block: EmergencyLogBridge.Ensure +
+  director seams wired (authority probe = ExecutionClaims.IsAuthoritative,
+  nowMs = TaskClock, world = WorldStateService.Latest). Deny-by-default;
+  the director stays INERT until the tick driver calls Evaluate host-side.
+- `Patch.cs` — WorldTick Postfix (host-only) now also drives the emergency
+  director: two individually exception-guarded calls,
+  `EmergencyDirector.Evaluate(TaskClock.NowMs)` (5 s internal gate) and
+  `EmergencyDirector.ReconcileTasks(...)`, after the executor tick. The
+  director never executes anything — tasks still route through P4/P5/P7/P8.
+- `CapBotLog.cs` — added the `EMERGENCY` subsystem const.
+- `CapBot.csproj` — +4 Compile entries (EmergencyState, EmergencyDetector,
+  EmergencyDirector, EmergencyLogBridge).
+- `tests/run_tests.ps1` — compiles the three emergency domain files + the
+  new test suite (f1–f8).
+- `tests/TaskRecoveryTests.cs` — TestMain runs eight suites; TOTAL ×8.
+
+### Tests
+- `tests/EmergencyTests.cs` — 141 checks covering all 25 mandated Phase 9
+  scenarios (S1–S5 legal state chains with dwell hysteresis, S6 illegal
+  transition table, S7–S10 precedence classes/severity bumps, S11 duplicate
+  detection, S12 identity determinism, S13 stale/future-dated world,
+  S14 invalid targets rejected by the registry, S15 authority rejection +
+  deny-by-default, S16 capability rejection executor-side, S17 execution-claim
+  rejection on emergency tasks, S18 preemption through the scheduler's own
+  policy path, S19 preempted task stays recoverable (auto-resume + cancel
+  flow), S20 no-storm (20 passes → 1 task; 5 persisting emergencies → 5
+  tasks + 55 dedups; bounded active set), S21 bounded shedding/history,
+  S22 Quality-Improver-safe hostility (authoritative list only), S23
+  master-only (client produces nothing), S24 repeated evaluation without
+  duplicate actions, S25 fail-safe on missing/faulting state) plus per-rule
+  detection coverage (R1–R8) and fail-safe inputs. Full suite: 806/806 pass
+  (665 prior + 141 new).
+
 ## [Phase 8 — Task executor] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

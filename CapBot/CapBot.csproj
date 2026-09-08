@@ -120,6 +120,10 @@
     <Compile Include="Core\Executor\TaskExecutor.cs" />
     <Compile Include="Core\Executor\PulsarCapabilityDispatcher.cs" />
     <Compile Include="Core\Executor\ExecutorLogBridge.cs" />
+    <Compile Include="Core\Emergency\EmergencyState.cs" />
+    <Compile Include="Core\Emergency\EmergencyDetector.cs" />
+    <Compile Include="Core\Emergency\EmergencyDirector.cs" />
+    <Compile Include="Core\Emergency\EmergencyLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

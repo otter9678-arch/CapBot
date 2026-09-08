@@ -2791,6 +2791,12 @@ namespace CapBot
     // tasks exist (nothing creates tasks until the P9+ directors); each call
     // is individually exception-guarded so one subsystem can never take down
     // the others or vanilla Update.
+    //
+    // Phase 9: the same postfix now drives the emergency director (5 s
+    // internal gate = MinRecheckMs, host-only, deny-by-default authority,
+    // inert until snapshots show provable emergencies). The director never
+    // executes anything — it only creates/queues tasks through the P2/P4
+    // lifecycle; execution still routes through P5/P7/P8.
     [HarmonyPatch(typeof(PLController), "Update")]
     static class WorldTick
     {
@@ -2832,6 +2838,22 @@ namespace CapBot
             catch (System.Exception ex)
             {
                 CapBotLog.Error(CapBotLog.TASK, "Executor tick failed", ex);
+            }
+            try
+            {
+                CapBot.Core.Emergency.EmergencyDirector.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.EMERGENCY, "Emergency evaluate failed", ex);
+            }
+            try
+            {
+                CapBot.Core.Emergency.EmergencyDirector.ReconcileTasks(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.EMERGENCY, "Emergency reconcile failed", ex);
             }
         }
     }

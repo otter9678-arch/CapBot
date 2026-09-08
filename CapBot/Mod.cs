@@ -69,6 +69,16 @@ namespace CapBot
                 try { return PhotonNetwork.isMasterClient; }
                 catch (System.Exception) { return false; }
             });
+            // Phase 9: attach emergency-director logging and wire its seams.
+            // The director stays INERT until the tick driver (WorldTick) calls
+            // Evaluate host-side; with the authority probe it is deny-by-default
+            // (clients never produce emergency tasks). Emergency work still
+            // routes through the scheduler (P4), claims (P5), capability
+            // validation (P7) and the executor (P8) — nothing executes here.
+            CapBot.Core.Emergency.EmergencyLogBridge.Ensure();
+            CapBot.Core.Emergency.EmergencyDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Emergency.EmergencyDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Emergency.EmergencyDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).
