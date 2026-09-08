@@ -200,6 +200,26 @@ namespace CapBot
             CapBot.Core.Validation.DecisionValidator.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Validation.DecisionValidator.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Validation.DecisionValidator.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            // ---- Phase 20: Ollama advisor (optional, sandboxed, RECOMMEND-ONLY) ----
+            // Ownership scope: asks a LOCAL Ollama server (loopback only — the
+            // host is hard-anchored to 127.0.0.1, only the port/model are
+            // configurable) for one advisory line about the crew picture and
+            // logs it. The advice is DATA ONLY: it never creates, queues,
+            // cancels or mutates any task, never feeds the P9/P14/P18
+            // deterministic decisions, and never reaches a capability or the
+            // executor. Off by default (Config.OllamaAdvisorEnabled=false);
+            // with the transport seam unset the advisor is inert by
+            // construction. HTTP runs on advisor worker threads (never the
+            // Unity main thread; requests are hard-timeout bounded and
+            // loopback-only — the ModUpdater C1 pattern is deliberately
+            // inverted). Deterministic rules always override the advisor.
+            CapBot.Core.Ollama.AdvisorLogBridge.Ensure();
+            CapBot.Core.Ollama.OllamaAdvisor.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Ollama.OllamaAdvisor.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Ollama.OllamaAdvisor.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            CapBot.Core.Ollama.OllamaAdvisor.SetTransport(new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value));
+            CapBot.Core.Ollama.OllamaAdvisor.ApplyConfig(
+                Config.OllamaAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

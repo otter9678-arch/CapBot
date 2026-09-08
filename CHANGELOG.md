@@ -3,6 +3,83 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 20 — Ollama advisor (recommend-only, local)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Ollama/OllamaAdvisor.cs` — a recommend-only advisor against a LOCAL
+  Ollama server: at most one request per 5 s cadence (wrap-safe), the world
+  premise comes from the P6 snapshot ONLY (same fail-safe as P16–P19:
+  null/never-captured/stale>20s/future/not-started ⇒ uncertain, no dispatch),
+  prompt built on the game thread ≤ 4000 chars with unknown sentinels
+  ("unknown"), request `stream:false` `keep_alive:"30m"` bounded
+  `num_predict:48` `temperature:0.2`. Response parked by a dedicated
+  background worker thread (single-flight via Interlocked CAS
+  `s_WorkerRunning`; HTTP cold-load ~38–40 s measured — sync on the game
+  thread is impossible) into a single-slot buffer (`PendingResponseSet` bool
+  marker — a null body is a legitimate parked fault), consumed on a later
+  game tick where advice is validated (≥8 chars, ≤240 truncated, `ADVICE:`
+  prefix case-insensitive, ZERO control chars — newline injection rejected)
+  and emitted as ONE bounded log line `OllamaAdvice model=<name> advice=...`
+  or `OllamaAdviceInvalid model=<name> reason=...`. Advice is DATA: no task
+  creation, no capabilities, no P19 validator calls, no orders —
+  recommend-only by construction. Gates in order: authority
+  (deny-by-default, fault = no-op) ⇒ enabled+transport ⇒ consume (lines fire
+  immediately, never held hostage by gates) ⇒ back-off ⇒ cadence ⇒ snapshot
+  fail-safe ⇒ single-flight ⇒ dispatch. Hard faults arm a back-off ladder
+  (3 consecutive ⇒ 120 s cooldown); rejected advice never auto-retries (the
+  consume-eval legitimately opens the next cadence window — exactly one
+  follow-up, no loop). House director pattern (static + DirectorState +
+  m_Lock + 5 fail-closed seams + bounded counters + Lines()/StatusLines()/
+  HasPendingResponse() readbacks + ResetForTests clears state AND seams).
+- `Core/Ollama/OllamaHttpTransport.cs` — the ONLY network code, the inverse
+  of audit C1: host HARD-ANCHORED to loopback `127.0.0.1` (no host string,
+  URL, or DNS name ever accepted from config or anywhere else; only the port
+  is configurable, clamped 1..65535 default 11434). `HttpClient` (never
+  WebClient) constructed once per transport lifetime (net472 best practice),
+  `UseProxy=false`, `AllowAutoRedirect=false`, hard `Timeout` 90 s + per-call
+  cancellation token; ALL failures return null across the seam (transport
+  never throws). No boot-time network — nothing contacts Ollama until an
+  enabled, wired advisor with authority + fresh snapshot is ticked.
+- `Core/Ollama/AdvisorLogBridge.cs` — boot attach of the new `OLLAMA` log
+  subsystem (DecisionLogBridge pattern). `CapBotLog.cs` +`OLLAMA` const
+  (additive).
+- `Config.cs` — `OllamaAdvisorEnabled` (bool, **default false** =
+  deny-by-default), `OllamaModel` (int index into bounded `KnownModels` =
+  {qwen2.5:latest (default), qwen:latest, qwen2.5-coder:latest} — never a
+  free-form string, avoiding the first-string-`SaveValue` pitfall),
+  `OllamaPort` (int, 11434). Menu: advisor toggle, model cycler (cycles the
+  bounded table, never a text field), port slider (1024–65535).
+- `Mod.cs` boot wiring (seams + transport + ApplyConfig), `Patch.cs`
+  WorldTick postfix guarded advisor block (still 11 Harmony patch classes —
+  ceiling held, Postfix extended in place inside the existing try/catch).
+- `docs/OLLAMA_ADVISOR.md` — full contract: gates order, threading model,
+  measured latencies, MUST-NOT list, test inventory.
+- `tests/OllamaAdvisorTests.cs` — OA01–OA13 (13 suites, ~80 assertions):
+  inert-by-construction, dispatch + request body shape (no URL, non-
+  streaming, default model), single-flight, advice consumed/validated,
+  newline injection rejected, soft-fault handling, snapshot fail-safe, prompt
+  bounds + divergence/unknown sentinels, JSON extraction (real 0.33.3 shape,
+  escapes, sibling keys), validation bounds, config clamps, readbacks +
+  reset determinism. First multi-threaded suite: `WaitForCall` (worker
+  entered transport — in-flight observable) vs `WaitForPark` (worker parked)
+  are deliberately distinct; the consume-eval legitimately opens the next
+  cadence window (consume runs before the cadence gate), so retry-loop
+  invariants assert on the game-thread-only `RequestsSent` counter.
+
+### Changed
+- `run_tests.ps1` compiles 19 domain files + 10 test suites; suite runner
+  `TaskRecoveryTests.cs` sums f1..f19.
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: TOTAL passed=1869 failed=0, three consecutive runs (raw-output
+  FAIL grep = 0).
+- Reflection (verify_build_p20.ps1): 198 types / 171 named; all 22 probed
+  OllamaAdvisor members; KnownModels exact; ITransport.PostChatJson;
+  loopback host + /api/chat anchored; 3 Config seams; CapBotLog.OLLAMA;
+  11 Harmony patch classes intact; WorldTick postfix IL 533 → 603 bytes;
+  namespace CapBot.Core.Ollama present.
+
 ## [Phase 19 — Decision validator (pre-dispatch diagnostics screen)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

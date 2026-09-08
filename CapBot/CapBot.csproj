@@ -145,6 +145,9 @@
     <Compile Include="Core\Captain\CaptainLogBridge.cs" />
     <Compile Include="Core\Validation\DecisionValidator.cs" />
     <Compile Include="Core\Validation\DecisionLogBridge.cs" />
+    <Compile Include="Core\Ollama\OllamaAdvisor.cs" />
+    <Compile Include="Core\Ollama\OllamaHttpTransport.cs" />
+    <Compile Include="Core\Ollama\AdvisorLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />

@@ -15,6 +15,16 @@ namespace CapBot
         public static SaveValue<bool> AutoAssignCaptain = new SaveValue<bool>("AutoAssignCaptain", true);
         public static SaveValue<bool> ModUpdaterEnabled = new SaveValue<bool>("ModUpdaterEnabled", false);
         public static SaveValue<bool> VerboseLogging = new SaveValue<bool>("VerboseLogging", false);
+        // Phase 20: Ollama advisor (optional, recommend-only, loopback-only).
+        // Off by default; OllamaAdvisorEnabled gates ALL advisor behavior.
+        // OllamaModel is an INDEX into OllamaAdvisor.KnownModels (no
+        // SaveValue<string> — first-string-SaveValue risk avoided; the menu
+        // cycles the fixed vocabulary). OllamaPort validated 1..65535
+        // (default 11434) — the ONLY network knob; the host is hard-anchored
+        // to 127.0.0.1 and never configurable.
+        public static SaveValue<bool> OllamaAdvisorEnabled = new SaveValue<bool>("OllamaAdvisorEnabled", false);
+        public static SaveValue<int> OllamaModel = new SaveValue<int>("OllamaModel", 0);
+        public static SaveValue<int> OllamaPort = new SaveValue<int>("OllamaPort", 11434);
         public static SaveValue<float> AIReactionSpeed = new SaveValue<float>("AIReactionSpeed", 0.1f);
         public static SaveValue<float> AIAccuracy = new SaveValue<float>("AIAccuracy", 0.85f);
         public static SaveValue<float> CombatEngageRange = new SaveValue<float>("CombatEngageRange", 50f);
@@ -85,6 +95,16 @@ namespace CapBot
                 Config.ModUpdaterEnabled.Value = !Config.ModUpdaterEnabled;
             if (GUILayout.Button("Verbose Logging (debug detail): " + (Config.VerboseLogging.Value ? "Enabled" : "Disabled")))
                 Config.VerboseLogging.Value = !Config.VerboseLogging.Value;
+
+            // Phase 20: Ollama advisor controls (off by default; loopback-only).
+            if (GUILayout.Button("Ollama Advisor (recommend-only, local): " + (Config.OllamaAdvisorEnabled ? "Enabled" : "Disabled")))
+                Config.OllamaAdvisorEnabled.Value = !Config.OllamaAdvisorEnabled;
+            if (GUILayout.Button("Ollama Model: " + CapBot.Core.Ollama.OllamaAdvisor.KnownModels[CapBot.Core.Ollama.OllamaAdvisor.ClampModelIndex(Config.OllamaModel.Value)] + " (click to cycle)"))
+            {
+                Config.OllamaModel.Value = (Config.OllamaModel.Value + 1) % CapBot.Core.Ollama.OllamaAdvisor.KnownModels.Length;
+            }
+            GUILayout.Label("Ollama Port (loopback 127.0.0.1 only): " + Config.OllamaPort.Value);
+            Config.OllamaPort.Value = (int)GUILayout.HorizontalSlider(Config.OllamaPort, 1024, 65535);
 
             GUI.skin.label.alignment = TextAnchor.UpperLeft;
             GUILayout.Label("AI Reaction Speed: " + Config.AIReactionSpeed.Value.ToString("0.0") + "s");

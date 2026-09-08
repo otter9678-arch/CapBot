@@ -2939,6 +2939,21 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.CAPTAIN, "Captain director reconcile failed", ex);
             }
+            // ---- Phase 20: Ollama advisor (recommend-only diagnostics) ----
+            // Consumes completed worker-thread responses and may dispatch a
+            // new loopback request (single-flight). Diagnostics only: advice
+            // is logged, never applied. Config-gated off by default; the
+            // advisor is inert with no transport or disabled config.
+            try
+            {
+                CapBot.Core.Ollama.OllamaAdvisor.ApplyConfig(
+                    Config.OllamaAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
+                CapBot.Core.Ollama.OllamaAdvisor.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.OLLAMA, "Ollama advisor tick failed", ex);
+            }
         }
     }
     [HarmonyPatch(typeof(PLBotController), "HandleMovement")]
