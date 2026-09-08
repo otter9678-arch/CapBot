@@ -3,6 +3,64 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 40 — Crew Personality Lifecycle Initialization] — unreleased (built from Alpha 1.2.2 source)
+
+### Fixed
+- **Zero personalities while crew agents were active (`/capbotstatus`
+  reported `Personalities: 0`).** Structural root cause: no production
+  code path ever populated `CrewPersonalityRegistry` — `CrewAgentRegistry`
+  never touched it, the only prior consumer
+  (`AdaptiveLearningDirector`) derived records only on rare level
+  crossings, and the lazy readers (`AffinityToRole`/`ArchetypeOf`) that
+  would derive on demand had zero production callers. Personalities are
+  now **lifecycle-driven**: every eligible crew agent carries exactly one
+  deterministic record keyed by stable AgentId.
+
+### Added
+- `CrewPersonalityRegistry.EnsureFor(agentId, nowMs)` — idempotent
+  create-if-absent population primitive (returns the existing record on
+  re-presentation; derivation stays a pure function of the identity hash).
+- `CrewAgentRegistry` lifecycle hooks (all outside the registry lock,
+  fail-safe, bounded ≤32 ensures per 1s cadence): agent-create ensure;
+  sync-tail reconcile with the **removal pass first** (a removed agent's
+  derived record is removed with it; explicit/neutral records always
+  survive) followed by an ensure pass (every live agent ends with exactly
+  one record); role-change reconcile line (identity/traits/archetype are
+  stable; role affinity reads per-lookup).
+- `CrewPersistence.IsRestoring` restore-window probe: sync-tail
+  reconcile is suppressed during `Restore()` so restored matured rows
+  are never re-derived over; post-restore syncs re-ensure only records
+  that are genuinely missing.
+- Diagnostic events (CapBotLog.CREW): `PersonalityCreated`,
+  `PersonalityAssigned`, `PersonalityReconciled`, `PersonalityRemoved`,
+  `PersonalityRestored`.
+- `/capbotstatus <section>` focused-section argument (e.g.
+  `/capbotstatus personalities`): echoes only that section's lines. The
+  full 128-line report's `personalities=` line sits ~110 lines above the
+  chat scrollback's visible tail and was unreachable on screen; the
+  focused view makes each section directly visible. Read-only; unknown
+  section → one bounded error line listing valid sections; no-argument
+  behavior unchanged.
+
+### Verified
+- Tests: 2891/2891 (+69 `PersonalityLifecycleTests`: 0/1/4 agent counts,
+  repeated AgentCreated idempotency, leave/grace-expiry/re-present
+  determinism, role-change record preservation (same instance),
+  save/load restore without re-derivation, removed-agent derived-record
+  cleanup, `IsRestoring` window, scheduling isolation — personality
+  state cannot bypass the task/validator/executor path).
+- Live (fresh session, build `5cabc564…` deployed with
+  `CapBot.dll.pre_p40.bak` backup + SHA256 parity): baseline
+  `AgentCreated`=7 with zero personality events (defect reproduced) →
+  after deploy `AgentCreated`=4 → `PersonalityCreated`=4 →
+  `PersonalityAssigned`=4 strictly 1:1 with `PersonalityReconciled` on
+  role change; on-screen `/capbotstatus personalities` shows
+  `personalities=4 assigned=4 replaced=0 refused=0 derivations=6`,
+  matching the 4 active agents. Evidence that the personality gap did
+  NOT drive the repeated/generic crew behavior (that was the P39
+  emergency re-arm loop + advisor sampling genericity) is documented in
+  `docs/LIVE_VALIDATION.md` (P40 verdict).
+
 ## [Phase 39 — Autonomy Stabilization / Loop Elimination] — unreleased (built from Alpha 1.2.2 source)
 
 ### Fixed

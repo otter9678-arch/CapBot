@@ -533,3 +533,76 @@ qwen3), port slider, verbose-logging toggle, summary block.
   verified in a real session. No blocking defects remain.** Remaining
   manual surface unchanged from P38: M-C1 divergent authoring, M-C2,
   M-M1, M-L1, M-P1, M-MP1.
+
+## P40 verdict
+
+**Defect:** `/capbotstatus` (and the settings-menu readback) showed
+`Personalities: 0` while crew agents were active. Root cause was
+**structural, not a counter bug**: nothing in production ever populated
+`CrewPersonalityRegistry`. `CrewAgentRegistry` never touched it; the only
+prior consumer (`AdaptiveLearningDirector`) derived records on rare level
+crossings, and the lazy readers that would derive on demand
+(`AffinityToRole`/`ArchetypeOf`) had **zero production callers** — so a
+fresh crew stayed at zero records forever. The PMLLog baseline confirmed
+it: `AgentCreated` events with **zero** personality events of any kind.
+
+**Fix (lifecycle-driven population, idempotent, at cause):**
+- `CrewPersonalityRegistry.EnsureFor(agentId, nowMs)` — create-if-absent;
+  returns the existing record otherwise. Sole new write path; derivation
+  remains the pure identity-hash → traits → archetype function.
+- `CrewAgentRegistry` hooks: on agent create, plus a sync-tail reconcile
+  (every live agent ends with exactly one record; the removal pass runs
+  FIRST so a removed agent's derived record is removed with it), plus a
+  role-change reconcile line (record identity/traits/archetype are stable
+  by design; role affinity reads per-lookup). All hooks run outside the
+  agent-registry lock, fail-safe, bounded ≤32 ensures per 1s cadence.
+- Restore window: `CrewPersistence.IsRestoring` gates the reconcile so a
+  post-restore sync cannot re-derive over restored matured rows (live
+  state wins during restore; later syncs re-ensure only missing records).
+
+**Test gate:** 2891/2891 (was 2822; +69 `PersonalityLifecycleTests`
+assertions: 0→0, 1→1, 4→4, repeated AgentCreated→still 4, leave/grace
+expiry/re-present→recreated deterministically, role change→same record
+instance preserved, save/load→restored explicit rows survive with no
+re-derivation, removed agent→derived record removed + survivor kept,
+`IsRestoring` window behavior, scheduling isolation — personality state
+never bypasses the task/validator/executor path).
+
+**Live validation (fresh session, build `5cabc564…` deployed with
+`CapBot.dll.pre_p40.bak` backup = P39 build `a475cf58…`, SHA256 parity):**
+- Baseline (prior session's Player.log): `AgentCreated`=7, personality
+  events of every kind = **0** — the defect, reproduced in the wild.
+- After P40 deploy: **LIVE-PASS** — `AgentCreated`=4 →
+  `PersonalityCreated`=4 → `PersonalityAssigned`=4, strictly 1:1, no
+  duplicates across re-syncs; `PersonalityReconciled` on role change;
+  archetypes VANGUARD (human captain) + SENTINEL ×2 + a captain-bot
+  record; `PersonalityRemoved`=0 (nothing left mid-session).
+- `/capbotstatus personalities` (new focused-section argument; the full
+  128-line report's `personalities=` line was unreachable in the chat
+  scrollback — only the tail renders): **LIVE-PASS —
+  `personalities=4 assigned=4 replaced=0 refused=0 derivations=6`**
+  on screen, matching the 4 active agents exactly (2 initial bots +
+  human captain + late captain-bot; 2 extra derivations = the bot
+  re-derivations across the leave/expiry/re-present cycles). The mandate
+  gate ("status shows the expected count AND the log contains actual
+  personality assignment events") is met on both channels.
+- Known-benign, documented: ~13 `Exception ID: 9xxxx` PML lines right at
+  bot spawn, no CapBot stack trace, observed in prior phases too,
+  non-fatal.
+
+**Is the personality gap the cause of repeated/generic crew behavior? No.**
+The evidence says the two are independent: the repeated COOLANTCRITICAL
+loop was the P39 emergency re-arm cycle, eliminated in P39
+(`EmergencySuppressed` holding in this session); CrewAdvice genericity
+("check fuel/coolant", "deploy to Intrepid") is the advisor-loop's own
+sampling behavior — the advisors do not consult personality traits (and
+neither does anything else yet, by design). Personalities remain
+DATA-ONLY per the P11 contract: `RoleAffinity` has no production caller
+yet (future-phase anchor), traits/archetype are exposed read-only, and
+P40-10 proves task scheduling is untouched by personality data. P40
+changes *what the status shows* and guarantees registry/state invariants;
+it intentionally does not change crew *behavior*.
+
+- **Verdict: P40 goals met — zero-personalities eliminated at cause,
+  verified live on screen and in logs. No blocking defects remain.**
+  Remaining manual surface unchanged from P39.

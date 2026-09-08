@@ -92,7 +92,8 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'tests\StatusDiagnosticsTests.cs') `
   (Join-Path $repo 'tests\UpdatePolicyTests.cs') `
   (Join-Path $repo 'tests\PerfGateTests.cs') `
-  (Join-Path $repo 'tests\QaInvariantTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
+  (Join-Path $repo 'tests\QaInvariantTests.cs') `
+  (Join-Path $repo 'tests\PersonalityLifecycleTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
 if ($LASTEXITCODE -ne 0) { Write-Output 'COMPILE FAILED'; exit 3 }
 
 $output = & $exe 2>&1 | ForEach-Object { "$_" }

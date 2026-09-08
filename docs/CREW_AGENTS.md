@@ -99,6 +99,21 @@ Record lifecycle (not the game player object):
   (`AgentRoleChanged`). Null crew entries are skipped; nothing propagates
   null references.
 
+**P40 personality reconciliation hooks (data plumbing only; the personality
+registry is Phase 11's separate bounded store):** on agent create, the
+sync calls `CrewPersonalityRegistry.EnsureFor` (idempotent; outside the
+registry lock); every sync's tail runs a reconcile whose **removal pass
+runs first** (a Removed agent's *derived* personality record is removed
+with it — explicit/neutral records survive) and then re-ensures every
+live non-Removed agent (≤32 ensures per 1s cadence, fail-safe). Role
+changes log a `PersonalityReconciled` line but never re-derive — the
+record is keyed by the stable AgentId and role affinity reads per-lookup.
+During `CrewPersistence.Restore()` the reconcile is suppressed
+(`CrewPersistence.IsRestoring`) so restored matured rows are never
+re-derived over. Related events: `PersonalityCreated`, `PersonalityAssigned`,
+`PersonalityReconciled`, `PersonalityRemoved`, `PersonalityRestored`
+(see `docs/CREW_PERSONALITIES.md` §Phase 40).
+
 ## 5. World-state relationship
 
 Phase 6 world state is the ONLY observation source. The registry pulls

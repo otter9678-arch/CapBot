@@ -52,6 +52,16 @@ would be all-zero and misleading). Success: `Messaging.Echo` per line of
 the StatusHub report at `TaskClock.NowMs`. Read-only; whole command in
 try/catch (fail-safe; a fault logs and returns, never throws to PML).
 
+**P40 focused-section argument:** `/capbotstatus <section>` (e.g.
+`/capbotstatus personalities`) echoes ONLY that section's lines via
+`StatusHub.CollectSection`. Motivation: the full report is capped at 128
+lines while the chat scrollback shows only the tail, so mid-report
+sections (personalities, agents, recovery, …) were unreachable on
+screen. Same guards and read-only discipline as the full report;
+case-insensitive section names (`StatusHub.KnownSections`); unknown
+section ⇒ one bounded error line listing valid sections, no crash;
+no-argument behavior unchanged.
+
 ## 4. Settings-menu summary (Config.cs)
 
 A read-only "Status (host-side pipeline summary)" block appended to the

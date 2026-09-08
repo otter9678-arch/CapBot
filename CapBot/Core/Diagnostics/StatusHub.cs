@@ -39,83 +39,159 @@ namespace CapBot.Core.Diagnostics
         public static List<string> Collect(int nowMs)
         {
             List<string> lines = new List<string>(64);
+            EmitAll(lines, nowMs, null);
+            Truncate(lines);
+            return lines;
+        }
+
+        // P40: focused-section view for /capbotstatus <section>. Same
+        // fail-safe sources as Collect, only the named section's lines.
+        // Read-only; check IsKnownSection first. A known-but-quiet section
+        // degrades to one bounded "(no lines)" line — never invented data.
+        public static List<string> CollectSection(int nowMs, string section)
+        {
+            List<string> lines = new List<string>(16);
+            EmitAll(lines, nowMs, section);
+            Truncate(lines);
+            if (lines.Count == 0) lines.Add("(no lines for section '" + section + "')");
+            return lines;
+        }
+
+        // Section names in Collect order; keep in sync with the guards in
+        // EmitAll (the single emit path shared by Collect/CollectSection).
+        private static readonly string[] KnownSections = new string[]
+        {
+            "hub", "registry", "recovery", "scheduler", "claims", "executor",
+            "world", "emergency", "agents", "personalities", "experience",
+            "memory", "navigation", "missions", "economy", "combat", "captain",
+            "validator", "planning", "missionwork", "adjustment", "learning",
+            "mpmonitor", "ollama", "crewadvisor", "compat", "capabilities"
+        };
+
+        public static bool IsKnownSection(string section)
+        {
+            if (string.IsNullOrEmpty(section)) return false;
+            for (int i = 0; i < KnownSections.Length; i++)
+            {
+                if (string.Equals(KnownSections[i], section, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        public static string SectionList()
+        {
+            return string.Join(", ", KnownSections);
+        }
+
+        // Single emit path: section == null emits every section; otherwise
+        // only the guarded sections whose name matches (case-insensitive).
+        private static void EmitAll(List<string> lines, int nowMs, string section)
+        {
             lock (m_Faults) m_Faults.Clear();
 
             // Header
-            AddSource(lines, "hub", delegate
+            if (Want(section, "hub"))
             {
-                lines.Add("CapBot status (v" + StatusVersion() + ") lines<=" + MaxLines);
-            });
+                AddSource(lines, "hub", delegate
+                {
+                    lines.Add("CapBot status (v" + StatusVersion() + ") lines<=" + MaxLines);
+                });
+            }
 
             // ---- pipeline (P2-P8) ------------------------------------------------
-            AddSource(lines, "registry", delegate
+            if (Want(section, "registry"))
             {
-                lines.Add("tasks live=" + TaskRegistry.LiveCount + " history=" + TaskRegistry.HistoryCount);
-                AddAll(lines, TaskRegistry.StatusLines(nowMs));
-            });
-            AddSource(lines, "recovery", delegate
+                AddSource(lines, "registry", delegate
+                {
+                    lines.Add("tasks live=" + TaskRegistry.LiveCount + " history=" + TaskRegistry.HistoryCount);
+                    AddAll(lines, TaskRegistry.StatusLines(nowMs));
+                });
+            }
+            if (Want(section, "recovery"))
             {
-                lines.Add("recovery tracked=" + TaskRecoveryManager.TrackedCount
-                    + " stalledReports=" + TaskRecoveryManager.StallReportCount);
-            });
-            AddSource(lines, "scheduler", delegate
+                AddSource(lines, "recovery", delegate
+                {
+                    lines.Add("recovery tracked=" + TaskRecoveryManager.TrackedCount
+                        + " stalledReports=" + TaskRecoveryManager.StallReportCount);
+                });
+            }
+            if (Want(section, "scheduler"))
             {
-                lines.Add("scheduler grants=" + TaskScheduler.ActiveGrantCount);
-            });
-            AddSource(lines, "claims", delegate
+                AddSource(lines, "scheduler", delegate
+                {
+                    lines.Add("scheduler grants=" + TaskScheduler.ActiveGrantCount);
+                });
+            }
+            if (Want(section, "claims"))
             {
-                lines.Add("claims live=" + ExecutionClaims.LiveClaimCount
-                    + " ledger=" + ExecutionClaims.Ledger.EntryCount);
-            });
-            AddSource(lines, "executor", delegate
+                AddSource(lines, "claims", delegate
+                {
+                    lines.Add("claims live=" + ExecutionClaims.LiveClaimCount
+                        + " ledger=" + ExecutionClaims.Ledger.EntryCount);
+                });
+            }
+            if (Want(section, "executor"))
             {
-                lines.Add("executor ticks=" + TaskExecutor.TickCallCount
-                    + " attempts=" + TaskExecutor.AttemptCount
-                    + " enabled=" + (TaskExecutor.Enabled ? "yes" : "no"));
-            });
+                AddSource(lines, "executor", delegate
+                {
+                    lines.Add("executor ticks=" + TaskExecutor.TickCallCount
+                        + " attempts=" + TaskExecutor.AttemptCount
+                        + " enabled=" + (TaskExecutor.Enabled ? "yes" : "no"));
+                });
+            }
 
             // ---- world (P6) -------------------------------------------------------
-            AddSource(lines, "world", delegate
+            if (Want(section, "world"))
             {
-                WorldSnapshotFreshness f = WorldStateService.GetFreshness(nowMs);
-                lines.Add("world freshness=" + f);
-            });
+                AddSource(lines, "world", delegate
+                {
+                    WorldSnapshotFreshness f = WorldStateService.GetFreshness(nowMs);
+                    lines.Add("world freshness=" + f);
+                });
+            }
 
             // ---- directors (P9-P25) ----------------------------------------------
-            AddAll(lines, SafeLines("emergency", delegate { return CapBot.Core.Emergency.EmergencyDirector.StatusLines(); }));
-            AddAll(lines, SafeLines("agents", delegate { return CrewAgentRegistry.StatusLines(); }));
-            AddAll(lines, SafeLines("personalities", delegate { return CrewPersonalityRegistry.StatusLines(); }));
-            AddAll(lines, SafeLines("experience", delegate { return CrewExperienceRegistry.StatusLines(); }));
-            AddAll(lines, SafeLines("memory", delegate { return CrewMemorySystem.StatusLines(); }));
-            AddAll(lines, SafeLines("navigation", delegate { return CapBot.Core.Navigation.NavigationRecoveryDirector.StatusLines(); }));
-            AddAll(lines, SafeLines("missions", delegate { return CapBot.Core.Missions.MissionDirector.StatusLines(); }));
-            AddAll(lines, SafeLines("economy", delegate { return CapBot.Core.Economy.EconomyDirector.StatusLines(); }));
-            AddAll(lines, SafeLines("combat", delegate { return CapBot.Core.Combat.CombatDirector.StatusLines(); }));
-            AddAll(lines, SafeLines("captain", delegate { return CapBot.Core.Captain.CaptainDirector.StatusLines(); }));
-            AddAll(lines, SafeLines("validator", delegate { return CapBot.Core.Validation.DecisionValidator.StatusLines(); }));
-            AddAll(lines, SafeLines("planning", delegate { return CapBot.Core.Planning.PlanningDirector.StatusLines(); }));
-            AddAll(lines, SafeLines("missionwork", delegate { return CapBot.Core.Planning.MissionWorkDirector.StatusLines(); }));
-            AddAll(lines, SafeLines("adjustment", delegate { return AdjustmentDirector.StatusLines(); }));
-            AddAll(lines, SafeLines("learning", delegate { return AdaptiveLearningDirector.StatusLines(); }));
-            AddAll(lines, SafeLines("mpmonitor", delegate { return MultiplayerAuthorityMonitor.StatusLines(); }));
+            if (Want(section, "emergency")) AddAll(lines, SafeLines("emergency", delegate { return CapBot.Core.Emergency.EmergencyDirector.StatusLines(); }));
+            if (Want(section, "agents")) AddAll(lines, SafeLines("agents", delegate { return CrewAgentRegistry.StatusLines(); }));
+            if (Want(section, "personalities")) AddAll(lines, SafeLines("personalities", delegate { return CrewPersonalityRegistry.StatusLines(); }));
+            if (Want(section, "experience")) AddAll(lines, SafeLines("experience", delegate { return CrewExperienceRegistry.StatusLines(); }));
+            if (Want(section, "memory")) AddAll(lines, SafeLines("memory", delegate { return CrewMemorySystem.StatusLines(); }));
+            if (Want(section, "navigation")) AddAll(lines, SafeLines("navigation", delegate { return CapBot.Core.Navigation.NavigationRecoveryDirector.StatusLines(); }));
+            if (Want(section, "missions")) AddAll(lines, SafeLines("missions", delegate { return CapBot.Core.Missions.MissionDirector.StatusLines(); }));
+            if (Want(section, "economy")) AddAll(lines, SafeLines("economy", delegate { return CapBot.Core.Economy.EconomyDirector.StatusLines(); }));
+            if (Want(section, "combat")) AddAll(lines, SafeLines("combat", delegate { return CapBot.Core.Combat.CombatDirector.StatusLines(); }));
+            if (Want(section, "captain")) AddAll(lines, SafeLines("captain", delegate { return CapBot.Core.Captain.CaptainDirector.StatusLines(); }));
+            if (Want(section, "validator")) AddAll(lines, SafeLines("validator", delegate { return CapBot.Core.Validation.DecisionValidator.StatusLines(); }));
+            if (Want(section, "planning")) AddAll(lines, SafeLines("planning", delegate { return CapBot.Core.Planning.PlanningDirector.StatusLines(); }));
+            if (Want(section, "missionwork")) AddAll(lines, SafeLines("missionwork", delegate { return CapBot.Core.Planning.MissionWorkDirector.StatusLines(); }));
+            if (Want(section, "adjustment")) AddAll(lines, SafeLines("adjustment", delegate { return AdjustmentDirector.StatusLines(); }));
+            if (Want(section, "learning")) AddAll(lines, SafeLines("learning", delegate { return AdaptiveLearningDirector.StatusLines(); }));
+            if (Want(section, "mpmonitor")) AddAll(lines, SafeLines("mpmonitor", delegate { return MultiplayerAuthorityMonitor.StatusLines(); }));
 
             // ---- advisors (P20/P21; recommend-only) ------------------------------
-            AddAll(lines, SafeLines("ollama", delegate { return CapBot.Core.Ollama.OllamaAdvisor.StatusLines(); }));
-            AddAll(lines, SafeLines("crewadvisor", delegate { return CapBot.Core.Qwen.CrewAdvisor.StatusLines(); }));
+            if (Want(section, "ollama")) AddAll(lines, SafeLines("ollama", delegate { return CapBot.Core.Ollama.OllamaAdvisor.StatusLines(); }));
+            if (Want(section, "crewadvisor")) AddAll(lines, SafeLines("crewadvisor", delegate { return CapBot.Core.Qwen.CrewAdvisor.StatusLines(); }));
 
             // ---- compat (P27) ------------------------------------------------------
-            AddAll(lines, SafeLines("compat", delegate { return CompatManager.StatusLines(); }));
+            if (Want(section, "compat")) AddAll(lines, SafeLines("compat", delegate { return CompatManager.StatusLines(); }));
 
             // Capability registry needs nowMs.
-            AddAll(lines, SafeLines("capabilities", delegate { return CapabilityRegistry.StatusLines(nowMs); }));
+            if (Want(section, "capabilities")) AddAll(lines, SafeLines("capabilities", delegate { return CapabilityRegistry.StatusLines(nowMs); }));
+        }
 
-            // Truncate to the hard cap (deterministic: first lines win).
+        private static bool Want(string section, string name)
+        {
+            return section == null || string.Equals(section, name, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Hard cap (deterministic: first lines win).
+        private static void Truncate(List<string> lines)
+        {
             if (lines.Count > MaxLines)
             {
                 lines.RemoveRange(MaxLines, lines.Count - MaxLines);
                 lines.Add("(status truncated at " + MaxLines + " lines)");
             }
-            return lines;
         }
 
         // Fixed identity for the header (no reflection, no assembly version —

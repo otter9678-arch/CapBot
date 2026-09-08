@@ -16,8 +16,13 @@ namespace CapBot
 
         public override string Description() => "CapBot: task-pipeline and crew-layer status report";
 
-        public override string[] UsageExamples() => new string[] { "/capbotstatus" };
+        public override string[] UsageExamples() => new string[] { "/capbotstatus", "/capbotstatus personalities" };
 
+        // P40: optional focused-section argument. No argument = the full
+        // 128-line report (unchanged). A known section name echoes ONLY
+        // that section's lines (the full report's tail is all the chat
+        // scrollback shows, so mid-report sections like "personalities"
+        // were unreachable on screen). Read-only either way.
         public override void Execute(string arguments)
         {
             if (PLNetworkManager.Instance == null || PLNetworkManager.Instance.LocalPlayer == null)
@@ -30,9 +35,20 @@ namespace CapBot
                 PulsarModLoader.Utilities.Messaging.Notification("Must be host to see CapBot status!");
                 return;
             }
+            string section = (arguments != null) ? arguments.Trim() : null;
+            if (section != null && section.Length == 0) section = null;
+            if (section != null && !StatusHub.IsKnownSection(section))
+            {
+                PulsarModLoader.Utilities.Messaging.Echo(
+                    PLNetworkManager.Instance.LocalPlayer.GetPhotonPlayer(),
+                    "Unknown section '" + section + "'. Sections: " + StatusHub.SectionList());
+                return;
+            }
             try
             {
-                System.Collections.Generic.List<string> lines = StatusHub.Collect(TaskClock.NowMs);
+                System.Collections.Generic.List<string> lines = (section == null)
+                    ? StatusHub.Collect(TaskClock.NowMs)
+                    : StatusHub.CollectSection(TaskClock.NowMs, section);
                 for (int i = 0; i < lines.Count; i++)
                 {
                     PulsarModLoader.Utilities.Messaging.Echo(

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using CapBot.Core.Tasks;
 using CapBot.Core.World;
+using CapBot.Core.Persistence;
 
 namespace CapBot.Core.Crew
 {
@@ -353,6 +354,7 @@ namespace CapBot.Core.Crew
 
             // ---- removal pass FIRST (grace expiry frees bounded slots) ------
             List<string> expired = new List<string>();
+            List<string> removedThisPass = new List<string>();
             lock (m_Lock)
             {
                 foreach (KeyValuePair<string, CrewAgent> kv in S.Agents)
@@ -365,6 +367,7 @@ namespace CapBot.Core.Crew
                 foreach (string id in expired)
                 {
                     RemoveAgent(id, nowMs, "removal grace expired");
+                    removedThisPass.Add(id);
                     mutations++;
                 }
             }
@@ -404,7 +407,84 @@ namespace CapBot.Core.Crew
             }
 
             lock (m_Lock) S.Syncs++;
+
+            // P40: personality reconciliation — AFTER S.Syncs++ (the sync is
+            // complete), OUTSIDE the agent lock, fail-safe; bounded to at most
+            // one pass of 32 ensure-derives per 1 s sync cadence.
+            ReconcilePersonalities(removedThisPass, nowMs);
             return mutations;
+        }
+
+        // ---- P40: personality lifecycle reconciliation (fail-safe, additive) ---
+        //
+        // Population contract (mandate items 4/5/6): every LIVE (Active or
+        // Inactive — still a crew member) agent carries exactly one
+        // deterministic personality, keyed by the stable AgentId, created
+        // lazily HERE (never at agent creation), never duplicated by repeated
+        // AgentCreated events (EnsureFor is create-if-absent).
+        //
+        // Removal contract: a Removed agent is no longer a crew member — its
+        // DERIVED record is removed so /capbotstatus counts the live crew
+        // exactly. Matured/explicit/neutral records are NEVER removed here:
+        // they are adaptive-learning state / persisted state / hand-authored
+        // state, owned by their own phases (derivation is pure anyway — the
+        // same agent re-derives identically on rejoin).
+        //
+        // Fail-safe discipline (same as the P12/P13/P25 hooks): the listener
+        // runs OUTSIDE the agent lock, every personality call is in its own
+        // try/catch, Sync's return value and agent state are never affected
+        // by a personality fault. The registry-restore probe keeps the
+        // reconcile inert while a save blob is being applied (live state must
+        // win over re-derivation).
+        private static void EnsurePersonality(string agentId, int nowMs)
+        {
+            try { CrewPersonalityRegistry.EnsureFor(agentId, nowMs); }
+            catch (Exception) { }
+        }
+
+        private static void ReconcilePersonalities(List<string> removedAgentIds, int nowMs)
+        {
+            try
+            {
+                if (CrewPersistence.IsRestoring) return;
+                // Removal pass FIRST: a removed agent's derived record must go
+                // even when every remaining agent already has a record (the
+                // ensure pass below early-returns in that steady state).
+                List<string> toRemove = null;
+                for (int i = 0; i < removedAgentIds.Count; i++)
+                {
+                    string agentId = removedAgentIds[i];
+                    CrewPersonality p = CrewPersonalityRegistry.Get(agentId);
+                    if (p == null) continue;
+                    if (!string.Equals(p.Source, PersonalityFactory.SourceDerived, StringComparison.Ordinal))
+                        continue;
+                    try { CrewPersonalityRegistry.Remove(agentId); } catch (Exception) { }
+                    if (toRemove == null) toRemove = new List<string>(4);
+                    toRemove.Add(agentId);
+                }
+                if (toRemove != null)
+                    Emit("PersonalityReconciled removed=" + toRemove.Count
+                        + " derived records for removed agents");
+                List<string> toEnsure = null;
+                lock (m_Lock)
+                {
+                    foreach (KeyValuePair<string, CrewAgent> kv in S.Agents)
+                    {
+                        CrewAgent a = kv.Value;
+                        if (a.Lifecycle == CrewAgentLifecycle.Removed) continue;
+                        if (CrewPersonalityRegistry.Get(a.AgentId) != null) continue;
+                        if (toEnsure == null) toEnsure = new List<string>(4);
+                        toEnsure.Add(a.AgentId);
+                    }
+                }
+                if (toEnsure == null) return;
+                for (int i = 0; i < toEnsure.Count; i++)
+                    EnsurePersonality(toEnsure[i], nowMs);
+                if (toEnsure.Count > 0)
+                    Emit("PersonalityReconciled agents=" + toEnsure.Count
+                        + " (sync-tail ensure: every live agent carries one record)");
+            }
+            catch (Exception) { }
         }
 
         // Sentinel: snapshots older than this never touch agents (fail-safe).
@@ -438,6 +518,14 @@ namespace CapBot.Core.Crew
                 agent.LastChangeReason = "class changed";
                 Emit("AgentRoleChanged " + agent.AgentId + " pid=" + agent.PlayerId
                     + " role=" + agent.Role + " name=" + (agent.RoleName ?? "-"));
+                // P40: role-change reconcile — the record's identity is the
+                // stable AgentId (unchanged by role), traits stay, the
+                // archetype is a pure function of the trait spread (also
+                // unchanged) and the role-affinity weights are consulted
+                // per-lookup, so nothing is rewritten. The bounded line makes
+                // the no-op observable in live logs (reconcile evidence).
+                Emit("PersonalityReconciled " + agent.AgentId
+                    + " (role change; identity/traits/archetype unchanged; role-affinity read per-lookup)");
             }
             if (agent.Name != c.Name) { agent.Name = c.Name; agent.LastChangeReason = "name"; }
             if (agent.LastKnownTLIName != c.CurrentTLIName) { agent.LastKnownTLIName = c.CurrentTLIName; agent.LastChangeReason = "location"; }
@@ -587,6 +675,11 @@ namespace CapBot.Core.Crew
                 Emit("AgentCreated " + agentId + " pid=" + c.PlayerId + (c.IsBot ? " bot" : " human")
                     + " role=" + agent.Role + " capt=" + (c.IsCaptain ? "1" : "0"));
             }
+            // P40: personality hook — OUTSIDE the registry lock (the P11 lock
+            // is taken inside), fail-safe, no influence on the creation
+            // result. Every created agent leaves its creation sync with a
+            // personality record (idempotent: existing record wins).
+            EnsurePersonality(agentId, nowMs);
             return true;
         }
 

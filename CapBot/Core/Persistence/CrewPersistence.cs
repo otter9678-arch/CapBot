@@ -44,6 +44,20 @@ namespace CapBot.Core.Persistence
 
         private const uint Magic = 0x42504143u;        // "CAPB" little-endian
 
+        // ---- P40: restore-window probe (additive, read-only) --------------------
+        //
+        // True while Restore(snap) is applying a save blob to the live
+        // registries. The agent-registry's P40 personality reconcile consults
+        // this BEFORE deriving: the restore is INSERT-ONLY and live state
+        // always wins — a concurrently running sync must not re-derive a
+        // personality for an agent whose MATURED record is about to be
+        // inserted (or was just skipped because a live record exists). With
+        // the restore completing synchronously inside one Restore() call,
+        // the flag can never leak (finally-guaranteed reset).
+        public static bool IsRestoring { get { return System.Threading.Volatile.Read(ref m_IsRestoring) != 0; } }
+
+        private static int m_IsRestoring;
+
         // ---- capture: live registries -> snapshot -------------------------------
 
         public sealed class CrewDataSnapshot
@@ -229,36 +243,46 @@ namespace CapBot.Core.Persistence
 
         // Restores a decoded snapshot into the live registries (insert-only).
         // Returns the number of rows inserted across all three registries.
+        // P40: the agent-registry's personality reconcile holds off while
+        // this window is open (IsRestoring probe) — live state wins.
         public static int Restore(CrewDataSnapshot snap)
         {
             if (snap == null) return 0;
-            int inserted = 0;
-            for (int i = 0; i < snap.Experience.Count; i++)
+            System.Threading.Interlocked.Exchange(ref m_IsRestoring, 1);
+            try
             {
-                CrewExperienceRecord r = snap.Experience[i];
-                if (CrewExperienceRegistry.RestoreRecord(r.AgentId, r.ExperiencePoints,
-                    r.TasksCompleted, r.TasksCancelled, r.TasksExpired, r.TasksVanished,
-                    r.TasksFailed, r.TotalOutcomes, r.LastOutcome, r.CreatedTimeMs,
-                    r.LastResultMs, r.UpdateCount))
+                int inserted = 0;
+                for (int i = 0; i < snap.Experience.Count; i++)
                 {
-                    inserted++;
+                    CrewExperienceRecord r = snap.Experience[i];
+                    if (CrewExperienceRegistry.RestoreRecord(r.AgentId, r.ExperiencePoints,
+                        r.TasksCompleted, r.TasksCancelled, r.TasksExpired, r.TasksVanished,
+                        r.TasksFailed, r.TotalOutcomes, r.LastOutcome, r.CreatedTimeMs,
+                        r.LastResultMs, r.UpdateCount))
+                    {
+                        inserted++;
+                    }
                 }
-            }
-            for (int i = 0; i < snap.MaturedPersonalities.Count; i++)
-            {
-                CrewPersonalityRegistry.MaturedTraitRow p = snap.MaturedPersonalities[i];
-                if (CrewPersonalityRegistry.RestoreMatured(p.AgentId,
-                    p.Discipline, p.Boldness, p.Sociability, p.Diligence, p.Adaptability,
-                    p.DerivedTimeMs))
+                for (int i = 0; i < snap.MaturedPersonalities.Count; i++)
                 {
-                    inserted++;
+                    CrewPersonalityRegistry.MaturedTraitRow p = snap.MaturedPersonalities[i];
+                    if (CrewPersonalityRegistry.RestoreMatured(p.AgentId,
+                        p.Discipline, p.Boldness, p.Sociability, p.Diligence, p.Adaptability,
+                        p.DerivedTimeMs))
+                    {
+                        inserted++;
+                    }
                 }
+                if (snap.Memories.Count > 0)
+                {
+                    inserted += CrewMemorySystem.RestoreRows(snap.Memories);
+                }
+                return inserted;
             }
-            if (snap.Memories.Count > 0)
+            finally
             {
-                inserted += CrewMemorySystem.RestoreRows(snap.Memories);
+                System.Threading.Interlocked.Exchange(ref m_IsRestoring, 0);
             }
-            return inserted;
         }
 
         // ---- string codec (len-prefixed UTF-8, null-safe, bounded) --------------

@@ -1,6 +1,7 @@
 # Crew Personalities (Phase 11)
 
-Status: **IMPLEMENTED** (Phase 11). The personality layer is BOUNDED DATA ONLY:
+Status: **IMPLEMENTED** (Phase 11; lifecycle population added in Phase 40).
+The personality layer is BOUNDED DATA ONLY:
 five fixed traits per agent, derived deterministically from the agent's stable
 identity, with static archetypes and role-affinity scores. It is not learning,
 not memory, not decision making, and it never influences the scheduler,
@@ -12,6 +13,37 @@ Files: `CapBot/Core/Crew/CrewPersonality.cs` (traits + factory + archetypes +
 affinity + registry), `CapBot/Core/Crew/PersonalityLogBridge.cs` (logging
 bridge). No Harmony patch is added or extended (still 11 patch classes; the
 WorldTick postfix is byte-identical to Phase 10).
+
+## Phase 40 lifecycle population (the zero-personalities fix)
+
+Through P39 the registry was populated only lazily — and no production
+caller existed that would trigger derivation for a fresh crew, so live
+status showed `Personalities: 0` with active agents. Since P40 the
+population is **lifecycle-driven and idempotent** (details in
+`docs/LIVE_VALIDATION.md` P40 verdict; hooks live in `CrewAgentRegistry`):
+
+- `CrewPersonalityRegistry.EnsureFor(agentId, nowMs)` — create-if-absent
+  via the same deterministic derivation; returns the existing record on
+  re-presentation. No duplicates ever, by construction.
+- Agent create hook + sync-tail reconcile in `CrewAgentRegistry`
+  (outside the registry lock, fail-safe, ≤32 ensures per 1s cadence):
+  every live agent ends with exactly one record. The reconcile's removal
+  pass runs FIRST and removes only **derived** records of removed agents
+  (explicit/neutral/matured records survive agent churn by design).
+- Role change: record identity/traits/archetype are stable (pure function
+  of the AgentId); a `PersonalityReconciled` line is logged and role
+  affinity is read per-lookup. Nothing is re-derived.
+- Restore window: `CrewPersistence.IsRestoring` gates the reconcile so a
+  post-restore sync never re-derives over restored matured rows; missing
+  records are re-ensured only after restore completes.
+- Diagnostic vocabulary: `PersonalityCreated`, `PersonalityAssigned`,
+  `PersonalityReconciled`, `PersonalityRemoved`, `PersonalityRestored`.
+- Visibility: `/capbotstatus personalities` (P40 focused-section argument)
+  prints the bounded personality section directly.
+
+The data-only contract is unchanged and re-proven: P40-10 shows task
+scheduling bit-identical with personality records present; traits still
+have no behavioral consumer (`RoleAffinity` remains a future-phase anchor).
 
 ## 1. What a personality IS (and is not)
 

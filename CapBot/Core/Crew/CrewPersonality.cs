@@ -364,6 +364,10 @@ namespace CapBot.Core.Crew
                 S.Assigned++;
                 S.Derivations++;
             }
+            Emit("PersonalityCreated " + agentId
+                + " archetype=" + (derived.Archetype ?? "-")
+                + " src=" + (derived.Source ?? "-")
+                + " (identity-derived from stable AgentId)");
             Emit("PersonalityAssigned " + agentId
                 + " archetype=" + (derived.Archetype ?? "-")
                 + " src=" + (derived.Source ?? "-"));
@@ -409,6 +413,27 @@ namespace CapBot.Core.Crew
             CrewPersonality p = Get(agentId);
             if (p == null) p = DeriveFor(agentId, nowMs);
             return p == null ? null : p.Archetype;
+        }
+
+        // ---- P40: lifecycle-driven population ------------------------------------
+        //
+        // EnsureFor is the idempotent population primitive the agent-registry
+        // lifecycle hooks call: every ELIGIBLE agent ends up with exactly one
+        // deterministic personality record, keyed by the SAME stable AgentId
+        // the P10 registry derives (identity = "AGT:<hash8>" over the bounded
+        // player seed — stable across rejoins, role changes, and process
+        // restarts). Repeated calls for a known agent are no-ops that return
+        // the EXISTING record (no duplicates, no replacement, no size change).
+        //
+        // Eligibility is decided by the CALLER (CrewAgentRegistry: live crew
+        // members only — never Removed records, never absent-from-snapshot
+        // agents). Removed agents get their record removed by the hook, so
+        // registry membership tracks the live crew exactly.
+        public static CrewPersonality EnsureFor(string agentId, int nowMs)
+        {
+            CrewPersonality existing = Get(agentId);
+            if (existing != null) return existing;
+            return DeriveFor(agentId, nowMs);
         }
 
         // One bounded diagnostic line per record (deterministic order).
