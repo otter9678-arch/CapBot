@@ -3,6 +3,97 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 18 — Captain deliberation director] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Captain/CaptainDirector.cs` — the fusion + narrow-authoring layer
+  ("Captain Brain 2.0" substrate): a bounded deterministic CONSUMER of the
+  P6 snapshot and the P9/P14/P15/P16/P17 director readbacks that tracks
+  captain-deliberation situations as data AND authors EXACTLY ONE task family
+  bound to EXACTLY ONE capability — `ISSUE_MOVE_ORDER` (the ownership
+  argument: zero in-tree authors, dispatcher SECTOR branch ready, transient
+  20 s-TTL crew effect that self-heals; SET_CAPTAIN_ORDER / SET_CAPTAIN_TARGET
+  / ADD·REMOVE·CLEAR_COURSE_GOALS are all legacy/P9/P14-owned and NOT safe).
+  Single `CAPTAIN:CREWGATHER` intent record (bounded set ≤ 8, history ≤ 16,
+  divergence absent past 30 s decays the intent with a one-shot
+  `CaptainIntentExpired`, decision cadence 5 s). One-shot edge reports:
+  `CaptainIntentOpened` (first readable divergence: an alive, alive-known,
+  non-captain bot whose readable CurrentTLIName differs ordinally from the
+  readable captain location), `MoveOrderAuthored #n` (after
+  AuthoringDwellMs = 15 s of persisting divergence AND a pass through the
+  fail-closed CALM GATE — P9 state Normal/Monitoring + zero actives, P14
+  ActivePlanCount 0, P17 ActiveRecordCount 0, zero snapshot hostiles, no
+  boarders (−1 sentinel blocks), not in warp, sector known: any unreadable
+  input BLOCKS — the director creates/registers/queues one CAPTAIN_DELIB task
+  through the REAL pipeline: owner CAPTAIN, priority 8 (top of the normal
+  band — never preempts P14 20 / P9 110+), 60 s timeout, 1 retry,
+  Preemptible metadata, CapabilityId=ISSUE_MOVE_ORDER, Argument=<current
+  sector>, i.e. "gather crew to the captain's position"),
+  `MoveOrderRefused` (register/queue refused — no retry storm), `CaptainUncertain`
+  fail-safe lines, `CaptainShed` (defensive house-pattern parity). Crew-read
+  fail-safe classification: unknown liveness/TLI = unknown input (never
+  triggers), readable death = excluded-not-unknown (P9 owns the health
+  ladder), unreadable captain with bots present = rule unknown. ReconcileTasks
+  (P14-mirroring): terminal/vanished task stamps TaskResolvedMs; re-authoring
+  re-arms after AuthoringRequeueBlockMs = 20 s; anti-churn cap
+  MaxAuthoringsPerIntent = 3 per record lifetime (decay resets the budget).
+  Live-task duplicate suppression. Counter readbacks + bounded deterministic
+  diagnostics (Lines one per intent, StatusLines = 2, GetIntent live-record
+  readback). ResetForTests nulls all 4 seams.
+- `Core/Captain/CaptainLogBridge.cs` — attaches CapBotLog (CAPTAIN, existing
+  const) as the director's decision listener at boot.
+- `docs/CAPTAIN_DIRECTOR.md` — full contract: the one-capability ownership
+  argument, rules, the calm gate, gates, lifecycle bookkeeping, data flow,
+  task shape, authority model, performance, verified-API table, failure
+  modes, tests, scope boundaries.
+- `tests/CaptainTests.cs` — CT01–CT14 (78 assertions) covering authoring
+  end-to-end through the REAL pipeline (full task shape asserted), live-task
+  suppression + resolution + requeue + re-arm, dwell gate, calm gate (combat
+  record blocks then clears; threats/warp/unknown-sector block), vanished-task
+  reconciliation, anti-churn cap + decay budget reset, dead-bot exclusion,
+  unknown crew data never triggering, fail-safe inputs, authority
+  deny-by-default, cadence + counters + determinism. Hooked as f17
+  (seventeen suites).
+
+### Fixed
+- **TEST-GATE HONESTY BUG (critical)**: `CombatTests.Run()` and
+  `CaptainTests.Run()` returned a hardcoded `return 0;` instead of
+  `return s_Failed;` — the TOTAL failed=0 gate LIED (P17's "1640/1640 first
+  run" claim was inaccurate: 4 CS checks were failing but masked). Both gates
+  now return the real failure count.
+- 4 stale P17 CS expectations (tests were wrong, director semantics correct
+  per docs/COMBAT_DIRECTOR.md): CS03 `EngagementReportCount` cumulative → 3
+  (CS01 + CS02 re-arm + CS03 re-entry dwell); CS06/CS07 engagement-dwell
+  co-fires counted → Eval 2/1 (dwell elapsed while boarders re-arm);
+  CS11 cleared + vanished co-fire on the close pass → Eval 2.
+- CT02/CT09 task-transition bugs: `TryComplete()` from Queued is ILLEGAL
+  (Queued→Completed is not in the TaskTransitions table) — `TryStart()` first.
+- CT06 same-timestamp cadence block: after `CombatDirector.ResetForTests()`
+  the re-eval at the same virtual NowMs was cadence-blocked — Advance
+  (MinRecheckMs) before the final eval.
+- `CaptainDirector` unknown-input accounting: an unreadable captain WITH
+  bots present now counts UnknownInputPasses (CT11 sub-case; sawBot tracking
+  in the bot loop).
+
+### Changed
+- `CapBot.csproj` — +2 Compile entries (Core/Captain/CaptainDirector.cs,
+  Core/Captain/CaptainLogBridge.cs) after the Combat entries.
+- `Mod.cs` — Phase 18 boot block after the combat seams: CaptainLogBridge.Ensure();
+  CaptainDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+  SetNowMsProvider(TaskClock.NowMs); SetWorldProvider(WorldStateService.Latest).
+- `Patch.cs` — WorldTick Postfix gains TWO guarded blocks after the combat
+  block: `CaptainDirector.Evaluate(TaskClock.NowMs)` +
+  `CaptainDirector.ReconcileTasks(TaskClock.NowMs)` (each in its own
+  try/catch → CapBotLog.Error; no new Harmony patch class — ceiling of 11
+  preserved; IL 430 → 499 bytes).
+- `tests/run_tests.ps1` — +CaptainDirector.cs in the domain compile list;
+  +CaptainTests.cs last in the test list.
+- `tests/TaskRecoveryTests.cs` — f17 hook + TOTAL line includes
+  CaptainTests.LastPassed (17 suites). **TOTAL 1718/1718** (1640 prior + 78
+  new). Reflection verify: types 187, named 163, harmony_patch_classes=11,
+  CaptainDirector 56-member surface + 17 constants exact, all P6–P17
+  surfaces intact.
+
 ## [Phase 17 — Combat director] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

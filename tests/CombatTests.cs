@@ -217,7 +217,7 @@ namespace CapBot.TaskTests
             Advance(CombatDirector.EngagementDwellMs);
             Publish(Baseline(s_Clock.NowMs));
             Check(Eval() == 1, "CS03 re-entry episode dwells into engagement report");
-            Check(CombatDirector.EngagementReportCount == 2, "CS03 engagement counted twice");
+            Check(CombatDirector.EngagementReportCount == 3, "CS03 engagement counted thrice (cumulative)");
 
             // ---- CS04: combat-level gap label (data only) ---------------------------
             FreshSetup();
@@ -327,7 +327,7 @@ namespace CapBot.TaskTests
                     -1, float.NaN);
             }
             Advance(CombatDirector.MinRecheckMs);
-            Check(Eval() == 1, "CS06 second episode after re-arm");
+            Check(Eval() == 2, "CS06 engagement dwell co-fires with re-armed under-fire");
             Check(CombatDirector.UnderFireReportCount == 2, "CS06 under-fire counted twice");
 
             // ---- CS07: boarder report -------------------------------------------------------
@@ -348,7 +348,7 @@ namespace CapBot.TaskTests
             // Boarders clear: re-arms.
             Advance(CombatDirector.MinRecheckMs);
             Publish(Snap(s_Clock.NowMs, Threat2(new int[] { 9 }, 10f, 12f, 0), false));
-            Check(Eval() == 0, "CS07 boarders-cleared quiet (re-arms)");
+            Check(Eval() == 1, "CS07 boarders-cleared quiet for boarders (engagement dwell co-fires)");
             Advance(CombatDirector.MinRecheckMs);
             Publish(Snap(s_Clock.NowMs, Threat2(new int[] { 9 }, 10f, 12f, 1), false));
             Check(Eval() == 1, "CS07 second episode after re-arm");
@@ -444,7 +444,7 @@ namespace CapBot.TaskTests
             // Hostiles clear; advance past expiry BEFORE publishing fresh.
             Advance(CombatDirector.ActiveExpiryMs);
             Publish(Snap(s_Clock.NowMs, Threat2(null, 10f, 12f, 0), false));
-            Check(Eval() == 1, "CS11 cleared reported on the close pass");
+            Check(Eval() == 2, "CS11 cleared + vanished co-fire on the close pass");
             Check(CombatDirector.VanishedReportCount == 1, "CS11 vanished reported");
             Check(CombatDirector.ActiveRecordCount == 0, "CS11 record decayed to history");
             Check(CombatDirector.HistoryCount == 1, "CS11 history holds the record");
@@ -502,7 +502,7 @@ namespace CapBot.TaskTests
             ThreatSnapshot negativeBoarders = new ThreatSnapshot(null, 0, 0, 0, -1, float.NaN, float.NaN, -5);
             Check(negativeBoarders.InvadersOnboardCount == -1, "CS13 negative boarders normalize to -1");
 
-            return 0;
+            return s_Failed;
         }
 
         // Rebuild a snapshot identical to the given one but with a fresh time

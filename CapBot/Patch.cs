@@ -2910,6 +2910,22 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.COMBAT, "Combat director evaluate failed", ex);
             }
+            try
+            {
+                CapBot.Core.Captain.CaptainDirector.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.CAPTAIN, "Captain director evaluate failed", ex);
+            }
+            try
+            {
+                CapBot.Core.Captain.CaptainDirector.ReconcileTasks(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.CAPTAIN, "Captain director reconcile failed", ex);
+            }
         }
     }
     [HarmonyPatch(typeof(PLBotController), "HandleMovement")]

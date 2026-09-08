@@ -175,6 +175,21 @@ namespace CapBot
             CapBot.Core.Combat.CombatDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Combat.CombatDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Combat.CombatDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            // Phase 18: attach captain-deliberation ("Captain Brain 2.0") logging
+            // and wire its seams. The director is a CONSUMER of the P6 snapshot
+            // and the P9/P14/P15/P16/P17 director readbacks that authors EXACTLY
+            // ONE task family (CAPTAIN_DELIB) bound to EXACTLY ONE capability —
+            // ISSUE_MOVE_ORDER, the only capability with zero in-tree authors
+            // (ownership argument in CaptainDirector.cs). Tasks flow through the
+            // scheduler (P4) / claims (P5) / capability validation (P7) /
+            // executor (P8) pipeline — the director never RPCs, never executes,
+            // and only authors under a fail-closed calm gate (no P9 emergency,
+            // no P14 plan, no P17 combat record, no hostiles/boarders/warp).
+            // Deny-by-default authority keeps clients silent.
+            CapBot.Core.Captain.CaptainLogBridge.Ensure();
+            CapBot.Core.Captain.CaptainDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Captain.CaptainDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Captain.CaptainDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).
