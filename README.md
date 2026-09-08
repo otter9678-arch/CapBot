@@ -10,7 +10,7 @@ A PULSAR: Lost Colony mod that adds a bot Captain — and makes **every crew bot
 - **[pokegustavo](https://github.com/pokegustavor)** — original CapBot mod and its core concept; also author of Better AI, Quality Improver, and Exotic Components (compatibility targets)
 - **PULSAR-Modders team** — [Pulsar Mod Loader (PML)](https://github.com/PULSAR-Modders/pulsar-mod-loader), the modding framework this mod runs on
 - **Mest / TheRealMesteven** — the `.Talents` talent framework (modded talents integrate with it)
-- **OnHyex** — TalentsModPerformanceImprovement (compatibility guards included)
+- **OnHyex** — TalentsModPerformanceImprovement (detected for settings-menu listing)
 - **Leafy Games** — PULSAR: Lost Colony
 
 ## Features
@@ -79,10 +79,10 @@ Tested live against the current game build with:
 - **Better AI** — complementary: it drives classes 1–4 station behavior, CapBot handles captain + management
 - **Quality Improver** — no overlapping component logic
 - **Exotic Components** — install path uses the game's own slot APIs (custom subtypes work)
-- **ExpandedGalaxy** — plus boot-time crash guards for its starter-ship postfixes
+- **ExpandedGalaxy** — detected and listed in the settings menu (no code-level guards; none were ever shipped — earlier claims of "boot-time crash guards" were incorrect and have been removed)
 - **.Talents framework** — modded talents are ranked and researched by bots
-- **TalentsModPerformanceImprovement** — its unguarded UI helper is replaced with a safe version
-- **MoreBots** — its class-0 array crash is guarded (skip prefix for captain bots)
+- **TalentsModPerformanceImprovement** — detected and listed in the settings menu (no UI-helper replacement is shipped; an earlier claim of one was incorrect and has been removed)
+- **MoreBots** — its class-0 array crash is guarded (the crashing prefix is removed at `/capbot` spawn and a safe replacement installed, dispatched via the compatibility manager)
 
 ## Installation
 

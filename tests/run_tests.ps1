@@ -57,6 +57,7 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'CapBot\Core\Adjustment\AdjustmentDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Learning\AdaptiveLearningDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Tasks\MultiplayerAuthorityMonitor.cs') `
+  (Join-Path $repo 'CapBot\Core\Compatibility\CompatManager.cs') `
   (Join-Path $repo 'tests\TaskLifecycleTests.cs') `
   (Join-Path $repo 'tests\TaskRecoveryTests.cs') `
   (Join-Path $repo 'tests\TaskSchedulerTests.cs') `
@@ -81,7 +82,8 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'tests\MissionWorkDirectorTests.cs') `
   (Join-Path $repo 'tests\AdjustmentDirectorTests.cs') `
   (Join-Path $repo 'tests\AdaptiveLearningTests.cs') `
-  (Join-Path $repo 'tests\MultiplayerHardeningTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
+  (Join-Path $repo 'tests\MultiplayerHardeningTests.cs') `
+  (Join-Path $repo 'tests\CompatManagerTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
 if ($LASTEXITCODE -ne 0) { Write-Output 'COMPILE FAILED'; exit 3 }
 
 $output = & $exe 2>&1

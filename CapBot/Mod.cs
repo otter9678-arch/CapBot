@@ -319,6 +319,26 @@ namespace CapBot
             {
                 CapBot.Core.Crew.CrewAgentRegistry.ClearForAuthorityLoss(CapBot.Core.Tasks.TaskClock.NowMs);
             });
+            // ---- Phase 27: compatibility manager ----
+            // Central dispatch-and-audit surface for inter-mod compat actions.
+            // The manager owns NO compat behavior: the MoreBots guard keeps its
+            // implementation in Patch.cs (MoreBotsCompatPatch) and registers
+            // here as the production action. Install timing is owned by the
+            // existing call site (/capbot spawn — the class-0 bot can only
+            // exist from that point). The mod-detection seam is fail-closed:
+            // PML's IsModLoaded is queried lazily through a try/catch provider
+            // (any fault → false → nothing installs). No Harmony targets, no
+            // tick driver, no WorldTick block.
+            CapBot.Core.Compatibility.CompatLogBridge.Ensure();
+            CapBot.Core.Compatibility.CompatManager.SetIsLoadedProvider(delegate (string modName)
+            {
+                try { return PulsarModLoader.ModManager.Instance.IsModLoaded(modName); }
+                catch (System.Exception) { return false; }
+            });
+            CapBot.Core.Compatibility.CompatManager.RegisterAction(
+                "MoreBots class-0 crash guard",
+                new string[] { "MoreBots" },
+                delegate { MoreBotsCompatPatch.Install(); });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

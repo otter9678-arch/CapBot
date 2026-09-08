@@ -3,6 +3,82 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 27 — Compatibility manager (dispatch-and-audit registry)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Compatibility/CompatManager.cs` — central dispatch-and-audit
+  registry for inter-mod compat actions. Actions are
+  (name, modNames[], install): bounded (MaxActions=8, MaxModsPerAction=4),
+  duplicate-name-safe (idempotent no-op), refusal-counted. Fail-closed
+  mod-detection seam (`SetIsLoadedProvider` — boot wires PML `IsModLoaded`
+  through try/catch ⇒ false; provider absent/faulting ⇒ nothing installs,
+  `CompatGateUnavailable (deny-by-default)`). `InstallAll()` snapshots
+  under lock, gates per action, invokes installs OUTSIDE all locks with
+  per-action try/catch (one faulting action cannot block the others;
+  `CompatActionFaulted` + `FaultCount`); manager-level idempotence across
+  calls (production delegates additionally self-guarded). Bounded status
+  surface (`StatusLines()` ≤12 lines; the P29 consumption surface) plus
+  audited readback properties. Pure C# domain — IL-verified zero
+  PulsarModLoader/HarmonyLib/PhotonNetwork/game/pipeline references (PML
+  stays behind the provider seam). NO Harmony targets, NO tick driver,
+  NO WorldTick change (11-class ceiling untouched).
+- `Core/Compatibility/CompatLogBridge.cs` — decision listener onto the
+  existing `COMPAT` log subsystem (the channel MoreBotsCompatPatch
+  already logs through).
+- `Mod.cs` P27 boot block — bridge + fail-closed PML provider seam + the
+  single production action registration: `RegisterAction("MoreBots
+  class-0 crash guard", ["MoreBots"], MoreBotsCompatPatch.Install)`.
+- `Patch.cs` SpawnBot.Execute — dispatches `CompatManager.InstallAll()`
+  instead of calling MoreBotsCompatPatch.Install() directly. Install
+  TIMING unchanged (at `/capbot` spawn — the class-0 bot can only exist
+  from that point; the crashing MoreBots prefix must be treated before
+  the bot's first GetAIData frame). MoreBotsCompatPatch implementation,
+  Harmony surgery, and self-idempotence guards are UNCHANGED.
+- Audit results (documented in `docs/COMPATIBILITY.md` §1): F1 (audit
+  M1, docs-truth) — README claims for TalentsModPerformanceImprovement
+  ("UI helper replaced with a safe version") and ExpandedGalaxy
+  ("boot-time crash guards") had NO code behind them; corrected to what
+  is real (detection + settings-menu listing), with an explicit note that
+  the earlier claims were incorrect — implementing untestable guards
+  against third-party internals would violate the never-invent-APIs rule.
+  F2 (audit M2, unchanged) — NonCaptainMenu button-list rebuild clobber
+  risk documented as a standing conflict risk (behavior change out of
+  scope). Verified sound: MoreBots compat is real and fail-safe;
+  BetterAI/QualityImprover have no overlapping patch targets; world reads
+  are QualityImprover-safe by construction; Harmony ordering discipline
+  (11 all-postfix patch classes + one isolated runtime unpatch/replace,
+  zero HarmonyPriority attributes).
+- `tests/CompatManagerTests.cs` (CM01–CM10, 50 assertions) + suite
+  registration (26 domain files, 17 suites).
+- `docs/COMPATIBILITY.md` — the P27 contract (audit §1 with F1/F2, manager
+  §2, not-in-phase §3, tests §4, gotchas §5, verification §6).
+
+### Fixed
+- README compatibility section corrected to match shipped behavior (M1):
+  ExpandedGalaxy and TalentsModPerformanceImprovement reduced to
+  detection+listing with explicit correction notes; MoreBots entry
+  updated to describe the actual guard mechanism; Credits line for TMPI
+  corrected likewise.
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2519 failed=0` ×3 consecutive (suite now 26 domain
+  files, 17 suites). Run-1 findings fixed in-suite: 1 compile error
+  (missing `LastPassed` property — suite-registration contract) + 1
+  test-authoring rewrite (CM10's first draft layered two delegates over a
+  shared counter — self-contradictory; rewritten to mirror the REAL
+  production shape: one action, self-guarded delegate, same-name
+  re-registration no-op).
+- Reflection (`verify_build_p27.ps1`): 47/0 — manager type/members/consts
+  (MaxActions=8 / MaxModsPerAction=4 / MaxStatusLines=12);
+  MoreBotsCompatPatch intact; SpawnBot.Execute dispatches
+  `CompatManager.InstallAll`; manager IL purity (zero forbidden refs);
+  Mod-ctor wiring IL-probed; Harmony patch classes == 11; CapBotLog.COMPAT
+  intact; prior-phase types intact. Verify-script preload fix (game PML
+  file is `PulsarModLoader.dll`, not `PML.dll`; `ACTk.Runtime.dll` also
+  required) — this upgraded the Mod-ctor probe from the P25/P26 SKIP to a
+  real PASS.
+
 ## [Phase 26 — Multiplayer hardening (authority-flip monitor + transition hygiene)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

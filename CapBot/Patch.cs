@@ -3201,7 +3201,10 @@ namespace CapBot
                 return;
             }
             capisbot = true;
-            MoreBotsCompatPatch.Install();
+            // Phase 27: compat actions dispatch through the CompatManager
+            // (fail-closed mod-detection gate; the MoreBots guard itself is
+            // unchanged and still self-idempotent).
+            CapBot.Core.Compatibility.CompatManager.InstallAll();
             PLServer.Instance.ServerAddCrewBotPlayer(0);
             PLServer.Instance.GameHasStarted = true;
             PLServer.Instance.CrewPurchaseLimitsEnabled = false;
