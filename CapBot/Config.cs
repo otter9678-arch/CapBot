@@ -1,3 +1,4 @@
+using System;
 using PulsarModLoader;
 using PulsarModLoader.CustomGUI;
 using UnityEngine;
@@ -135,6 +136,27 @@ namespace CapBot
                 (Config.ExpandedGalaxyLoaded ? "ExpandedGalaxy " : "") +
                 (Config.ExoticComponentsLoaded ? "ExoticComponents " : "") +
                 (Config.TalentsModLoaded ? "Talents" : ""));
+
+            // Phase 29: read-only status summary (key counters from the P29
+            // StatusHub sources). Fail-safe per value: one faulting readback
+            // shows "n/a" instead of breaking the menu.
+            GUILayout.Space(8f);
+            GUILayout.Label("Status (host-side pipeline summary):");
+            GUILayout.Label("Tasks live/history: " + Readback(() => CapBot.Core.Tasks.TaskRegistry.LiveCount + " / " + CapBot.Core.Tasks.TaskRegistry.HistoryCount));
+            GUILayout.Label("Claims live: " + Readback(() => CapBot.Core.Tasks.ExecutionClaims.LiveClaimCount.ToString()));
+            GUILayout.Label("Scheduler grants: " + Readback(() => CapBot.Core.Tasks.TaskScheduler.ActiveGrantCount.ToString()));
+            GUILayout.Label("Executor ticks/attempts: " + Readback(() => CapBot.Core.Executor.TaskExecutor.TickCallCount + " / " + CapBot.Core.Executor.TaskExecutor.AttemptCount));
+            GUILayout.Label("Crew agents: " + Readback(() => CapBot.Core.Crew.CrewAgentRegistry.AgentCount.ToString()));
+            GUILayout.Label("Personalities: " + Readback(() => CapBot.Core.Crew.CrewPersonalityRegistry.Count.ToString()));
+            GUILayout.Label("Memory agents: " + Readback(() => CapBot.Core.Crew.CrewMemorySystem.AgentCount.ToString()));
+            GUILayout.Label("Compat actions: " + Readback(() => CapBot.Core.Compatibility.CompatManager.ActionCount.ToString()));
+        }
+
+        // Phase 29 helper: evaluate a readback, "n/a" on fault (menu-safe).
+        private static string Readback(Func<string> read)
+        {
+            try { return read() ?? "n/a"; }
+            catch { return "n/a"; }
         }
     }
 }

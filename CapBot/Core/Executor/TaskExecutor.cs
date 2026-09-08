@@ -82,6 +82,8 @@ namespace CapBot.Core.Executor
         private static Action<string> m_OnDecision;          // ExecutorLogBridge attaches at boot
         private static int m_LastTickMs = -1;
         private static bool m_Enabled = true;
+        private static long m_TickCount;                     // Phase 29: status readback (attempts sum)
+        private static long m_ExecTickCount;                 // Phase 29: status readback (Tick calls)
 
         // ---- configuration ---------------------------------------------------
         public static bool Enabled
@@ -125,6 +127,7 @@ namespace CapBot.Core.Executor
             {
                 if (m_LastTickMs >= 0 && unchecked(nowMs - m_LastTickMs) < MinRecheckMs) return 0;
                 m_LastTickMs = nowMs;
+                m_ExecTickCount++;
             }
 
             // Snapshot the granted set (Queued tasks holding an unexpired
@@ -139,8 +142,13 @@ namespace CapBot.Core.Executor
                 AttemptExecution(t, nowMs);
                 attempts++;
             }
+            lock (m_Lock) { m_TickCount += attempts; }
             return attempts;
         }
+
+        // Phase 29: status readbacks (bounded counters; the StatusHub surface).
+        public static long TickCallCount { get { lock (m_Lock) return m_ExecTickCount; } }
+        public static long AttemptCount { get { lock (m_Lock) return m_TickCount; } }
 
         // ---- One execution attempt ---------------------------------------------
         // Runs the full pipeline for ONE task. Never throws; returns a
@@ -399,6 +407,8 @@ namespace CapBot.Core.Executor
                 m_OnDecision = null;
                 m_LastTickMs = -1;
                 m_Enabled = true;
+                m_TickCount = 0;
+                m_ExecTickCount = 0;
             }
         }
     }

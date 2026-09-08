@@ -3,6 +3,57 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 29 — Status diagnostics (StatusHub, /capbotstatus, menu summary)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Diagnostics/StatusHub.cs` — single read-only aggregation point for
+  the P2–P28 status surfaces. `Collect(int nowMs)` gathers bounded
+  diagnostic lines in a fixed deterministic order (header → pipeline:
+  registry/recovery/scheduler/claims/executor/world → directors →
+  recommend-only advisors → compat → capability registry), hard-capped
+  at MaxLines=128 with deterministic truncation, each source individually
+  fail-safe (one faulting surface ⇒ one `StatusFault` line, never blocks
+  the others). Authors NOTHING, mutates NOTHING — reads public readbacks
+  only; IL-verified pure domain (zero game/PML/Harmony refs) AND
+  read-only IL proof (no task registration/creation/queue/start, no
+  claim acquire/record, no scheduler/executor/recovery ticks, no clear
+  surfaces). No per-frame cost (runs only when called).
+- `StatusCommand.cs` — `/capbotstatus` ChatCommand (PML CommandRouter).
+  Guards: no local player ⇒ logged + ignored; non-host ⇒ refused (the
+  report is master-authoritative process-local state). Success: one
+  `Messaging.Echo` per StatusHub line. Read-only; whole command
+  fail-safe.
+- Executor additive status counters: `TaskExecutor.TickCallCount` (Tick
+  calls passing the enabled gate) + `AttemptCount` (cumulative attempts)
+  — bookkeeping only, counted under the existing lock, reset in
+  ResetForTests, zero behavior change.
+- Settings-menu summary (Config.cs): read-only "Status (host-side
+  pipeline summary)" block — tasks live/history, claims, grants,
+  executor ticks/attempts, crew agents, personalities, memory agents,
+  compat actions; each value through a fault-safe Readback helper
+  ("n/a" on fault — the menu can never break from a diagnostics fault).
+  No new SaveValues.
+- `tests/StatusDiagnosticsTests.cs` (SD01–SD10, 42 assertions) + suite
+  registration (28 domain files, 19 suites).
+- `docs/STATUS_DIAGNOSTICS.md` — the P29 contract (hub §1, executor
+  counters §2, command §3, menu §4, not-in-phase §5, tests §6, gotchas
+  §7, verification §8).
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2614 failed=0` ×3 consecutive (suite now 28 domain
+  files, 19 suites). Run-1/2 findings fixed in-suite (all test-authoring
+  bugs): registry StatusLines are bounded COUNTER lines (population
+  changes values, not line counts); task history holds only TERMINAL
+  tasks; claims deny-by-default requires SetAuthorityPolicy in tests;
+  stale report variable after FreshSetup (SD07); nowMs-derived ages make
+  byte-identical cross-collection equality the wrong invariant (SD10
+  asserts structural shape instead).
+- Reflection (`verify_build_p29.ps1`): 37/0 — hub surface/const;
+  command derives ChatCommand; executor counters; hub IL purity + IL
+  read-only proof (no lifecycle mutators/tick drivers); command IL calls
+  Collect + Messaging.Echo; 11 patch classes; prior-phase types intact.
+
 ## [Phase 28 — Crew data persistence (insert-only restore, live wins)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

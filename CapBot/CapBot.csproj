@@ -113,6 +113,8 @@
     <Compile Include="Core\Compatibility\CompatLogBridge.cs" />
     <Compile Include="Core\Persistence\CrewPersistence.cs" />
     <Compile Include="CrewPersistenceAdapter.cs" />
+    <Compile Include="Core\Diagnostics\StatusHub.cs" />
+    <Compile Include="StatusCommand.cs" />
     <Compile Include="Core\World\WorldSnapshot.cs" />
     <Compile Include="Core\World\WorldStateService.cs" />
     <Compile Include="Core\World\WorldSnapshotProbe.cs" />
