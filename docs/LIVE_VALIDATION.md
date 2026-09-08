@@ -194,7 +194,7 @@ proof only), · = NOT LIVE-VERIFIED (manual procedure below).
 | Behavior | Status | Evidence |
 | --- | --- | --- |
 | Captain order channels (orders 1/4/6/8/9/10/11/12/13 vocabulary) | ○ | P7 `PunRPC`-verified signatures; executor dispatch compile/IL-proven |
-| ISSUE_MOVE_ORDER transient crew gather (P18 authoring) | · | manual M-C1 |
+| ISSUE_MOVE_ORDER transient crew gather (P18 authoring) | ○ + · | P38 live: captain layer opened an intent (`CaptainIntentOpened CAPTAIN:CREWGATHER`); authoring needs a crew-divergence episode (crew away from captain ≥ dwell) — with followers gathered no episode exists by design; divergent-path M-C1 still manual |
 | Emergency order overrides (SET_CAPTAIN_ORDER via CoolantCritical) | ✔ | live chain Player.log:1196–1207 (#121) + prev #16–#88: detection→dispatch→`ExecutorResult SUCCESS`→`EmergencyResolved` |
 | Emergency SET_CAPTAIN_TARGET | · | not observed live; manual M-C2 |
 | Anti-spam dwell / cooldowns | ○ | P7 cooldown gate + OA/cadence tests |
@@ -204,8 +204,8 @@ proof only), · = NOT LIVE-VERIFIED (manual procedure below).
 
 | Behavior | Status | Evidence |
 | --- | --- | --- |
-| Bot spawn (10, /capbot), role assignment | · | manual M-CR1 |
-| Role behavior execution (P7 dispatch → game RPCs) | · | manual M-CR1 |
+| Bot spawn (`/capbot` captain + crew), role assignment | ✔ + · | P38 live: `/capbot` spawned captain bot (`AgentCreated pid=3 bot role=Captain capt=1` + `AgentCaptainFlag`), then `GameHasStarted=true` produced Pilot/Scientist/Weapons (pid=4–6); custom captain-order texts render in-world ("Collect Missions!", "Align and Jump!", "Engage Repair Protocols!"). Full 10-bot count M-CR2-style soak remains manual |
+| Role behavior execution (P7 dispatch → game RPCs) | · | manual M-CR1 (role tasks not directly observed on spawned bots yet) |
 | Personality derivation/maturation | ○ + · | P11/P25 unit-proven; in-game maturation needs long session (M-CR2) |
 | Experience/memory accrual | ○ + · | P12/P13 unit-proven; in-game see M-CR2 |
 | Task assignment/claims/duplicate protection | ✔ + ○ | P4/P5 unit-proven; live `ClaimAccepted`/`OwnershipReleased reason=Succeeded` chains (e.g. #121, #148, #177) |
@@ -261,7 +261,7 @@ proof only), · = NOT LIVE-VERIFIED (manual procedure below).
 
 | Behavior | Status | Evidence |
 | --- | --- | --- |
-| MoreBots class-0 crash guard | ○ + · | P27 IL-proven install path; live session confirms install decision ran (MoreBots absent → skip); runtime guard M-X1 |
+| MoreBots class-0 crash guard | ✔ + · | P27 IL-proven install path; **P38 live: MoreBots present → `Safe AI-data prefix installed (replaces MoreBots GetAIDataPatch)` + `CompatInstall actions=1 installed=1 skipped=0` + class-0 prefix removal lines**; runtime guard M-X1 |
 | BetterAI / QualityImprover coexistence | ✔ + ○ | both mods loaded in both live sessions; CapBot ran 0 exceptions alongside them (coexistence live); deep behavior matrix M-X1 |
 | ExpandedGalaxy / Progress_Editor / others in Mods folder | ✔ | loaded in both live sessions alongside CapBot, no conflicts in log |
 
@@ -280,19 +280,23 @@ proof only), · = NOT LIVE-VERIFIED (manual procedure below).
 
 | Behavior | Status | Evidence |
 | --- | --- | --- |
-| `/capbot`, `/cap`, `/updateall` command registration | ○ | IL/compile-proven; unchanged since release |
-| `/capbotstatus` report shape | ○ | P29 unit-proven (deterministic order, per-source fail-safe) |
+| `/capbot`, `/cap`, `/updateall` command registration | ✔ | P38 live: `/capbot` executed in-game — `CompatInstall actions=1 installed=1` (dispatched from `SpawnBot.Execute`) + captain-bot spawn chain; note: `/capbot` takes no arguments (spawns one captain bot; "10 bots" expectation was incorrect for this build) |
+| `/capbotstatus` report shape | ✔ | P38 live: full StatusHub report echoed to chat and OCR-verified on screen — task history rows (#174–#182 alternating EMERGENCY/NAV_RECOVERY, all completed, live age counters), CrewAdvisor counters (`sent=26 accepted=14 rejected=1` — matches logged `OllamaAdviceInvalid`), Compat counters (`actions=1 installed=1 faults=0`), capability registry lines with `approvedAgo`; bounded `truncated at 128 lines` as designed |
 | Settings menu (toggles/cyclers/sliders) | ○ + · | P29 summary block unit-proven; layout see M-U1 |
 
 ## Manual test procedures (NOT LIVE-VERIFIED → reproducible)
 
 All procedures assume: PULSAR launched, local game hosted (`HOST GAME`),
-CapBot deployed (hash `b7862bfc…`), Ollama running with qwen3:latest.
+CapBot deployed (hash `2d3b2df6…`, the P37 build), Ollama running with
+qwen3:latest.
 
 **M-CR1 — spawn & core loop (gateway procedure; run first).**
-1. Open chat, run `/capbot 10` then `/cap 2`.
-2. Expected: 10 bots + captain spawn at ship; `/capbotstatus` reports
-   crew size, executor ticks increasing, world freshness fresh.
+1. Open chat, run `/capbot` (alias `/cap`; takes NO arguments — it spawns the
+   one class-0 captain bot and sets `GameHasStarted=true`, which lets the
+   BotCount mod fill out the rest of the crew).
+2. Expected: captain bot spawns at ship (roles fill from the BotCount mod);
+   `/capbotstatus` reports crew size, executor ticks increasing, world
+   freshness fresh.
 3. Verify no errors in log (see Log locations).
 
 **M-C1 — captain deliberation authoring.** Continue from M-CR1: order all
@@ -385,3 +389,57 @@ qwen3), port slider, verbose-logging toggle, summary block.
   for the vanilla-stack behavior itself. Next live session should re-run
   M-CR1 → M-C1 → M-L1 (qwen3 advice with the L1+P37 build) and confirm
   the L3 churn lines (`no capability bound` on EMERGENCY tasks) are gone.
+
+## P38 verdict
+
+- **Scope:** P38 was the live re-validation of the P37 build (`2d3b2df6…`,
+  deployed 16:34, game relaunched 16:36 — deploy parity confirmed by the
+  presence of P37-only behavior in the log). All verification below is
+  from the user's real 16:36 session (UI-automated entry: Play → OFFLINE
+  → ENGAGE → Captain → Ready; `/capbot` and `/capbotstatus` sent through
+  chat).
+- **P37 T1 (coordination-only suppression) LIVE-VERIFIED.** Session totals:
+  `EmergencyNoted` ×60, `no capability bound` churn lines ×**0** (was the
+  dominant noise source before P37), 208 tasks registered, 110 emergency
+  resolutions, 2996 CapBot log lines. Capability-backed emergencies still
+  run the full pipeline: repeated `EmergencyTaskCreated #N CoolantCritical
+  → Granted → ClaimAccepted → Dispatched SET_CAPTAIN_ORDER order=9 →
+  ExecutorResult SUCCESS → EmergencyResolved` cycles (#1–#182 range).
+- **P37 T2 (flood guard) supports the session**: 2996 CapBot lines with
+  zero apparent starvation of real bursts (full task chains #1–#182
+  traceable; per-key dedup retained). No Warning-level line was observed
+  being dropped.
+- **M-CR1 EXECUTED (gateway)**: `/capbot` live → captain bot spawned
+  (`AgentCreated pid=3 bot role=Captain capt=1`), BotCount-mod crew filled
+  in (Pilot/Scientist/Weapons pid=4–6), MoreBots compat guard installed
+  live (present-mod path: `Safe AI-data prefix installed` +
+  `CompatInstall actions=1 installed=1 skipped=0`), custom captain-order
+  texts render in-world. Plan correction recorded: `/capbot` takes no
+  arguments — the "10 bots" expectation was wrong for this build (fixed
+  in M-CR1 text above).
+- **`/capbotstatus` LIVE-VERIFIED** (chat echo OCR'd on screen): task
+  history (#174–#182 alternating EMERGENCY/NAV_RECOVERY, all completed,
+  live age counters), CrewAdvisor `sent=26 accepted=14 rejected=1`
+  (rejected=1 matches the logged `OllamaAdviceInvalid`), Compat
+  `actions=1 installed=1 faults=0 gateDeny=0 refused=0`, capability
+  registry lines (`ADD_COURSE_GOAL … MasterOnly approvedAgo=14047`),
+  bounded at `truncated at 128 lines` as designed.
+- **M-C1 partially live**: `CaptainIntentOpened CAPTAIN:CREWGATHER` fired;
+  `MoveOrderAuthored` requires a crew-divergence episode — with followers
+  gathered around the captain no episode exists by design (correct
+  behavior, not a defect). Divergent-path authoring remains manual M-C1.
+- **M-L1 NOT executed this session** (remaining manual step): current
+  session runs `qwen:latest` (the model cycler is main-menu-only UI;
+  not changeable mid-session without risky UI automation). Advice layer
+  itself IS live: `CrewAdvice`/`OllamaAdvice` accepted (26 sent, 14
+  accepted, 1 correctly rejected as invalid).
+- **Noted (non-blocking)**: one `Locker swap failed ::
+  TargetInvocationException` TRACE at captain-bot spawn (crew locker swap
+  path; non-fatal, no downstream errors); one `CaptainUncertain game not
+  started` line emitted AFTER game start — boundary artifact (a snapshot
+  captured in the race window before `SpawnBot.Execute` set
+  `GameHasStarted=true`); both are tuning candidates, not defects.
+- **Verdict: P37 fixes confirmed live. No blocking defects found in P38.**
+  No code changes were required this phase (docs-only). Remaining manual
+  surface: M-C1 divergent authoring, M-C2, M-M1, M-L1 (qwen3:latest),
+  M-P1, M-MP1.

@@ -3,6 +3,44 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 38 — Live re-validation of the P37 build (docs-only)] — unreleased (built from Alpha 1.2.2 source)
+
+### Verified
+- **P37 T1 LIVE-VERIFIED in a real session** (16:36 relaunch on the P37
+  build `2d3b2df6…`): `EmergencyNoted` ×60, `no capability bound` churn
+  lines ×**0** (previously the dominant noise), capability-backed
+  CoolantCritical chains still complete end-to-end (#1–#182; 208 tasks
+  registered, 110 emergency resolutions, 2996 CapBot log lines).
+- **M-CR1 gateway EXECUTED live**: `/capbot` spawned the captain bot
+  (`AgentCreated pid=3 bot role=Captain capt=1`), BotCount crew filled in
+  (pid=4–6), MoreBots compat guard took the **present-mod path** live
+  (`Safe AI-data prefix installed (replaces MoreBots GetAIDataPatch)`,
+  `CompatInstall actions=1 installed=1 skipped=0`), CapBot's custom
+  captain-order texts render in-world.
+- **`/capbotstatus` LIVE-VERIFIED on screen (OCR)**: task history rows
+  (#174–#182 all completed, live age counters), CrewAdvisor
+  `sent=26 accepted=14 rejected=1` (matches logged `OllamaAdviceInvalid`),
+  Compat counters (`faults=0 gateDeny=0 refused=0`), capability registry
+  lines, bounded `truncated at 128 lines`.
+- **Captain layer live**: `CaptainIntentOpened CAPTAIN:CREWGATHER`;
+  `MoveOrderAuthored` needs a crew-divergence episode (none exists while
+  followers are gathered — correct by design); divergent-path M-C1 stays
+  manual.
+- **Advice layer live on `qwen:latest`**: 26 sent / 14 accepted / 1
+  correctly rejected. M-L1 (qwen3:latest) remains a manual step — the
+  model cycler is main-menu UI only, not changeable mid-session.
+
+### Documented
+- `docs/LIVE_VALIDATION.md`: P38 verdict section; matrix rows upgraded to
+  ✔ with live evidence (bot spawn, `/capbot` + `/capbotstatus`, MoreBots
+  compat present-mod path, captain intent); M-CR1 corrected — `/capbot`
+  takes NO arguments (spawns one captain bot; crew fills from the
+  BotCount mod); procedures header now names the P37 deploy hash.
+- Non-blocking observations for future tuning: `Locker swap failed`
+  TRACE at captain-bot spawn; one `CaptainUncertain game not started`
+  line after game start (snapshot race window before
+  `SpawnBot.Execute` sets `GameHasStarted=true`).
+
 ## [Phase 37 — Tuning (coordination-only emergencies never executed; flood guard freed)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Changed
