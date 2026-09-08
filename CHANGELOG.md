@@ -3,6 +3,29 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 35 — Final audit (verdict: PASS)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `docs/FINAL_AUDIT.md` — the end-to-end audit record: final verification
+  battery results, the 12 master-prompt architecture invariants with
+  their final proofs, the complete audit-findings ledger (C1/M1/M2/M4/
+  M5/H2/L3 → resolutions), known limitations, and disposition.
+
+### Verified (final battery, this phase)
+- Reproducible build from a clean tree: **BUILD OK** (388,608 bytes,
+  smoke checks passed — PE header, no machine-path/username embedding).
+- Dev test suite ×3 consecutive: **`TOTAL passed=2777 failed=0`**
+  (22 suites, 31 domain files).
+- Consolidated invariant audit: **40/0** (30-type census, 11 patch
+  classes, boot wiring, both advisors recommend-only).
+- WorldTick IL order audit: **48/0** (monitor pre-gate, G1 wiring,
+  ledger preservation — all intact after P31's Patch.cs edits).
+- Git: clean tree, all phases locally committed, **nothing pushed**.
+
+### Disposition
+Final phase per plan. No push, no Workshop publishing, no release
+upload, no distribution without separate owner authorization.
+
 ## [Phase 34 — Documentation (README parity, system overview)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added
