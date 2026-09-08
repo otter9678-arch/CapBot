@@ -441,5 +441,32 @@ namespace CapBot.Core.Tasks
             }
             m_Ledger.ResetForTests();
         }
+
+        // Phase 26: authority-loss surface for the MultiplayerAuthorityMonitor.
+        // Claims (leases) are volatile authoritative bookkeeping: on authority
+        // loss this process must not hold execution leases for a game state it
+        // no longer owns. The sticky-success LEDGER IS KEPT — duplicate-
+        // execution protection is identity truth, not a lease (an in-flight
+        // action that actually reached the game must still be recognized as
+        // done when authority returns). Returns the number of claims dropped.
+        // Never throws.
+        public static int ClearForAuthorityLoss()
+        {
+            try
+            {
+                int dropped;
+                lock (m_Lock)
+                {
+                    dropped = m_Claims.Count;
+                    m_Claims.Clear();
+                }
+                if (dropped > 0)
+                {
+                    Emit("ClaimsClearedAuthorityLost claims=" + dropped + " (ledger preserved)");
+                }
+                return dropped;
+            }
+            catch (Exception) { return 0; }
+        }
     }
 }

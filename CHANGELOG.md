@@ -3,6 +3,78 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 26 — Multiplayer hardening (authority-flip monitor + transition hygiene)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Tasks/MultiplayerAuthorityMonitor.cs` — pre-gate authority-flip
+  observer. Runs EVERY FRAME in the WorldTick Postfix BEFORE the
+  host-only gate (on host AND client), watching the same authority seam
+  the pipeline uses (`ExecutionClaims.IsAuthoritative` —
+  `PhotonNetwork.isMasterClient` with fault→deny). First authoritative
+  observation ARMS (never fires — the boot frame must not look like a
+  flip); faulting probe ⇒ "unknown", no transition synthesized (counted
+  only); true→false (AUTHORITY LOST) fires registered handlers OUTSIDE
+  all locks, each in its own try/catch (registration order), emitting
+  `MPAuthorityLost handlers=<n>`; false→true (REGAINED) emits
+  `MPAuthorityRegained` and fires nothing (volatile state was already
+  cleared at loss; the next authoritative pass rebuilds from world
+  observation). Handlers bounded (≤16), duplicate-safe, individually
+  fail-safe. The monitor owns NO gameplay semantics — it only dispatches
+  to registered clear handlers. Steady state: one probe read, zero
+  allocation.
+- `Core/Tasks/MPLogBridge.cs` — boot attach of the monitor's decision
+  listener onto the existing `TASK` log subsystem (additive).
+- Authority-loss surfaces (additive, fail-safe):
+  `ExecutionClaims.ClearForAuthorityLoss()` — drops claims only,
+  **ledger preserved** (IL-verified NOT to touch `ActionLedger`, the P5
+  duplicate truth), `ClaimsClearedAuthorityLost claims=<n> (ledger
+  preserved)`; `TaskScheduler.ClearForAuthorityLoss()` — drops leases +
+  preemption records only, task registry untouched,
+  `SchedulerLeasesClearedAuthorityLost leases=<n>`;
+  `CrewAgentRegistry.ClearForAuthorityLoss(nowMs)` — mirrors the P10
+  TrackAuthority(false) clear (`AgentsClearedAuthorityLost`).
+- `Mod.cs` P26 boot block — bridge + authority probe seam + the three
+  production clear handlers registered with the monitor.
+- `Patch.cs` WorldTick Postfix: `MultiplayerAuthorityMonitor.Observe()`
+  pre-gate (every frame, individually guarded) and, in the host block,
+  `ExecutionClaims.Tick(nowMs)` right after the executor tick — G1 fix:
+  the P5 claim-lease hygiene existed since P5 but had NO production
+  caller. Still 11 Harmony patch classes.
+- Audit results (documented in `docs/MULTIPLAYER_HARDENING.md` §1):
+  G1 claim-hygiene wiring gap (fixed above) and G2 — the P10
+  authority-lost agent clear lived BEHIND the host gate, which stops
+  running the moment authority is lost (dead-in-game since Phase 10;
+  fixed by the pre-gate monitor). Verified sound: host-only gating of
+  every tick driver, deny-by-default claims authority, per-director
+  authority probes, dispatcher RPC discipline (single-send per logical
+  action, no request-RPCs, no local+All duplicates), sticky-success
+  duplicate protection, mid-attempt flip recovery path. Volatile-state
+  census at authority flips documented (claims/leases/agents dropped;
+  ledger/task registry/recovery/directors/experience kept, with
+  rationale); passive host-migration behavior documented by construction.
+- `tests/MultiplayerHardeningTests.cs` (MP01–MP10, ~78 assertions) +
+  suite registration (25 domain files, 16 suites).
+- `docs/MULTIPLAYER_HARDENING.md` — the P26 contract (audit §1 with
+  findings + census, monitor §2, surfaces §3, driver wiring §4,
+  not-in-phase §5, tests §6, gotchas §7, verification §7b).
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2469 failed=0` ×3 consecutive (suite now 25 domain
+  files, 16 suites). Run-1 findings fixed in-suite: 1 implementation bug
+  (monitor arm-pass stamping `m_HasLast` outside the lock — MP01 caught
+  the arm looking like a false→true flip) + 3 test-authoring bugs
+  (shared-probe state leakage MP04→MP07, closure display-class identity
+  collapsing filler handlers MP08, ledger seeding path MP05 —
+  `RecordExecutionResult` without a claim is `StaleCallbackIgnored` by
+  design; seed via `ActionLedger.RecordOutcome`).
+- Reflection (`verify_build_p26.ps1`): 48/0 — monitor type/members/consts
+  (MaxHandlers=16); all three `ClearForAuthorityLoss` surfaces; WorldTick
+  IL order probe@33 → observe@47 → dv@84 ⇒ monitor is pre-gate; claims-Tick
+  wiring (G1) + all prior driver references intact; monitor IL purity (no
+  game types, no pipeline mutators); claims clear provably does not touch
+  the ledger; Harmony patch classes == 11; prior-phase types intact.
+
 ## [Phase 25 — Adaptive learning (bounded trait maturation)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

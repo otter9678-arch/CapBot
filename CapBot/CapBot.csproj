@@ -107,6 +107,8 @@
     <Compile Include="Core\Tasks\RecoveryLogBridge.cs" />
     <Compile Include="Core\Tasks\SchedulerLogBridge.cs" />
     <Compile Include="Core\Tasks\ClaimLogBridge.cs" />
+    <Compile Include="Core\Tasks\MultiplayerAuthorityMonitor.cs" />
+    <Compile Include="Core\Tasks\MPLogBridge.cs" />
     <Compile Include="Core\World\WorldSnapshot.cs" />
     <Compile Include="Core\World\WorldStateService.cs" />
     <Compile Include="Core\World\WorldSnapshotProbe.cs" />

@@ -531,5 +531,32 @@ namespace CapBot.Core.Tasks
                 m_Enabled = true;
             }
         }
+
+        // Phase 26: authority-loss surface for the MultiplayerAuthorityMonitor.
+        // Leases and preemption records are volatile scheduler bookkeeping
+        // (grants are 5 s bookkeeping — P4 contract); on authority loss the
+        // process must not keep suggesting execution for a state it no longer
+        // owns. The task registry itself is untouched (lifecycle is not
+        // authority-volatile: P3 owns it). Returns the number of leases
+        // dropped. Never throws.
+        public static int ClearForAuthorityLoss()
+        {
+            try
+            {
+                int dropped;
+                lock (m_Lock)
+                {
+                    dropped = m_Leases.Count;
+                    m_Leases.Clear();
+                    m_Preemptions.Clear();
+                }
+                if (dropped > 0)
+                {
+                    Emit("SchedulerLeasesClearedAuthorityLost leases=" + dropped);
+                }
+                return dropped;
+            }
+            catch (Exception) { return 0; }
+        }
     }
 }

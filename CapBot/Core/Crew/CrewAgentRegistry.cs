@@ -527,6 +527,39 @@ namespace CapBot.Core.Crew
             }
         }
 
+        // Phase 26: public authority-loss surface for the MultiplayerAuthority
+        // Monitor (the WorldTick host gate makes TrackAuthority(false)
+        // unreachable in production once authority is lost — the monitor is
+        // the pre-gate observer that reaches this). Same semantics as the
+        // TrackAuthority(false) clear: agents are volatile authoritative
+        // state; identity is deterministic so the next authoritative sync
+        // rebuilds everything. Returns the number cleared. Never throws.
+        public static int ClearForAuthorityLoss(int nowMs)
+        {
+            try
+            {
+                int cleared;
+                lock (m_Lock)
+                {
+                    cleared = S.Agents.Count;
+                    if (cleared > 0)
+                    {
+                        S.Agents.Clear();
+                        S.LastSyncMs = -1;
+                        S.AuthorityChanges++;
+                        S.LastAuthorityKnown = true;
+                        S.LastAuthorityValue = false;
+                    }
+                }
+                if (cleared > 0)
+                {
+                    Emit("AgentsClearedAuthorityLost count=" + cleared + " t=" + nowMs);
+                }
+                return cleared;
+            }
+            catch (Exception) { return 0; }
+        }
+
         // ---- agent creation ------------------------------------------------------------
         private static bool CreateAgent(CrewMemberSnapshot c, int nowMs)
         {

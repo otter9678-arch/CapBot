@@ -2820,6 +2820,26 @@ namespace CapBot
             bool isMaster = false;
             try { isMaster = PhotonNetwork.isMasterClient; }
             catch (System.Exception) { isMaster = false; }
+            // ---- Phase 26: authority-flip observation (pre-gate, every frame) ----
+            // The host-only gate below stops every host-side driver the moment
+            // authority is lost, so transition-time cleanup behind the gate is
+            // unreachable exactly when it is needed. This observer runs BEFORE
+            // the gate on both host and client, watches the same authority
+            // seam the pipeline uses, and on authority LOST invokes the
+            // fail-safe clear handlers registered at boot (claims/leases/crew
+            // agents; the duplicate-protection ledger is preserved). On
+            // authority REGAINED the next authoritative pass rebuilds state
+            // from world observation; no handler runs (process-local volatile
+            // state is already minimal and the deterministic identities make
+            // rebuild safe).
+            try
+            {
+                CapBot.Core.Tasks.MultiplayerAuthorityMonitor.Observe();
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.TASK, "Authority monitor observe failed", ex);
+            }
             if (!isMaster) return;
             // ---- Phase 19: decision validator pre-screen (diagnostics only) ----
             // Runs BEFORE scheduler Tick so screened tasks are still Queued —
@@ -2858,6 +2878,20 @@ namespace CapBot
             catch (System.Exception ex)
             {
                 CapBotLog.Error(CapBotLog.TASK, "Executor tick failed", ex);
+            }
+            // ---- Phase 26: claim-lease hygiene (host block) ----
+            // Expired/terminal/missing-task claims are dropped here (audit
+            // finding G1: Tick existed since P5 but was never wired into
+            // production). Deterministic; safe at any cadence; the executor's
+            // own claim gate treats a vanished claim as a takeover
+            // opportunity, never a wedge.
+            try
+            {
+                CapBot.Core.Tasks.ExecutionClaims.Tick(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.TASK, "Claim hygiene tick failed", ex);
             }
             try
             {

@@ -295,6 +295,30 @@ namespace CapBot
             // precedent).
             CapBot.Core.Learning.LearningLogBridge.Ensure();
             CapBot.Core.Learning.AdaptiveLearningDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            // ---- Phase 26: multiplayer authority monitor ----
+            // Pre-gate observer for host-migration authority flips. Runs
+            // EVERY FRAME (before the WorldTick host-only gate) and invokes
+            // registered fail-safe clear handlers when this process LOSES
+            // authority: volatile authoritative bookkeeping (execution
+            // claims, scheduler leases, crew-agent records) is dropped, the
+            // duplicate-protection ledger is KEPT (identity truth, not a
+            // lease). Handlers are individually fail-safe; the monitor never
+            // mutates pipeline state itself. Clients are unaffected (they
+            // never hold authoritative state to lose).
+            CapBot.Core.Tasks.MPLogBridge.Ensure();
+            CapBot.Core.Tasks.MultiplayerAuthorityMonitor.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Tasks.MultiplayerAuthorityMonitor.AddClearHandler(delegate
+            {
+                CapBot.Core.Tasks.ExecutionClaims.ClearForAuthorityLoss();
+            });
+            CapBot.Core.Tasks.MultiplayerAuthorityMonitor.AddClearHandler(delegate
+            {
+                CapBot.Core.Tasks.TaskScheduler.ClearForAuthorityLoss();
+            });
+            CapBot.Core.Tasks.MultiplayerAuthorityMonitor.AddClearHandler(delegate
+            {
+                CapBot.Core.Crew.CrewAgentRegistry.ClearForAuthorityLoss(CapBot.Core.Tasks.TaskClock.NowMs);
+            });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).
