@@ -491,6 +491,50 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.COMPAT, "ConflictEngine inventory feed failed (fail-safe: empty registry)", ex);
             }
+            // ---- Phase 49: live-telemetry symptom detectors ----
+            // Subscribe the Unity log pipeline (Application.logMessageReceived —
+            // 3-arg LogCallback reflection-verified against UnityEngine.CoreModule)
+            // and feed exceptions into the engine's evidence intake via the
+            // fingerprinting window. Attribution is fail-closed: only stack text
+            // matching a LOADED mod's assembly name resolves to that mod; anything
+            // else stays unattributed and is never invented into evidence. The
+            // engine's own honesty ladder still applies downstream (symptom alone
+            // = PROBABLE/OBSERVE; quarantine requires the manual A/B legs).
+            try
+            {
+                CapBot.Core.Compatibility.SymptomLogBridge.Ensure();
+                CapBot.Core.Compatibility.SymptomDetectors.SetModResolver(delegate (string stackTrace)
+                {
+                    if (string.IsNullOrEmpty(stackTrace)) return null;
+                    System.Collections.Generic.IEnumerable<PulsarModLoader.PulsarMod> mods = PulsarModLoader.ModManager.Instance.GetAllMods();
+                    foreach (PulsarModLoader.PulsarMod m in mods)
+                    {
+                        if (m == null || string.IsNullOrEmpty(m.Name)) continue;
+                        string asmName;
+                        try
+                        {
+                            asmName = m.GetType().Assembly.GetName().Name;
+                            if (string.IsNullOrEmpty(asmName)) continue;
+                            // Protected mods are structurally unquarantinable — never
+                            // feed their exceptions into the symptom path.
+                            if (CapBot.Core.Compatibility.ProtectedModList.IsProtected(asmName)) continue;
+                        }
+                        catch (System.Exception) { continue; }
+                        if (stackTrace.IndexOf(asmName, System.StringComparison.OrdinalIgnoreCase) >= 0) return m.Name;
+                    }
+                    return null;
+                });
+                UnityEngine.Application.logMessageReceived += delegate (string condition, string stackTrace, UnityEngine.LogType type)
+                {
+                    CapBot.Core.Compatibility.SymptomDetectors.OnLog(
+                        condition, stackTrace, (int)type, CapBot.Core.Tasks.TaskClock.NowMs);
+                };
+                CapBotLog.Info(CapBotLog.COMPAT, "SymptomDetectors wired (log pipeline live, exception fingerprinting on)");
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.COMPAT, "SymptomDetectors wiring failed (fail-safe: no live symptom feed)", ex);
+            }
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

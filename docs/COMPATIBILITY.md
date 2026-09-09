@@ -391,8 +391,79 @@ pre-existing TMPI `PLShipInfoUpdatePatch.TalentsUpdateNeeded` NRE
 
 - No A/B automation (experiments stay manual one-variable runs).
 - No Safe Mode behavioral changes yet (latch + audit only).
-- No symptom detectors wired to live telemetry yet (live exception
-  fingerprinting → `RecordSymptom` is a future phase).
 - Enrichment is evidence only: it feeds `CompatibilityHarmonyEnriched`
   audit lines and `harmonyPatching=`, never the quarantine path by
   itself (CE26 pins the refusal ladder).
+
+## 10. Symptom detectors wired to live telemetry (Phase 49, `Mod.cs` + `SymptomDetectors.cs`)
+
+The engine's `RecordSymptom` intake now has its production caller: the
+Unity log stream is subscribed once at mod init and every non-noise log
+event flows through a pure-C# windowing domain that counts exception
+fingerprints per attributed mod. At the storm threshold (20 events /
+60 s) the detector records an `ExceptionStorm` symptom into the engine
+and triggers an `Evaluate` — but a recorded symptom alone can only ever
+classify PROBABLE / OBSERVE: the quarantine path is unreachable from
+detectors (the A/B legs stay manual; the directive's honesty ladder
+applies downstream unchanged).
+
+### Wiring (Mod.cs, fail-safe try/catch)
+
+- `SymptomLogBridge.Ensure()` attaches the audit listener (same seam
+  pattern as ConflictLogBridge).
+- Production resolver: loaded PML mods' assembly names matched
+  OrdinalIgnoreCase against the stack text; protected-list assemblies
+  are skipped (a protected mod's exceptions never enter the symptom
+  path); unresolvable events increment the unattributed counter and are
+  never invented into evidence; a resolver fault fails closed to
+  unattributed.
+- `UnityEngine.Application.logMessageReceived += (c, s, t) =>
+  OnLog(c, s, (int)t, TaskClock.NowMs)` — 3-arg LogCallback,
+  reflection-verified against UnityEngine.CoreModule (no LogEventArgs
+  type exists in the game's Managed dir).
+- Success line `SymptomDetectors wired (log pipeline live, exception
+  fingerprinting on)`; any fault emits
+  `SymptomDetectors wiring failed (fail-safe: no live symptom feed)`.
+
+### Honesty rules (`SymptomDetectors.OnLog`)
+
+- LogType Warning(2)/Log(3) are noise and never counted (verified
+  mapping: Error=0, Assert=1, Warning=2, Log=3, Exception=4).
+- CapBot's own `[CapBot:` log lines are skipped (never self-attribute).
+- Fingerprint = exception header + first `at` frame, ≤200 chars,
+  per-mod key bounded to 64 windows (overflow counted as dropped).
+- Storm latch: one `RecordSymptom` per 20/60 000 ms crossing; window
+  expiry resets the count (SY05 semantics). The detector never
+  classifies — the engine's ladder stays the only authority, and
+  symptom-without-A/B is capped at PROBABLE/OBSERVE.
+- The whole intake body is try/catch swallowed: the detector must never
+  become the crash source.
+
+### Live verification (P49 boot, offline crew, in-ship)
+
+`SymptomDetectors wired (log pipeline live, exception fingerprinting on)`
+present; 0 wiring failures; 0 StatusFault. The known pre-existing TMPI
+NRE (`TalentsModPerformanceImprovement.PLShipInfoUpdatePatch.
+TalentsUpdateNeeded` via `PLShipInfo.Update_Patch3`; 2 occurrences this
+session, below the storm threshold) was correctly attributed to mod
+`Talents`: /capbotstatus conflicts showed
+`SymptomDetectors: tracked=1 storms=0 unattributed=1 dropped=0
+threshold=20/60000ms` with window row
+`SymptomDetectors: Talents|NullReferenceException|
+PLShipInfoUpdatePatch.TalentsUpdateNeeded count=1` — later count=0
+after 60 s window expiry (SY05 verified live). unattributed=1 is the
+PML ExceptionWarningPatch re-emitted raw exception line (no
+attributable mod stack); nothing invented, nothing escalated — no
+`SymptomDetected`/`CompatibilityDecision` lines fired because the
+threshold was never reached.
+
+### What Phase 49 deliberately does NOT do
+
+- No A/B automation (experiments stay manual one-variable runs).
+- No Safe Mode behavioral changes yet.
+- Detectors are evidence-only: a storm records a symptom and triggers
+  evaluation, but quarantine stays structurally unreachable from the
+  detector path (Class D + Confirmed requires the manual A/B legs).
+- Attribution is stack-text matching only: a mod whose exceptions carry
+  no matching assembly name in the stack text is counted unattributed,
+  never guessed.

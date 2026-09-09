@@ -3,6 +3,81 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 49 — Symptom detectors wired to live telemetry] — unreleased (built from Alpha 1.2.2 source)
+
+The conflict engine now receives live evidence: `UnityEngine.Application.logMessageReceived`
+(subscribed in Mod.cs, 3-arg `LogCallback` reflection-verified against
+UnityEngine.CoreModule) feeds a pure-C# windowing domain that counts
+exception fingerprints per attributed mod and records an `ExceptionStorm`
+symptom into the engine at 20 events / 60 s. A recorded symptom alone can
+only ever classify as PROBABLE / OBSERVE — the quarantine path stays
+unreachable from detectors (A/B legs stay manual, per the standing
+directive).
+
+### Added
+- `SymptomDetectors` (pure C# domain, no Unity/PML/Harmony references —
+  the P19 narrow-compile lesson): `OnLog(condition, stackTrace, logType,
+  nowMs)` intake; LogType Warning(2)/Log(3) ignored as noise; CapBot's own
+  `[CapBot:` lines skipped (never self-attribute); fingerprint =
+  first stack frame method + exception header (≤200 chars); attribution
+  ONLY via the injected resolver — unresolvable events increment the
+  unattributed counter and are never invented into evidence; resolver
+  faults fail closed to unattributed; bounded ≤64 per-mod|fingerprint
+  windows (overflow counted as dropped); storm threshold latch
+  (20/60 000 ms, window expiry resets) feeds
+  `ConflictEngine.RecordSymptom` then `ConflictEngine.Evaluate`; whole
+  body try/catch swallow (the detector must never become the crash
+  source). Readbacks: TrackedCount / UnattributedCount / DroppedCount /
+  SymptomsRecordedCount / UnattributedLastFingerprint; bounded
+  StatusLines (summary + ≤6 rows); SetModResolver / SetAuditListener
+  seams; ResetForTests.
+- `SymptomLogBridge.Ensure()` — audit listener seam (same pattern as
+  ConflictLogBridge).
+- Mod.cs wiring (fail-safe try/catch): `SymptomLogBridge.Ensure()`;
+  production resolver = loaded PML mods' assembly names matched
+  OrdinalIgnoreCase against stack text, protected-list assemblies
+  skipped (protected mods' exceptions never enter the symptom path);
+  `Application.logMessageReceived += (c, s, t) => OnLog(c, s, (int)t,
+  TaskClock.NowMs)` inline adapter; success audit line
+  `SymptomDetectors wired (log pipeline live, exception fingerprinting
+  on)`; any fault emits `SymptomDetectors wiring failed (fail-safe: no
+  live symptom feed)`.
+- StatusHub `conflicts` section now appends `SymptomDetectors.StatusLines()`
+  after `ConflictEngine.StatusLines()` (both visible in /capbotstatus).
+- `tests/SymptomDetectorTests.cs`: 30 checks SY01–SY12 — warning/log
+  noise, unattributed honesty, storm→PROBABLE/OBSERVE (never quarantine),
+  latch idempotence, window expiry reset, fingerprint separation, per-mod
+  separation, self-line skip, resolver-fault fail-closed, ≤64 bound +
+  drop counting, status shape + reset, engine decision line after storm.
+
+### Verified
+- UNIT-PASS: tests 3349/0 (3319 prior + 30 new), run via
+  `tests/run_tests.ps1` (37 suites, TOTAL failed=0 gate).
+- Build: bin\Release\CapBot.dll 454,656 bytes,
+  SHA-256 0AD12E4AA920F98D134671D45E6DDD1AD8EA987E7A9345178AEAE3ED50608CF9;
+  deployed parity True (deployed hash equals build hash).
+- Backup: CapBot.dll.pre_p49.bak = P48 build (450,048 bytes,
+  SHA-256 9E9613B90D4558EDDFC402AFCA9D97218DC0771E61260BA01CD8378F4AC4880E).
+- LIVE-PASS (boot, appid 252870, offline crew session): `SymptomDetectors
+  wired (log pipeline live, exception fingerprinting on)` present; 0
+  wiring failures; 0 StatusFault; HarmonyMapAudit still PASS
+  (patchedMethods=435 owners=493 modsPatching=7 enriched=1, Talents
+  owner=Mest.Talents). Live detector attribution observed: the known
+  pre-existing TMPI NRE (TalentsModPerformanceImprovement.
+  PLShipInfoUpdatePatch.TalentsUpdateNeeded via PLShipInfo.Update_Patch3;
+  2 occurrences this session, below the 20/60s storm threshold — no
+  SymptomDetected line, by design) was correctly attributed to mod
+  `Talents`: /capbotstatus conflicts showed
+  `SymptomDetectors: tracked=1 storms=0 unattributed=1 dropped=0
+  threshold=20/60000ms` and window row
+  `SymptomDetectors: Talents|NullReferenceException|
+  PLShipInfoUpdatePatch.TalentsUpdateNeeded count=1` (later observed
+  count=0 after 60 s window expiry — SY05 semantics verified live);
+  unattributed=1 is the PML ExceptionWarningPatch 3-arg Unity log line
+  itself (condition = raw `NullReferenceException: …` text which contains
+  no `[CapBot:` tag — counted once as unattributed, then the attributed
+  window carries the per-mod count; no evidence invented).
+
 ## [Phase 48 — Runtime Harmony-map enrichment] — unreleased (built from Alpha 1.2.2 source)
 
 The conflict engine's `usesHarmony` profile flags are now enriched from the
