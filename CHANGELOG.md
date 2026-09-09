@@ -3,6 +3,89 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 50 — Safe Mode behavioral suspension] — unreleased (built from Alpha 1.2.2 source)
+
+The P46 engine's Safe Mode latch finally gets its production reader: a
+pure-C# gate (`SafeModeGate`) wired into three behavioral call sites.
+When the engine latches Safe Mode (repeated re-confirmed conflicts,
+`QUARANTINE_AGAIN` ×3), this session freezes the host-side task
+pipeline (no scheduler grants / executor dispatch / director
+authoring), stops `Autonomy.OnTick` and the captain-bot logic (bots
+fall back to vanilla AI), and refuses new `/capbot` spawns — while ALL
+evidence collection stays live (world-state refresh, Harmony-map audit,
+multiplayer-authority observation, symptom detectors). The suspension
+is session-sticky (mirrors the engine's idempotent latch, which has no
+auto-clear) and fail-closed everywhere.
+
+### Added
+- `SafeModeGate` (`Core/Compatibility/`, pure C# — no Unity/PML/Harmony
+  references, the P19 narrow-compile lesson): `Tick(nowMs)` decides all
+  three call sites; seams `SetSafeModeProvider` /
+  `SetSafeModeReasonProvider` / `SetAuditListener`. Honesty and
+  fail-closed rules: unwired provider → observes not-latched (nothing
+  invented); FAULTING provider → latched=true → suspend; internal gate
+  fault → return true (never silently re-enable behavior while the
+  engine may be latched). Rising-edge counter with `m_HadObservation`
+  guard (a gate whose first observation is already latched counts NO
+  edge — the sticky latch itself is the state and the engine's
+  idempotent re-confirm must never re-count); edge-time reason capture
+  via the reason provider. First observation emits a positive wiring-
+  evidence status line; while suspended, re-emits at most every 60 s;
+  bounded 4-line status. Readbacks: Suspended / Reason /
+  SuspensionCount / TicksTotal / TicksSuspended; ResetForTests.
+- `SafeModeLogBridge.Ensure()` — audit listener seam (SymptomLogBridge
+  pattern), routes gate lines to `[CapBot:COMPAT]` log.
+- Three production gates in `Patch.cs`, each in its own try/catch with
+  fail-closed catch arms:
+  1. `WorldTick` host pipeline — placed AFTER the evidence blocks
+     (WorldStateService.Refresh, HarmonyMapAudit.RunOnce,
+     MultiplayerAuthorityMonitor.Observe stay live) and BEFORE the
+     `if (!isMaster) return;` driver: a latched Safe Mode freezes the
+     scheduler/executor/directors this frame.
+  2. `PostfixCore` legacy feature tick — placed AFTER the default-AI
+     data fill (bots keep a sane brain) and BEFORE `Autonomy.OnTick`
+     AND the captain-bot block: talents, economy, research, missions,
+     watchdog, smart item use, orders, shop, course planning all stop;
+     bots fall back to vanilla AI.
+  3. `SpawnBot.Execute` — after the `capisbot` duplicate check: refuses
+     NEW spawns with a PML notification (pure refusal; no state
+     mutation, no `/capbotstatus` change).
+- Mod.cs wiring (fail-safe try/catch): `SafeModeLogBridge.Ensure()`;
+  provider = `ConflictEngine.SafeMode`; reason provider =
+  `ConflictEngine.SafeModeReason`. Any fault emits
+  `SafeModeGate wiring failed (fail-safe: gate observes not-latched)`;
+  the absence of the fault line plus the gate's own first status line
+  are the wiring evidence.
+- StatusHub `conflicts` section now emits `ConflictEngine.StatusLines()`
+  + `SafeModeGate.StatusLines()` + `SymptomDetectors.StatusLines()`.
+- `tests/SafeModeGateTests.cs`: 37 checks SM01–SM12 — unwired-inert;
+  latch-suspends; sticky un-latch; edge reason capture; provider-fault
+  fail-closed; reason-provider fault survival; first-observation-latched
+  counts no edge; first-emit status line; 60 s re-emit interval; status
+  shape + reset; engine-integration E2E via a real ConflictEngine latch
+  (CE10 recipe: re-confirmed conflicts ×3).
+
+### Verified
+- UNIT-PASS: tests 3386/0 (3349 prior + 37 new), run via
+  `tests/run_tests.ps1` (38 suites, TOTAL failed=0 gate), ×3
+  consecutive stable runs.
+- Build: bin\Release\CapBot.dll 458,752 bytes,
+  SHA-256 BB932E4866CE14924D7894E731E80192F0A5D288B11005751C40F162D13D853C;
+  deployed parity True (deployed hash equals build hash).
+- Backup: CapBot.dll.pre_p50.bak = P49 build (454,656 bytes,
+  SHA-256 0AD12E4AA920F98D134671D45E6DDD1AD8EA987E7A9345178AEAE3ED50608CF9,
+  verified before overwrite).
+- LIVE-PASS (boot, appid 252870): `QuarantineExecutor wired modsDir=…`,
+  `SymptomDetectors wired (log pipeline live, exception fingerprinting
+  on)`, `OllamaModelAvailable=true`; 0 wiring-failure lines; no
+  exceptions. IN-SHIP POSITIVE EVIDENCE PENDING at release of this
+  section: the game was held at the main menu (owner actively using the
+  machine — a browser window overlaps the game; input automation was
+  suspended rather than fight it). The first in-ship `WorldTick` emits
+  the `SafeModeGate suspended=no ticks=` line; /capbotstatus conflicts
+  then shows the full gate status. This line will be updated with the
+  captured evidence when the session goes idle.
+
 ## [Phase 49 — Symptom detectors wired to live telemetry] — unreleased (built from Alpha 1.2.2 source)
 
 The conflict engine now receives live evidence: `UnityEngine.Application.logMessageReceived`

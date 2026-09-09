@@ -119,6 +119,8 @@
     <Compile Include="Core\Compatibility\QuarantineExecutor.cs" />
     <Compile Include="Core\Compatibility\SymptomDetectors.cs" />
     <Compile Include="Core\Compatibility\SymptomLogBridge.cs" />
+    <Compile Include="Core\Compatibility\SafeModeGate.cs" />
+    <Compile Include="Core\Compatibility\SafeModeLogBridge.cs" />
     <Compile Include="CompatCommand.cs" />
     <Compile Include="Core\Persistence\CrewPersistence.cs" />
     <Compile Include="CrewPersistenceAdapter.cs" />

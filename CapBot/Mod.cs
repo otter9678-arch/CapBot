@@ -491,6 +491,26 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.COMPAT, "ConflictEngine inventory feed failed (fail-safe: empty registry)", ex);
             }
+            // ---- Phase 50: Safe Mode behavioral gate ----
+            // The engine's Safe Mode latch (P46) was audit-only until now; this
+            // gate is its production reader. The three gated surfaces (host
+            // tick pipeline, legacy feature tick, /capbot spawn) call
+            // SafeModeGate.Tick first and suspend while the latch is engaged —
+            // evidence collection is NOT gated (exception telemetry and the
+            // Harmony audit stay live so /capbotstatus stays truthful and a
+            // future un-latch decision is made on live data). Fail-closed by
+            // construction: an unwired provider observes "not latched", but a
+            // FAULTING provider or a gate-internal fault suspends.
+            try
+            {
+                CapBot.Core.Compatibility.SafeModeLogBridge.Ensure();
+                CapBot.Core.Compatibility.SafeModeGate.SetSafeModeProvider(delegate { return CapBot.Core.Compatibility.ConflictEngine.SafeMode; });
+                CapBot.Core.Compatibility.SafeModeGate.SetSafeModeReasonProvider(delegate { return CapBot.Core.Compatibility.ConflictEngine.SafeModeReason; });
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.COMPAT, "SafeModeGate wiring failed (fail-safe: gate observes not-latched)", ex);
+            }
             // ---- Phase 49: live-telemetry symptom detectors ----
             // Subscribe the Unity log pipeline (Application.logMessageReceived —
             // 3-arg LogCallback reflection-verified against UnityEngine.CoreModule)

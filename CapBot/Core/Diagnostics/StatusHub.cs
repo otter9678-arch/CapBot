@@ -176,9 +176,10 @@ namespace CapBot.Core.Diagnostics
             if (Want(section, "ollama")) AddAll(lines, SafeLines("ollama", delegate { return CapBot.Core.Ollama.OllamaAdvisor.StatusLines(); }));
             if (Want(section, "crewadvisor")) AddAll(lines, SafeLines("crewadvisor", delegate { return CapBot.Core.Qwen.CrewAdvisor.StatusLines(); }));
 
-            // ---- compat (P27) + conflict engine (P46) + symptom detectors (P49) ----
+            // ---- compat (P27) + conflict engine (P46) + safe mode (P50) + symptom detectors (P49) ----
             if (Want(section, "compat")) AddAll(lines, SafeLines("compat", delegate { return CompatManager.StatusLines(); }));
             if (Want(section, "conflicts")) AddAll(lines, SafeLines("conflicts", delegate { return CapBot.Core.Compatibility.ConflictEngine.StatusLines(); }));
+            if (Want(section, "conflicts")) AddAll(lines, SafeLines("conflicts", delegate { return CapBot.Core.Compatibility.SafeModeGate.StatusLines(); }));
             if (Want(section, "conflicts")) AddAll(lines, SafeLines("conflicts", delegate { return CapBot.Core.Compatibility.SymptomDetectors.StatusLines(); }));
 
             // Capability registry needs nowMs.

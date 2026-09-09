@@ -102,6 +102,20 @@ namespace CapBot
                 PLGlobal.Instance.SetupClassDefaultData(ref ___cachedAIData, __instance.GetClassID(), false);
             }
             if (__instance.GetPawn() == null || !__instance.IsBot || __instance.TeamID != 0 || !PhotonNetwork.isMasterClient || __instance.StartingShip == null) return;
+            // ---- Phase 50: Safe Mode behavioral gate (legacy feature tick) ----
+            // A latched Safe Mode stops Autonomy.OnTick (talents, economy,
+            // research, missions, watchdog, smart item use) AND the entire
+            // captain-bot block below this line (orders, shop, course
+            // planning) — bots fall back to vanilla AI. The default-AI-data
+            // fill above stays live so bots keep a sane brain.
+            try
+            {
+                if (CapBot.Core.Compatibility.SafeModeGate.Tick(CapBot.Core.Tasks.TaskClock.NowMs)) return;
+            }
+            catch (System.Exception)
+            {
+                return;   // fail-closed: suspend the feature tick on gate fault
+            }
             Autonomy.OnTick(__instance); // universal systems for ALL crew bots; ship-wide slow tick from executor only
             // Everything below is captain-bot-only logic (orders, shop, course planning).
             if (__instance.GetClassID() != 0) return;
@@ -2879,6 +2893,21 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.TASK, "Authority monitor observe failed", ex);
             }
+            // ---- Phase 50: Safe Mode behavioral gate (host pipeline) ----
+            // Checked AFTER the evidence blocks (world refresh + Harmony audit +
+            // authority observation stay live) but BEFORE any host-side driver:
+            // a latched Safe Mode freezes scheduler/executor/directors this
+            // frame. Fail-closed: the gate suspends on its own internal fault.
+            // Evidence collection is deliberately NOT gated (see SafeModeGate).
+            try
+            {
+                if (CapBot.Core.Compatibility.SafeModeGate.Tick(CapBot.Core.Tasks.TaskClock.NowMs)) return;
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.COMPAT, "Safe-mode gate fault (fail-closed: host pipeline suspended)", ex);
+                return;
+            }
             if (!isMaster) return;
             // ---- Phase 19: decision validator pre-screen (diagnostics only) ----
             // Runs BEFORE scheduler Tick so screened tasks are still Queued —
@@ -3225,6 +3254,14 @@ namespace CapBot
             if (capisbot)
             {
                 PulsarModLoader.Utilities.Messaging.Notification("CapBot is already here!");
+                return;
+            }
+            // Phase 50: Safe Mode — the engine has latched after repeated
+            // re-confirmed conflicts; refuse NEW bot spawns for this session.
+            // (No /capbotstatus mutation, no state change — a pure refusal.)
+            if (CapBot.Core.Compatibility.SafeModeGate.Tick(CapBot.Core.Tasks.TaskClock.NowMs))
+            {
+                PulsarModLoader.Utilities.Messaging.Notification("CapBot spawn suspended: Safe Mode active (" + (CapBot.Core.Compatibility.SafeModeGate.Reason.Length == 0 ? "compatibility conflict detected" : CapBot.Core.Compatibility.SafeModeGate.Reason) + ")");
                 return;
             }
             if (PLNetworkManager.Instance.CurrentGame == null || PLEncounterManager.Instance.PlayerShip == null)

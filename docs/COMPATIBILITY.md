@@ -233,10 +233,11 @@ input is a recommendation only and can never reach the state machine.
 - No runtime Harmony-map enrichment of `usesHarmony` flags yet (landed
   in Phase 48 — see §9 below).
 - No A/B automation (experiments stay manual one-variable runs).
-- No Safe Mode behavioral changes yet (latch + audit only; the boot-safety
-  gate `DisabledUntilCompatibilityTest` semantics are enforced by the
+- Safe Mode behavioral suspension landed in Phase 50 (see §11 below);
+  at P46 time the latch was audit-only. The boot-safety gate
+  `DisabledUntilCompatibilityTest` semantics are enforced by the
   Phase 47 boot gate — the `CompatibilityStateRow.BootMustKeepQuarantined`
-  rule it enforces is already in the model).
+  rule it enforces is already in the model.
 
 ### Tests
 
@@ -338,7 +339,8 @@ failures / 0 exceptions).
 ### What Phase 47 deliberately does NOT do
 
 - No A/B automation (experiments stay manual one-variable runs).
-- No Safe Mode behavioral changes yet (latch + audit only).
+- No Safe Mode behavioral changes yet (landed in Phase 50 — see §11
+  below).
 - No symptom detectors wired to live telemetry yet (the engine's
   `RecordSymptom`/`RecordComparison` callers are tests only; live
   exception fingerprinting is a future phase).
@@ -390,7 +392,8 @@ pre-existing TMPI `PLShipInfoUpdatePatch.TalentsUpdateNeeded` NRE
 ### What Phase 48 deliberately does NOT do
 
 - No A/B automation (experiments stay manual one-variable runs).
-- No Safe Mode behavioral changes yet (latch + audit only).
+- No Safe Mode behavioral changes yet (landed in Phase 50 — see §11
+  below).
 - Enrichment is evidence only: it feeds `CompatibilityHarmonyEnriched`
   audit lines and `harmonyPatching=`, never the quarantine path by
   itself (CE26 pins the refusal ladder).
@@ -460,10 +463,112 @@ threshold was never reached.
 ### What Phase 49 deliberately does NOT do
 
 - No A/B automation (experiments stay manual one-variable runs).
-- No Safe Mode behavioral changes yet.
+- No Safe Mode behavioral changes yet (landed in Phase 50 — see §11
+  below).
 - Detectors are evidence-only: a storm records a symptom and triggers
   evaluation, but quarantine stays structurally unreachable from the
   detector path (Class D + Confirmed requires the manual A/B legs).
 - Attribution is stack-text matching only: a mod whose exceptions carry
   no matching assembly name in the stack text is counted unattributed,
   never guessed.
+
+## 11. Safe Mode behavioral suspension (Phase 50, `Core/Compatibility/`)
+
+The P46 engine latch finally has its production reader. `SafeModeGate`
+is a pure-C# static domain (no Unity/PML/Harmony references — the P19
+narrow-compile lesson) whose single `Tick(nowMs)` method answers one
+question for three behavioral call sites: is the engine's Safe Mode
+latched this frame? When it is, CapBot's own behavior freezes for the
+rest of the session while ALL evidence collection stays live — the
+directive's honesty ladder applies to the observers, never to the
+observed.
+
+### Gate contract
+
+- **Provider seam:** `SetSafeModeProvider(() =>
+  ConflictEngine.SafeMode)`, `SetSafeModeReasonProvider(() =>
+  ConflictEngine.SafeModeReason)` — wired in Mod.cs behind a fail-safe
+  try/catch. Unwired provider → the gate observes not-latched (nothing
+  invented); a FAULTING provider → latched=true → suspend (fail-
+  closed); an internal gate fault → `Tick` returns true (never
+  silently re-enable behavior while the engine may be latched).
+- **Session-sticky suspension:** once latched this session, the
+  behavioral suspension stays until a future phase's explicit un-latch
+  flow. This mirrors the engine itself — its latch is idempotent and
+  has no auto-clear; mirroring that here is the honest behavior.
+- **Edge counting:** a rising edge (clean session latches mid-run)
+  increments `SuspensionCount` and captures the engine's reason; a
+  gate whose FIRST observation is already latched counts NO edge (the
+  sticky latch itself is the state, and the engine's idempotent
+  re-confirm must never re-count).
+- **Evidence surface:** first observation emits a positive wiring-
+  evidence status line (`SafeModeGate suspended=no ticks=…/…`); while
+  suspended the gate re-emits at most every 60 s; status is bounded
+  (4 lines). Readbacks: Suspended / Reason / SuspensionCount /
+  TicksTotal / TicksSuspended.
+
+### The three behavioral gates (Patch.cs, each fail-closed)
+
+1. **WorldTick host pipeline** — placed AFTER the evidence blocks
+   (WorldStateService.Refresh, HarmonyMapAudit.RunOnce,
+   MultiplayerAuthorityMonitor.Observe stay live every frame) and
+   BEFORE the `if (!isMaster) return;` driver: a latched Safe Mode
+   freezes the scheduler / executor / directors this frame.
+2. **PostfixCore legacy feature tick** — placed AFTER the default-AI
+   data fill (bots keep a sane brain) and BEFORE `Autonomy.OnTick` AND
+   the captain-bot block: talents, economy, research, missions,
+   watchdog, smart item use, orders, shop, course planning all stop;
+   bots fall back to vanilla AI.
+3. **SpawnBot.Execute** — after the `capisbot` duplicate check: NEW
+   spawns are refused with a PML notification. A pure refusal: no
+   state mutation, no `/capbotstatus` change.
+
+Evidence collection is deliberately NOT gated anywhere: world refresh,
+Harmony audit, authority observation, and symptom detectors all keep
+running under Safe Mode — the mod suspends its BEHAVIOR, never its
+EVIDENCE.
+
+### Wiring (Mod.cs, fail-safe try/catch)
+
+`SafeModeLogBridge.Ensure()` routes gate lines to the `[CapBot:COMPAT]`
+log (SymptomLogBridge seam pattern). Providers read
+`ConflictEngine.SafeMode` / `ConflictEngine.SafeModeReason` directly.
+Any wiring fault emits `SafeModeGate wiring failed (fail-safe: gate
+observes not-latched)`; the absence of that fault line plus the gate's
+own first status line are the wiring evidence (no invented success
+line).
+
+### Status surface
+
+`/capbotstatus conflicts` emits `SafeModeGate.StatusLines()` between
+the engine's lines and the detectors':
+`SafeModeGate: suspended=<yes|no> [reason=…] edges=<n> ticks=<s/t>
+lastAtMs=<ms|none>` plus the coverage line
+`SafeModeGate: covers hostTickPipeline, legacyFeatureTick, capbotSpawn;
+evidence collection NOT gated`.
+
+### Tests
+
+`tests/SafeModeGateTests.cs` SM01–SM12 (37 checks): unwired-inert;
+latch-suspends; sticky un-latch; edge reason capture; provider-fault
+fail-closed; reason-provider fault survival; first-observation-latched
+counts no edge; first-emit status line; 60 s re-emit interval; status
+shape + reset; engine-integration E2E via a real ConflictEngine latch
+(the CE10 recipe: SetModProfile → RecordSymptom + RecordComparison →
+Evaluate → MarkQuarantined → restore/retest ×3 → Safe Mode latched with
+"repeated re-confirmed conflicts"). Suite total after P50: 3386/0.
+
+### What Phase 50 deliberately does NOT do
+
+- No A/B automation (experiments stay manual one-variable runs).
+- No explicit un-latch flow yet (the engine's latch is idempotent with
+  no auto-clear; the gate mirrors it session-sticky — an owner-facing
+  unlock command is a future phase).
+- No auto-restore of quarantined mods at boot (standing rule; the
+  Phase 47 boot gate still enforces
+  `DisabledUntilCompatibilityTest`).
+- No gating of evidence collection, ever: the engine latch itself, the
+  detectors, the Harmony audit, and the authority monitor all stay live
+  under suspension.
+- The suspension is behavioral only: quarantined files stay quarantined
+  (never modified), and no third-party binary is touched.
