@@ -46,6 +46,8 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'CapBot\Core\Crew\CrewMemory.cs') `
   (Join-Path $repo 'CapBot\Core\Navigation\NavigationRecovery.cs') `
   (Join-Path $repo 'CapBot\Core\Missions\MissionDirector.cs') `
+  (Join-Path $repo 'CapBot\Core\Missions\MissionReturnPolicy.cs') `
+  (Join-Path $repo 'CapBot\Core\Missions\MissionLifecycle.cs') `
   (Join-Path $repo 'CapBot\Core\Economy\EconomyDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Combat\CombatDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Captain\CaptainDirector.cs') `
@@ -85,6 +87,7 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'tests\MemoryTests.cs') `
   (Join-Path $repo 'tests\NavigationTests.cs') `
   (Join-Path $repo 'tests\MissionTests.cs') `
+  (Join-Path $repo 'tests\MissionLifecycleTests.cs') `
   (Join-Path $repo 'tests\EconomyTests.cs') `
   (Join-Path $repo 'tests\CombatTests.cs') `
   (Join-Path $repo 'tests\CaptainTests.cs') `

@@ -159,6 +159,9 @@
     <Compile Include="Core\Navigation\NavigationLogBridge.cs" />
     <Compile Include="Core\Missions\MissionDirector.cs" />
     <Compile Include="Core\Missions\MissionLogBridge.cs" />
+    <Compile Include="Core\Missions\MissionReturnPolicy.cs" />
+    <Compile Include="Core\Missions\MissionLifecycle.cs" />
+    <Compile Include="MissionCommand.cs" />
     <Compile Include="Core\Economy\EconomyDirector.cs" />
     <Compile Include="Core\Economy\EconomyLogBridge.cs" />
     <Compile Include="Core\Combat\CombatDirector.cs" />

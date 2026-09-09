@@ -3009,6 +3009,15 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.MISSION, "Mission director evaluate failed", ex);
             }
+            // ---- P52: mission lifecycle FSM (data-only 17-state tracking) ----
+            try
+            {
+                CapBot.Core.Missions.MissionLifecycle.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.MISSION, "Mission lifecycle evaluate failed", ex);
+            }
             try
             {
                 CapBot.Core.Economy.EconomyDirector.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);

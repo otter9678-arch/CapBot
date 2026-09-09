@@ -297,7 +297,11 @@ namespace CapBot.Core.Ollama
             public string LastFailureReason = string.Empty;
         }
 
-        private static readonly DirectorState s_State = new DirectorState();
+        // Swapped (not readonly) on ResetForTests: an in-flight worker holds a
+        // capture of the OLD state object (RunWorker's stateCapture), so a
+        // late park after a reset lands in an orphaned object — never in the
+        // fresh generation (CA07b, same pattern as CrewAdvisor).
+        private static DirectorState s_State = new DirectorState();
 
         // ---- seams (house pattern) ----
 
@@ -1048,34 +1052,16 @@ namespace CapBot.Core.Ollama
         }
 
         // Test/dev isolation only. Never call in game code. Also frees any
-        // parked worker state and the single-flight gate.
+        // parked worker state and the single-flight gate. Swaps in a FRESH
+        // DirectorState instead of mutating the old one: a worker dispatched
+        // before the reset keeps parking into the orphaned generation (its
+        // stateCapture), so a late response can never pollute the fresh
+        // state (CA07b — same pattern as CrewAdvisor.ResetForTests).
         public static void ResetForTests()
         {
             lock (m_Lock)
             {
-                s_State.LastEvalMs = 0;
-                s_State.Port = PortDefault;
-                s_State.ModelIndex = ModelDefault;
-                s_State.Enabled = false;
-                s_State.InFlightRequestMs = -1;
-                s_State.PendingResponse = null;
-                s_State.PendingResponseMs = 0;
-                s_State.PendingResponseSet = false;
-                s_State.RequestsSent = 0;
-                s_State.RequestsFailed = 0;
-                s_State.RequestsSucceeded = 0;
-                s_State.RequestsTimeouts = 0;
-                s_State.LatencySumMs = 0;
-                s_State.LatencySamples = 0;
-                s_State.AdviceAccepted = 0;
-                s_State.AdviceRejected = 0;
-                s_State.UncertainPasses = 0;
-                s_State.BackoffBlocks = 0;
-                s_State.ConsecutiveFailures = 0;
-                s_State.BackoffUntilMs = -1;
-                s_State.LastAdviceMs = -1;
-                s_State.LastAdvice = string.Empty;
-                s_State.LastFailureReason = string.Empty;
+                s_State = new DirectorState();
                 m_AuthorityProbe = null;
                 m_NowMsProvider = null;
                 m_WorldProvider = null;

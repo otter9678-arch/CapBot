@@ -145,12 +145,70 @@ namespace CapBot.Core.World
         }
     }
 
+    // One objective of a mission (P52 additive capture). Kind is STATIC
+    // VOCABULARY derived from the verified concrete objective class
+    // (PLMissionObjective_TalkToNPC etc. — probe9 member-verified); it is
+    // DATA, never parsed as behavior. Payload fields are -1/null = unknown
+    // (unknown sentinels never trigger — the house contract). TargetText
+    // carries the bounded objective-target string (actor id / volume name /
+    // enemy name) as data.
+    public sealed class MissionObjectiveSnapshot
+    {
+        public const int MaxTargetTextLen = 60;
+
+        // Static vocabulary (probe9-verified subtypes; fallback = UnknownKind).
+        public const string UnknownKind = "UNKNOWN";
+        public const string TalkToNpcKind = "TALK_TO_NPC";
+        public const string EnterVolumeKind = "ENTER_VOLUME";
+        public const string ReachSectorKind = "REACH_SECTOR";
+        public const string PickupItemKind = "PICKUP_ITEM";
+        public const string PickupComponentKind = "PICKUP_COMPONENT";
+        public const string KillEnemyKind = "KILL_ENEMY";
+        public const string WithinJumpsKind = "WITHIN_JUMP_COUNT";
+
+        public readonly string Kind;             // static vocabulary above
+        public readonly bool IsCompleted;
+        public readonly int AmountCompleted;     // -1 = unknown
+        public readonly int AmountNeeded;        // -1 = unknown
+        public readonly int TargetSectorId;      // ReachSector.SectorToReach; -1 = none/unknown
+        public readonly string TargetText;       // bounded DATA carry, may be null
+        public readonly int ItemType;            // raw EPawnItemType value; -1 = not applicable/unknown
+        public readonly int ItemSubType;         // -1 = unknown
+        public readonly int SlotType;            // raw ESlotType value (components); -1 = not applicable/unknown
+
+        public MissionObjectiveSnapshot(
+            string kind, bool isCompleted, int amountCompleted, int amountNeeded,
+            int targetSectorId, string targetText,
+            int itemType, int itemSubType, int slotType)
+        {
+            Kind = string.IsNullOrEmpty(kind) ? UnknownKind : kind;
+            IsCompleted = isCompleted;
+            AmountCompleted = amountCompleted;
+            AmountNeeded = amountNeeded;
+            TargetSectorId = targetSectorId;
+            TargetText = CrewMemberSnapshot.Truncate(targetText, MaxTargetTextLen);
+            ItemType = itemType;
+            ItemSubType = itemSubType;
+            SlotType = slotType;
+        }
+    }
+
     // One active mission with bounded objective summary. Objective *types*
     // are not readable on PLMissionObjective instances (no ObjType member);
     // completion state + text are what the game actually exposes.
+    //
+    // P52 additive capture (same P9 additive-ctor pattern as every other
+    // snapshot extension — all existing callers keep compiling): stable
+    // per-instance identity (MissionData.MissionID, probe9-verified — closes
+    // the P15 L2 same-typeId ambiguity), game-authoritative mission-state
+    // flags (PLServer.HasActiveMissionWithID / IsMissionWithIDReadyToTurnIn /
+    // HasFailedMissionWithID — probe8-verified, the §6 acceptance-verification
+    // seam), and per-objective kind + payload (probe9-verified subtypes).
+    // Unknown sentinels (-1/false-known) never trigger anything.
     public sealed class MissionSnapshot
     {
         public const int MaxObjectiveTextLen = 120;
+        public const int MaxObjectives = 12;
 
         public readonly int MissionTypeId;
         public readonly bool Ended;
@@ -159,10 +217,34 @@ namespace CapBot.Core.World
         public readonly int CompletedObjectives;
         public readonly string FirstIncompleteObjectiveText; // may be null
 
+        // ---- P52 additions (identity + authoritative state + objectives) ----
+        public readonly int MissionId;              // stable per-instance id (MissionData.MissionID); -1 = unknown/legacy
+        public readonly bool GameActiveKnown;       // false = PLServer query unavailable
+        public readonly bool GameActive;            // PLServer.HasActiveMissionWithID (only meaningful when Known)
+        public readonly bool GameReadyTurnInKnown;
+        public readonly bool GameReadyTurnIn;       // PLServer.IsMissionWithIDReadyToTurnIn
+        public readonly bool GameFailedKnown;
+        public readonly bool GameFailed;            // PLServer.HasFailedMissionWithID
+        public readonly IReadOnlyList<MissionObjectiveSnapshot> Objectives; // bounded; empty when not captured
+
         public MissionSnapshot(
             int missionTypeId, bool ended, bool abandoned,
             int totalObjectives, int completedObjectives,
             string firstIncompleteObjectiveText)
+            : this(missionTypeId, ended, abandoned, totalObjectives, completedObjectives,
+                   firstIncompleteObjectiveText, -1, false, false, false, false, false, false, null)
+        {
+        }
+
+        public MissionSnapshot(
+            int missionTypeId, bool ended, bool abandoned,
+            int totalObjectives, int completedObjectives,
+            string firstIncompleteObjectiveText,
+            int missionId,
+            bool gameActiveKnown, bool gameActive,
+            bool gameReadyTurnInKnown, bool gameReadyTurnIn,
+            bool gameFailedKnown, bool gameFailed,
+            IReadOnlyList<MissionObjectiveSnapshot> objectives)
         {
             MissionTypeId = missionTypeId;
             Ended = ended;
@@ -170,6 +252,24 @@ namespace CapBot.Core.World
             TotalObjectives = totalObjectives;
             CompletedObjectives = completedObjectives;
             FirstIncompleteObjectiveText = CrewMemberSnapshot.Truncate(firstIncompleteObjectiveText, MaxObjectiveTextLen);
+            MissionId = missionId;
+            GameActiveKnown = gameActiveKnown;
+            GameActive = gameActiveKnown && gameActive;
+            GameReadyTurnInKnown = gameReadyTurnInKnown;
+            GameReadyTurnIn = gameReadyTurnInKnown && gameReadyTurnIn;
+            GameFailedKnown = gameFailedKnown;
+            GameFailed = gameFailedKnown && gameFailed;
+            List<MissionObjectiveSnapshot> bounded = new List<MissionObjectiveSnapshot>();
+            if (objectives != null)
+            {
+                foreach (MissionObjectiveSnapshot o in objectives)
+                {
+                    if (bounded.Count >= MaxObjectives) break;
+                    if (o == null) continue;
+                    bounded.Add(o);
+                }
+            }
+            Objectives = bounded;
         }
     }
 

@@ -3,6 +3,78 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 52 — Mission lifecycle FSM, stable mission identity, ONE return decision] — unreleased (built from Alpha 1.2.2 source)
+
+Implements master-prompt §5–§13 (mission pipeline, ONE return decision,
+target stability) on the P52-verified API surface (probe8/probe9:
+MissionData.MissionID stable per-instance identity; PLServer
+authoritative mission-state flags; all 7 objective subtypes with exact
+field names). Adds a pure 17-state mission lifecycle FSM, stable-id
+tracking, and the authoritative mission-return policy ported verbatim
+from the legacy Patch.cs table.
+
+### Added
+- **17-state mission lifecycle FSM (`MissionLifecycle`):** the master
+  prompt's explicit states MISSION_NONE → MISSION_DETECTED → … →
+  MISSION_TEMP_UNAVAILABLE with a single deterministic transition rule
+  (`Apply`), deny-by-default authority, 5 s decision cadence, stale/
+  never-captured/not-started fail-safe gates, bounded tracked set
+  (MaxTracked 12) + history (16), and the no-stuck contract: vanished
+  missions report TEMP_UNAVAILABLE (survive via it, never DEAD) and
+  decay through the expiry hygiene; terminal records free their slots.
+  Terminal transitions: COMPLETE / RETURNED (game active-flag flip) /
+  FAILED (game failed flag or abandoned mirror).
+- **Stable per-instance mission identity:** records key on
+  `MISSION:I<missionId>` (probe9-verified `MissionData.MissionID`) when
+  the capture carries identity, closing the audit L2 same-typeId
+  ambiguity for identified instances; legacy identity-less missions
+  keep the exact P15 key `MISSION:<typeId>`.
+- **Per-objective capture (`MissionObjectiveSnapshot`):** static-vocab
+  kinds TALK_TO_NPC / ENTER_VOLUME / REACH_SECTOR / PICKUP_ITEM /
+  PICKUP_COMPONENT / KILL_ENEMY / WITHIN_JUMP_COUNT (probe9-verified
+  subtype fields: ActorTypeID, VolumeName, SectorToReach,
+  ItemTypeToPickup+SubItemType, CompType+SubType, EnemyNameFromType),
+  amounts via GetAmt()/GetAmtNeeded(), bounded at 12 per mission,
+  unknown-kind fallback keeps ObjectiveText.
+- **ONE authoritative return decision (`MissionReturnPolicy`):** the
+  legacy Patch.cs:2731 table ported verbatim (type 0 → 3 completed
+  objectives; 25/68/71/72/780/2437/2580/104851 → 2; 69/264/683/81262/
+  24213/24214/25249 → 1; unlisted → no return). Legacy-parity EXACT for
+  listed types (the table verdict can NEVER be weakened by the game's
+  turn-in flag); additive path for UNLISTED types only: game turn-in
+  flag confirmed AND all objectives complete (unknown sentinels never
+  trigger). `MissionReturnSignal` records the verdict as DATA.
+- **Return-required edge in the lifecycle:** when a completed mission
+  satisfies the return policy, one bounded
+  `MissionReturnRequired <trackId> done=N/N` report fires (once per
+  record) before the terminal report.
+- `/capbotmission` chat command (host-only, read-only): director view
+  (tracked records, signals, collisions) + lifecycle FSM view (17
+  states, transitions, return-required/terminal/temp-unavailable
+  counters).
+
+### Changed
+- **MissionDirector keys on stable identity:** the present map uses
+  `MISSION:I<id>` for identified missions (same-type instances now
+  track separately) and the legacy `MISSION:<typeId>` key otherwise;
+  new `returnSignals` counter surfaced in StatusLines.
+- `PulsarWorldSource` mission capture enriched: per-mission
+  try-guarded authoritative flags (HasActiveMissionWithID /
+  IsMissionWithIDReadyToTurnIn / HasFailedMissionWithID — Known=false
+  on fault) and per-objective subtype detail.
+- StatusHub "missions" section appends the lifecycle status/lines.
+- **OllamaAdvisor.ResetForTests swaps in a fresh DirectorState** (was:
+  mutate-in-place on a readonly field), so an in-flight worker's late
+  park lands in the orphaned generation, never the fresh one (CA07b
+  pattern already used by CrewAdvisor; race surfaced as a test flake
+  and is a latent game-thread hazard on mod reload).
+- Tests: new suite f39 `MissionLifecycleTests` (ML01–ML14: detection
+  pipeline, complete→return-required, legacy type-key, failed/returned
+  terminals, TEMP_UNAVAILABLE survival, no-stuck decay, return-policy
+  table verbatim + additive path, deny-by-default authority, fail-safe
+  inputs, bounded sets, cadence determinism). Suite count 39; TOTAL
+  3474 PASS / 0 FAIL ×3 stable.
+
 ## [Phase 51 — Ollama↔Qwen3 connect (shared transport, startup self-test, offline ladder)] — unreleased (built from Alpha 1.2.2 source)
 
 Connects the EXISTING Ollama integration (P20 advisor + P21 crew

@@ -132,6 +132,13 @@ namespace CapBot.Core.World
             catch (Exception ex) { RecordPartial("crew", ex); crew = null; }
 
             // ---- missions (AllMissions) ------------------------------------------
+            // P52: stable identity (MissionData.MissionID), game-authoritative
+            // state flags (PLServer HasActiveMissionWithID /
+            // IsMissionWithIDReadyToTurnIn / HasFailedMissionWithID — probe8-
+            // verified, the §6 acceptance seam), and per-objective kind +
+            // payload from the probe9-verified concrete subtypes. Every read
+            // is try-guarded per mission; one bad mission never kills the
+            // section (unknown sentinels survive).
             try
             {
                 if (server != null && server.AllMissions != null)
@@ -141,21 +148,63 @@ namespace CapBot.Core.World
                     {
                         if (missions.Count >= WorldSnapshot.MaxMissions) break;
                         if (mission == null) continue;
+
                         int total = 0, completed = 0;
                         string firstIncomplete = null;
+                        List<MissionObjectiveSnapshot> objectives = null;
                         if (mission.Objectives != null)
                         {
+                            objectives = new List<MissionObjectiveSnapshot>(4);
                             foreach (PLMissionObjective objective in mission.Objectives)
                             {
                                 if (objective == null) continue;
                                 total++;
                                 if (objective.IsCompleted) completed++;
                                 else if (firstIncomplete == null) firstIncomplete = objective.ObjectiveText;
+
+                                if (objectives.Count >= MissionSnapshot.MaxObjectives) continue;
+                                try
+                                {
+                                    objectives.Add(BuildObjective(objective));
+                                }
+                                catch (Exception ex) { RecordPartial("objective detail", ex); }
                             }
                         }
+
+                        // Stable identity from the mission's data block (probe9:
+                        // MissionData.MissionID, public field). -1 stays unknown.
+                        int missionId = -1;
+                        try
+                        {
+                            MissionData data = mission.MyMissionData;
+                            if (data != null) missionId = data.MissionID;
+                        }
+                        catch (Exception ex) { RecordPartial("mission id", ex); }
+
+                        // Game-authoritative flags via the PLServer id queries
+                        // (probe8-verified). Known=false when the query itself
+                        // faults (unknown never triggers).
+                        bool activeKnown = false, active = false;
+                        bool turnInKnown = false, turnIn = false;
+                        bool failedKnown = false, failed = false;
+                        if (missionId >= 0)
+                        {
+                            try { active = server.HasActiveMissionWithID(missionId); activeKnown = true; }
+                            catch (Exception ex) { RecordPartial("mission active query", ex); }
+                            try { turnIn = server.IsMissionWithIDReadyToTurnIn(missionId); turnInKnown = true; }
+                            catch (Exception ex) { RecordPartial("mission turnin query", ex); }
+                            try { failed = server.HasFailedMissionWithID(missionId); failedKnown = true; }
+                            catch (Exception ex) { RecordPartial("mission failed query", ex); }
+                        }
+
                         missions.Add(new MissionSnapshot(
                             mission.MissionTypeID, mission.Ended, mission.Abandoned,
-                            total, completed, firstIncomplete));
+                            total, completed, firstIncomplete,
+                            missionId,
+                            activeKnown, active,
+                            turnInKnown, turnIn,
+                            failedKnown, failed,
+                            objectives));
                     }
                 }
             }
@@ -428,6 +477,86 @@ namespace CapBot.Core.World
         }
 
         // ---- per-element builders (each null-safe, each bounded) ---------------
+
+        // P52: one objective's verified payload (probe9 member-verified
+        // subtypes; unknown subtypes degrade to UnknownKind with text only).
+        private static MissionObjectiveSnapshot BuildObjective(PLMissionObjective objective)
+        {
+            int amountCompleted = -1, amountNeeded = -1;
+            try { amountCompleted = objective.GetAmt(); } catch (Exception) { }
+            try { amountNeeded = objective.GetAmtNeeded(); } catch (Exception) { }
+
+            int targetSectorId = -1;
+            string targetText = null;
+            int itemType = -1, itemSubType = -1, slotType = -1;
+            string kind = MissionObjectiveSnapshot.UnknownKind;
+
+            PLMissionObjective_ReachSector reach = objective as PLMissionObjective_ReachSector;
+            if (reach != null)
+            {
+                kind = MissionObjectiveSnapshot.ReachSectorKind;
+                try { targetSectorId = reach.SectorToReach; } catch (Exception) { }
+                targetText = "sector " + (targetSectorId >= 0 ? targetSectorId.ToString(System.Globalization.CultureInfo.InvariantCulture) : "?");
+            }
+            else
+            {
+                PLMissionObjective_TalkToNPC talk = objective as PLMissionObjective_TalkToNPC;
+                if (talk != null)
+                {
+                    kind = MissionObjectiveSnapshot.TalkToNpcKind;
+                    try { targetText = talk.ActorTypeID; } catch (Exception) { }
+                }
+                else
+                {
+                    PLMissionObjective_EnterVolumeOfName volume = objective as PLMissionObjective_EnterVolumeOfName;
+                    if (volume != null)
+                    {
+                        kind = MissionObjectiveSnapshot.EnterVolumeKind;
+                        try { targetText = volume.VolumeName; } catch (Exception) { }
+                    }
+                    else
+                    {
+                        PLMissionObjective_PickupItem pickupItem = objective as PLMissionObjective_PickupItem;
+                        if (pickupItem != null)
+                        {
+                            kind = MissionObjectiveSnapshot.PickupItemKind;
+                            try { itemType = (int)pickupItem.ItemTypeToPickup; } catch (Exception) { }
+                            try { itemSubType = pickupItem.SubItemType; } catch (Exception) { }
+                        }
+                        else
+                        {
+                            PLMissionObjective_PickupComponent pickupComp = objective as PLMissionObjective_PickupComponent;
+                            if (pickupComp != null)
+                            {
+                                kind = MissionObjectiveSnapshot.PickupComponentKind;
+                                try { slotType = (int)pickupComp.CompType; } catch (Exception) { }
+                                try { itemSubType = pickupComp.SubType; } catch (Exception) { }
+                            }
+                            else
+                            {
+                                PLMissionObjective_KillEnemyOfType kill = objective as PLMissionObjective_KillEnemyOfType;
+                                if (kill != null)
+                                {
+                                    kind = MissionObjectiveSnapshot.KillEnemyKind;
+                                    try { targetText = kill.EnemyNameFromType(kill.EnemyType); } catch (Exception) { }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // CompleteWithinJumpCount (and any future subtype) falls through
+            // with kind UnknownKind and the bounded objective text as data.
+            if (targetText == null)
+            {
+                try { targetText = objective.ObjectiveText; } catch (Exception) { }
+            }
+
+            return new MissionObjectiveSnapshot(
+                kind, objective.IsCompleted, amountCompleted, amountNeeded,
+                targetSectorId, targetText, itemType, itemSubType, slotType);
+        }
 
         private static ShipSnapshot BuildShip(PLShipInfoBase ship, PLShipInfoBase playerShip, bool isPlayerShip)
         {

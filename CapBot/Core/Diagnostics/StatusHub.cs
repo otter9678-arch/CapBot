@@ -162,6 +162,8 @@ namespace CapBot.Core.Diagnostics
             if (Want(section, "memory")) AddAll(lines, SafeLines("memory", delegate { return CrewMemorySystem.StatusLines(); }));
             if (Want(section, "navigation")) AddAll(lines, SafeLines("navigation", delegate { return CapBot.Core.Navigation.NavigationRecoveryDirector.StatusLines(); }));
             if (Want(section, "missions")) AddAll(lines, SafeLines("missions", delegate { return CapBot.Core.Missions.MissionDirector.StatusLines(); }));
+            if (Want(section, "missions")) AddAll(lines, SafeLines("missions", delegate { return CapBot.Core.Missions.MissionLifecycle.StatusLines(); }));
+            if (Want(section, "missions")) AddAll(lines, SafeLines("missions", delegate { return CapBot.Core.Missions.MissionLifecycle.Lines(); }));
             if (Want(section, "economy")) AddAll(lines, SafeLines("economy", delegate { return CapBot.Core.Economy.EconomyDirector.StatusLines(); }));
             if (Want(section, "combat")) AddAll(lines, SafeLines("combat", delegate { return CapBot.Core.Combat.CombatDirector.StatusLines(); }));
             if (Want(section, "captain")) AddAll(lines, SafeLines("captain", delegate { return CapBot.Core.Captain.CaptainDirector.StatusLines(); }));

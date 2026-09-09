@@ -138,6 +138,14 @@ namespace CapBot
             CapBot.Core.Missions.MissionDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Missions.MissionDirector.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Missions.MissionDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
+            // P52: mission lifecycle FSM (pure 17-state domain over the same
+            // snapshot) + return policy wiring. Data-only: the FSM tracks
+            // state records and emits bounded diagnostics; it authors NO
+            // tasks and mutates nothing (P15 contract parity). Deny-by-
+            // default authority keeps clients silent.
+            CapBot.Core.Missions.MissionLifecycle.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Missions.MissionLifecycle.SetNowMsProvider(delegate { return TaskClock.NowMs; });
+            CapBot.Core.Missions.MissionLifecycle.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             // Phase 16: attach economy-director logging and wire its seams.
             // The director is REPORT-ONLY (Phase 16 contract): it tracks the
             // credits picture, shop-sector presence, fuel/coolant affordability

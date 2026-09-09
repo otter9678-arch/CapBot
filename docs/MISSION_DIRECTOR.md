@@ -1,15 +1,20 @@
 # Phase 15: Mission Director — Contract
 
-**Status: IMPLEMENTED (Alpha 1.2.2).** Bounded deterministic mission-tracking
-layer over the P2–P14 contracts. It is **not** a mission runner, **not** a
-dialogue bot, and **creates NO tasks**: Phase 15 is deliberately REPORT-ONLY —
-it observes the P6 missions snapshot and emits bounded transition reports that
-later phases (Captain Brain 2.0 planning, Economy Director) can consume as
-data.
+**Status: IMPLEMENTED (Alpha 1.2.2), P52-extended.** Bounded deterministic
+mission-tracking layer over the P2–P14 contracts. It is **not** a mission
+runner, **not** a dialogue bot, and **creates NO tasks**: Phase 15 is
+deliberately REPORT-ONLY — it observes the P6 missions snapshot and emits
+bounded transition reports that later phases (Captain Brain 2.0 planning,
+Economy Director) can consume as data.
+
+**P52 extension (master prompt §5–§13):** stable per-instance identity +
+17-state lifecycle FSM + ONE authoritative return decision. See §13 below.
 
 Files: `CapBot/Core/Missions/MissionDirector.cs` (MissionTrackRecord,
-MissionDirector), `MissionLogBridge.cs` (logging bridge). World input rides
-the Phase 6 snapshot (no separate capture path).
+MissionDirector), `CapBot/Core/Missions/MissionLifecycle.cs` (the FSM),
+`CapBot/Core/Missions/MissionReturnPolicy.cs` (the return decision),
+`MissionCommand.cs` (`/capbotmission`), `MissionLogBridge.cs` (logging
+bridge). World input rides the Phase 6 snapshot (no separate capture path).
 
 ---
 
@@ -162,3 +167,84 @@ the mission domain file + test file with the rest.
   research knowledge only).
 - No new Harmony patch class (permanent ceiling of 11 preserved; WorldTick
   Postfix extended in place — IL 325 → 360 bytes).
+
+## 13. P52 extension — stable identity, lifecycle FSM, return decision
+
+### 13.1 Stable per-instance identity (closes §6 identity caveat for identified missions)
+
+probe9 verified `MissionData.MissionID` — a stable per-instance int on the
+mission's `MyMissionData`. The P6 capture now reads it, and the director's
+present map keys on it when captured (>= 0):
+
+- Identified missions track as `MISSION:I<missionId>` — two concurrent
+  same-type instances are now SEPARATE records (the audit L2 ambiguity no
+  longer applies to them). `SameTypeIdCollisions` remains meaningful for
+  legacy-keyed missions only.
+- Identity-less captures (MissionId < 0) keep the EXACT Phase 15 key
+  `MISSION:<typeId>` — every existing consumer/test key keeps working.
+
+### 13.2 The 17-state lifecycle FSM (`MissionLifecycle`)
+
+A pure, deterministic domain (no game types, no clock reads, no tasks) that
+folds every snapshot into a bounded `MissionLifecycleRecord` per mission:
+
+- The master prompt's 17 explicit states (MISSION_NONE → MISSION_DETECTED →
+  MISSION_TARGET_SELECTED → … → MISSION_TEMP_UNAVAILABLE), one
+  deterministic transition rule (`Apply`), out-of-range state text falls
+  back to "MISSION_UNKNOWN" (never parsed — static vocabulary only).
+- Gates mirror the director: deny-by-default authority seam, 5 s cadence
+  (first eval always runs), stale/never-captured/not-started fail-safe.
+- **No-stuck contract (§5):** vanished missions emit one
+  `MissionTempUnavailable <trackId>` report (survive via TEMP_UNAVAILABLE,
+  never DEAD — §12) and decay after `ActiveExpiryMs` (60 s) so every state
+  has a bounded exit; a present mission re-tracks cleanly (TEMP_UNAVAILABLE
+  → DETECTED via fresh sighting).
+- **Authoritative terminals (§6):** game flags decide — `GameFailed` (or the
+  snapshot's abandoned mirror) → MISSION_FAILED; game-active flip with all
+  objectives complete → MISSION_RETURNED; all-done/Ended → MISSION_COMPLETE.
+- Return-required edge: when a completed mission satisfies the return
+  policy, ONE `MissionReturnRequired <trackId> done=N/N` report fires per
+  record before the terminal report.
+- Counters + readbacks: `TrackedCount`, transition/return/terminal/
+  temp-unavailable/stale counters, `GetTrack(trackId)`, deterministic
+  `Lines()`/`StatusLines()`; `/capbotmission` shows both the director and
+  FSM views. Wired from the WorldTick Postfix after MissionDirector.
+
+### 13.3 ONE authoritative return decision (`MissionReturnPolicy`)
+
+Master prompt §9: exactly ONE return decision exists. The legacy
+`Patch.cs MissionShouldReturnToSender` table is ported verbatim as pure
+data (no game types, never throws):
+
+- Listed types — legacy-parity EXACT: type 0 → 3 completed objectives;
+  25/68/71/72/780/2437/2580/104851 → 2; 69/264/683/81262/24213/24214/25249
+  → 1. The table verdict can NEVER be weakened by the game's turn-in flag.
+- Unlisted types — additive path (probe8-verified
+  `PLServer.IsMissionWithIDReadyToTurnIn`): return when the game confirms
+  turn-in readiness AND all objectives are complete; unknown sentinels
+  (`GameReadyTurnInKnown=false`) never trigger.
+- The legacy consumer at Patch.cs:2769 (`HasActiveMissionInCurrentSector`)
+  is preserved untouched.
+- Verdicts are published as DATA (`MissionReturnSignal`, static vocabulary
+  `MISSION_RETURN_REQUIRED`) — consumers read the policy or the snapshot;
+  nothing re-implements the table.
+
+### 13.4 Per-objective capture (`MissionObjectiveSnapshot`)
+
+probe9 verified the objective subtype surface; the capture reads each
+objective's real fields: TALK_TO_NPC (ActorTypeID), ENTER_VOLUME
+(VolumeName), REACH_SECTOR (SectorToReach), PICKUP_ITEM (ItemType+SubType),
+PICKUP_COMPONENT (SlotType+SubType), KILL_ENEMY (EnemyNameFromType),
+WITHIN_JUMP_COUNT, plus UNKNOWN fallback carrying ObjectiveText. Amounts
+via GetAmt()/GetAmtNeeded(); bounded at 12 per mission. Static vocabulary
+only — never parsed as behavior.
+
+### 13.5 Test coverage
+
+`tests/MissionLifecycleTests.cs` — suite f39, 69 checks (ML01–ML14):
+detection pipeline with stable-id keys, complete→return-required→terminal,
+legacy type-key fallback, failed/returned terminals, TEMP_UNAVAILABLE
+survival, no-stuck decay, return-policy table verbatim + additive path +
+flag-cannot-weaken, deny-by-default authority, fail-safe inputs, bounded
+tracked set, cadence determinism (first eval always runs). Full suite:
+**3474/3474 pass ×3 stable** (39 suites).

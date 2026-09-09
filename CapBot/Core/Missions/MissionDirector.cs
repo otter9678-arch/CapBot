@@ -72,6 +72,7 @@ namespace CapBot.Core.Missions
         public bool AbandonedReported;           // MissionAbandoned fired
         public bool StallReported;               // MissionStallReport fired this episode
         public string LatestObjectiveText;       // bounded DATA carry (≤ 120 chars), never parsed
+        public bool ReturnRequiredReported;      // P52: return signal fired (one per record)
 
         public MissionTrackRecord(string trackId, int missionTypeId, int nowMs)
         {
@@ -136,6 +137,7 @@ namespace CapBot.Core.Missions
             public long PlansExpired;
             public long StaleRejections;
             public long SameTypeIdCollisions;
+            public long ReturnSignals;               // P52: return-policy edge signals
             public string LastUncertainReason;
         }
 
@@ -175,6 +177,7 @@ namespace CapBot.Core.Missions
         public static long PlansExpiredCount { get { lock (m_Lock) return S.PlansExpired; } }
         public static long StaleRejectionCount { get { lock (m_Lock) return S.StaleRejections; } }
         public static long SameTypeIdCollisionCount { get { lock (m_Lock) return S.SameTypeIdCollisions; } }
+        public static long ReturnSignalCount { get { lock (m_Lock) return S.ReturnSignals; } }
         public static string LastUncertainReason { get { lock (m_Lock) return S.LastUncertainReason; } }
 
         // Deterministic lookup by track id (null when absent).
@@ -222,6 +225,7 @@ namespace CapBot.Core.Missions
                 lines.Add("missionless=" + S.MissionlessReports
                     + " dupSuppressed=" + S.DuplicatesSuppressed + " expired=" + S.PlansExpired
                     + " stale=" + S.StaleRejections + " sameTypeColl=" + S.SameTypeIdCollisions
+                    + " returnSignals=" + S.ReturnSignals
                     + " uncertain=" + (S.LastUncertainReason ?? "-"));
             }
             return lines;
@@ -294,18 +298,27 @@ namespace CapBot.Core.Missions
 
             lock (m_Lock)
             {
-                // ---- present map: typeId -> snapshot (dedupe same-type) ----------
-                // Snapshot identity is MissionTypeId only (audit L2): same-type
-                // instances collapse; first sighting wins, collisions counted.
-                Dictionary<int, MissionSnapshot> present = new Dictionary<int, MissionSnapshot>();
+                // ---- present map: stable id -> snapshot (dedupe same-instance) --
+                // P52: key on the stable per-instance MissionId when captured
+                // (probe9: MissionData.MissionID — closes the audit L2 same-type
+                // ambiguity for instances that carry identity); legacy missions
+                // (MissionId -1) keep the EXACT P15 key "MISSION:<typeId>" so
+                // every existing consumer/test key keeps working. Same-type
+                // instances with identity now track separately (the collision
+                // counter stays meaningful for legacy-keyed missions only).
+                Dictionary<string, MissionSnapshot> present =
+                    new Dictionary<string, MissionSnapshot>(StringComparer.Ordinal);
                 int duplicateInstances = 0;
                 for (int i = 0; i < snapshot.Missions.Count; i++)
                 {
                     MissionSnapshot m = snapshot.Missions[i];
                     if (m == null) continue;
-                    if (!present.ContainsKey(m.MissionTypeId))
+                    string key = m.MissionId >= 0
+                        ? MissionLifecycle.TrackIdInstancePrefix + m.MissionId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : TrackIdPrefix + m.MissionTypeId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    if (!present.ContainsKey(key))
                     {
-                        present[m.MissionTypeId] = m;
+                        present[key] = m;
                     }
                     else
                     {
@@ -323,7 +336,7 @@ namespace CapBot.Core.Missions
                 foreach (KeyValuePair<string, MissionTrackRecord> kv in S.Active)
                 {
                     MissionTrackRecord rec = kv.Value;
-                    bool absent = !present.ContainsKey(rec.MissionTypeId);
+                    bool absent = !present.ContainsKey(kv.Key);
                     bool terminalDecayed = rec.IsTerminalState
                         && unchecked(nowMs - rec.LastSeenMs) >= ActiveExpiryMs;
                     if (absent || terminalDecayed)
@@ -338,7 +351,7 @@ namespace CapBot.Core.Missions
                     S.HistoryIds.Enqueue(expired[i]);
                     while (S.HistoryIds.Count > MaxHistory) S.HistoryIds.Dequeue();
                     S.PlansExpired++;
-                    bool vanished = !present.ContainsKey(expiredRec.MissionTypeId);
+                    bool vanished = !present.ContainsKey(expired[i]);
                     if (vanished && !expiredRec.IsTerminalState)
                     {
                         // Vanished while still live: bounded one-shot report.
@@ -371,10 +384,10 @@ namespace CapBot.Core.Missions
                 else
                 {
                     S.MissionlessEpisodeOpen = false;
-                    foreach (KeyValuePair<int, MissionSnapshot> kv in present)
+                    foreach (KeyValuePair<string, MissionSnapshot> kv in present)
                     {
                         MissionSnapshot m = kv.Value;
-                        string trackId = TrackIdPrefix + kv.Key.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                        string trackId = kv.Key;
                         MissionTrackRecord rec;
                         bool opened = false;
                         if (!S.Active.TryGetValue(trackId, out rec))
@@ -403,7 +416,7 @@ namespace CapBot.Core.Missions
                                     pending.Add("MissionShed " + oldest + " (tracked set full)");
                                 }
                             }
-                            rec = new MissionTrackRecord(trackId, kv.Key, nowMs);
+                            rec = new MissionTrackRecord(trackId, m.MissionTypeId, nowMs);
                             S.Active[trackId] = rec;
                             S.MissionsTracked++;
                             opened = true;
@@ -475,6 +488,22 @@ namespace CapBot.Core.Missions
                         }
                         // Carry the bounded objective text as DATA (never parsed).
                         rec.CarryObjectiveText(m.FirstIncompleteObjectiveText);
+
+                        // P52 return policy (ONE authoritative decision, §9):
+                        // edge-triggered data signal when the mission reaches its
+                        // return point (legacy type table + additive game flag).
+                        if (!rec.ReturnRequiredReported
+                            && !rec.IsTerminalState
+                            && MissionReturnPolicy.ShouldReturnToSender(m))
+                        {
+                            rec.ReturnRequiredReported = true;
+                            S.ReturnSignals++;
+                            reports++;
+                            pending.Add(new MissionReturnPolicy.MissionReturnSignal(
+                                MissionReturnPolicy.MissionReturnSignal.KindReturnRequired,
+                                m.MissionTypeId, m.MissionId,
+                                m.CompletedObjectives, m.TotalObjectives, nowMs).ToString());
+                        }
 
                         // Terminal transitions (report once per record).
                         if (!rec.CompletedReported && !rec.AbandonedReported)
@@ -556,6 +585,7 @@ namespace CapBot.Core.Missions
                 S.PlansExpired = 0;
                 S.StaleRejections = 0;
                 S.SameTypeIdCollisions = 0;
+                S.ReturnSignals = 0;
                 S.LastUncertainReason = null;
                 m_AuthorityProbe = null;
                 m_NowMsProvider = null;
