@@ -3,6 +3,54 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 54 — §14 agent-count investigation: invariant verified per-world, no defect] — unreleased (investigation record; no code change)
+
+Investigates the "expected 8/8/8 vs live crew 7 + captain" report
+(master-prompt §14: 1 StableAgentId = 1 CrewAgent = 1 Personality =
+1 Experience = 1 Memory). Result: **no defect** — the agent count
+correctly mirrors the world's actual player population; nothing was
+dropped and nothing was artificially adjusted (mandate's "never fix
+counters artificially" honored by leaving every counter untouched).
+
+### Investigated (live evidence, both sessions)
+- **Current session (pid 176952, 2026-09-08):** 7 players in world =
+  1 human (pid 0) + 6 bots (captain bot via `/capbot` +
+  ServerAddCrewBotPlayer(0), 5 lobby bots pid 2–6). Verified three
+  independent ways: (a) Player.log — 7 `AgentCreated` events at pids
+  0–6, 7 × (PersonalityCreated + MemoryAgentCreated), all 7
+  CaptainAgentPresence SPAWNING→ALIVE, 0 removed/dupCreates;
+  (b) on-screen `/capbotstatus agents` — `agents=7 created=7
+  alive=7 removed=0 dupCreates=0 stale=0`, presence `alive=7
+  temp=0 dead=0`; (c) on-screen `/capbotstatus personalities` —
+  `personalities=7 assigned=7 replaced=0 refused=0 derivations=7`;
+  `/capbotstatus experience` — `experienceRecords=0` (honest zero,
+  taskObs=0 this session); `/capbotstatus memory` —
+  `memoryAgents=7 memoryCreated=7`. §14 chain = 7/7/7 for a 7-player
+  world, internally consistent.
+- **Prior session (Player-prev.log):** that world held 8 players
+  (human + 7 bots); an 8th agent (AGT:1e70d24c, pid=7, role=Unknown)
+  spawned mid-game via the game's own crew-bot path (not `/capbot` —
+  that agent is capt=0; CapBot's spawn surface is the captain only),
+  was tracked correctly (SPAWNING→ALIVE, 8 × PersonalityCreated /
+  MemoryAgentCreated = **8/8/8 met**), and when the world changed the
+  presence machine honestly removed it (TEMP_UNAVAILABLE → removal
+  grace → REMOVED, AgentRemoved line present).
+- **False-leads ruled out:** the advisor context string "7 bots + 1
+  human" was the LLM's paraphrase of the 7-entry roster —
+  `CrewAdvisor.BuildRequestJson` reads only `CrewAgentRegistry.
+  AgentViews()`; no untracked 8th player exists in the current world.
+  No bot-fill mods in either session (mod list: Talents, CapBot,
+  CapBotBaseline, Exotic Components, ExpandedGalaxy, Cutscene Skipper,
+  Progress Editor — no MoreBots/BotCount). WorldSnapshot.MaxCrew=16 —
+  no snapshot truncation. Reconcile/refusal counters all zero — no
+  sync gaps.
+- **Design record:** CapBot spawns only the captain bot
+  (Patch.cs SpawnBot → `ServerAddCrewBotPlayer(0)`, §10 captain
+  surface). Crew-bot creation is a game/host-side flow (station
+  hire, lobby bots); CapBot observes and tracks whatever crew the
+  authoritative world snapshot reports. An "expected 8" is not a
+  CapBot invariant — it is that session's world population.
+
 ## [Phase 53 — Settings audit: honest LIVE/DEAD table + /capbotsettings] — unreleased (built from Alpha 1.2.2 source)
 
 Implements master-prompt §15–19 (settings audit): a single-sourced truth
