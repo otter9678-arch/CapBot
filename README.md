@@ -3,7 +3,7 @@
 A PULSAR: Lost Colony mod that adds a bot Captain — and makes **every crew bot smart and autonomous**.
 
 **Author:** otter9678-arch
-**Current version:** Alpha 1.2.2 ([Download](https://github.com/otter9678-arch/CapBot/releases/latest))
+**Current version:** Alpha 1.2.2 (expansion line P1–P55; verification record in `docs/VALIDATION_REPORT.md`)
 
 ## Credits
 
@@ -75,7 +75,11 @@ phase-by-phase map.
 | Command | Description |
 |---|---|
 | `/capbot` (or `/cap`) | Spawns the Captain Bot (host only, in-game) |
-| `/capbotstatus` | Full task-pipeline + crew-layer status report (host only) |
+| `/capbotstatus` | Full task-pipeline + crew-layer status report (host only); `/capbotstatus <section>` echoes one section |
+| `/capbotmission` | Mission director + lifecycle FSM report (host only, read-only) |
+| `/capbotsettings` | Settings audit table — CONFIGURED/STORED/RUNTIME/CONSUMER/EFFECTIVE per knob (host only, read-only) |
+| `/capbotcompat` | Compatibility/conflict-engine report incl. Safe Mode state (host only, read-only) |
+| `/capbotollama` | Ollama advisor diagnostics (host only, read-only) |
 | `/updateall` | Checks and updates every loaded PML mod |
 
 ## Configuration
@@ -87,13 +91,18 @@ PML mod settings menu → **CapBot**:
 | CaptainBotEnabled | on | Master toggle for autonomy systems |
 | SmartAIEnabled | on | Smart item use for all bots |
 | MissionAutoDetectEnabled | on | Economy + campaign + mission work |
-| AutoAssignCaptain | on | Captain assignment behavior |
-| AIReactionSpeed | 0.1s | Bot reaction cadence |
-| AIAccuracy | 85% | Combat accuracy |
-| CombatEngageRange | 50 | Engagement distance |
-| CombatDisengageHealth | 20% | Flee at hull threshold |
-| MinCreditsReserve | 500 | Credits kept in reserve |
-| ModUpdaterEnabled | off | Run update check every launch |
+| AutoAssignCaptain | on | **not wired — /capbotsettings** (no consumer; honest DEAD knob) |
+| AIReactionSpeed | 0.1s | **not wired — /capbotsettings** (legacy cadence stays hardcoded) |
+| AIAccuracy | 85% | **not wired — /capbotsettings** (no consumer) |
+| CombatEngageRange | 50 | **not wired — /capbotsettings** (no verified position read) |
+| CombatDisengageHealth | 20% | **not wired — /capbotsettings** (legacy blind-jump flee uses hardcoded 0.2 hull floor) |
+| MinCreditsReserve | 500 | **not wired — /capbotsettings** (legacy reserve stays hardcoded 2500) |
+| ModUpdaterEnabled | off | Run update check every launch (LIVE) |
+| OllamaAdvisorEnabled / QwenAdvisorEnabled | off | Recommend-only LLM advisors (LIVE when on) |
+| OllamaModel / OllamaPort | qwen3:latest / 11434 | Advisor model + endpoint (LIVE) |
+| VerboseLogging | off | CapBotLog level gate (LIVE) |
+
+Every knob's honest LIVE/DEAD status is queryable in-game via `/capbotsettings`; the truth table is pinned by tests (`SettingsAuditTests`).
 
 Settings persist instantly (saved on every change).
 
@@ -130,7 +139,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 `
   and smoke-checks the artifact (PE image, no build-machine paths
   embedded). On success it prints `BUILD OK`.
 - The dev-side test suite (`tests/run_tests.ps1`, pure C#, no game
-  references) runs the 22-suite regression independently of the game.
+  references) runs the 40-suite regression independently of the game.
 - CI: `ci/pipeline.yml` builds on any Windows runner with the game DLLs
   staged via the `PULSAR_MANAGED` variable.
 

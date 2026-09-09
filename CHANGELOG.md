@@ -3,6 +3,72 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 55 — Release close-out: validation report, feature matrix, local package, §49 record] — unreleased (docs + package; no code change)
+
+Master-prompt §33–50 release close-out. Zero production changes (the
+P52+P53 build is the release artifact; nothing re-verified worse).
+Verbatim §49 final report follows.
+
+### Added
+- **`docs/VALIDATION_REPORT.md`** — the §42–44 release-candidate
+  record: artifact identity (rebuild byte-identical to deployed DLL),
+  test gates ×3, live-evidence ledger for the shipped build, the
+  34-item test matrix (✔ live / ○ unit / · manual), known manual
+  surface, release disposition.
+- **Feature matrix (docs/OVERVIEW.md §"Feature matrix (P55)")** —
+  FEATURE / IMPLEMENTED / WIRED / TESTED / LIVE VERIFIED / POLISHED /
+  RELEASE READY per system.
+- **Local release package `Release\Alpha-1.2.2-expansion\`:**
+  CapBot.dll + CapBot.pdb + README (install/commands/settings) +
+  CHANGELOG.md + docs snapshot — LOCAL ONLY (§47: no workshop, no
+  public upload).
+- **P54 record cross-check:** §14 invariant evidence folded into the
+  validation report (7/7/7 current world, 8/8/8 prior world).
+
+### Verification (this phase, this session)
+- Reproducibility rebuild: `BUILD OK bytes=485888` via parameterized
+  build.ps1; SHA-256 of rebuilt artifact `bdea3bb0a6801b77e42ecd7a
+  3edb9dc94afddedc00f9fe86d8c59b4aa151b825` — **byte-identical to the
+  deployed `Mods\CapBot.dll`** (both hashes computed in-session; MD5
+  cross-check `710d159b24955297bd25b62e7528d580`).
+- Tests: `TOTAL passed=3664 failed=0` ×3 consecutive (40 suites).
+- Live evidence current (pid 176952 session): boot clean, mission FSM
+  live, /capbotmission + /capbotstatus (agents/personalities/memory/
+  experience) + /capbotsettings OCR-verified on screen; §14 chain
+  verified both sessions; advisors flowing qwen3:latest.
+- Version sync: Mod.cs `Version => "Alpha 1.2.2"` = README "Alpha
+  1.2.2" = release-package name; AssemblyInfo 1.0.0.0 unchanged
+  (PML reads Mod.Version, not the file version — documented in BUILD).
+
+### §49 final report (verbatim)
+
+```
+RELEASE READY — Alpha 1.2.2 expansion line (P1–P55)
+
+PASS/FAIL matrix (§42 categories):
+  Reproducible build ........... PASS (byte-identical rebuild, smoke checks)
+  Test battery ................. PASS (3664/0 ×3 consecutive)
+  Live validation .............. PASS (boot + in-ship evidence, this build)
+  Mission pipeline ............. PASS (17-state FSM live, /capbotmission)
+  Settings audit ............... PASS (10/15 rows on screen, all DEAD rows honest)
+  Agent identity invariant ..... PASS (§14: 7/7/7 live, 8/8/8 prior world)
+  Diagnostics .................. PASS (all /capbotstatus sections live)
+  Docs/version sync ............ PASS (Mod.cs = README = package)
+  Release blockers ............. NONE
+
+AGENTS: 7 agents / 7 personalities / 7 memories (current world; 8/8/8
+in the prior 8-player world) — §14 met per-world, no artificial fixes.
+
+DLL SHA-256: bdea3bb0a6801b77e42ecd7a3edb9dc94afddedc00f9fe86d8c59b4aa151b825
+
+PUBLICLY PUBLISHED: NO
+WORKSHOP: NO
+```
+
+### Disposition
+Per §48: **STOP.** No push, no workshop, no public upload. Local
+commits only; the release package is local-only.
+
 ## [Phase 54 — §14 agent-count investigation: invariant verified per-world, no defect] — unreleased (investigation record; no code change)
 
 Investigates the "expected 8/8/8 vs live crew 7 + captain" report

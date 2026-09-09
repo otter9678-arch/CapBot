@@ -1,4 +1,4 @@
-# CAPBOT OVERVIEW — phase-to-system map (P1–P33)
+# CAPBOT OVERVIEW — phase-to-system map (P1–P55)
 
 > One-page index: every phase, what it shipped, and where its contract
 > lives. Build state per phase: Release 0-w/0-e; tests gated ×3
@@ -69,9 +69,48 @@
 phase; per-phase reflection verify scripts (dev machine, live game
 install); invariants census in QA.md.
 
+## P34–P55 additions (post-P33 phases)
+
+| Phase | System | Contract |
+|---|---|---|
+| P34 | Documentation (README parity) | README.md |
+| P35 | Final audit | FINAL_AUDIT.md |
+| P36–P39 | Live validation + tuning loops (emergency suppression, NAV report-only, flood budget) | LIVE_VALIDATION.md |
+| P40 | Personality lifecycle init | CrewPersonalityRegistry.EnsureFor |
+| P44–P45 | Memory lifecycle + qwen3 pin + presence machine + MoreBots compat fix | CREW_MEMORY.md, COMPATIBILITY.md |
+| P46–P50 | Conflict engine → quarantine executor → Harmony-map enrichment → symptom detectors → Safe Mode gate | COMPATIBILITY.md §7–§9 |
+| P51 | Ollama↔Qwen3 shared transport + self-test | OLLAMA_ADVISOR.md |
+| P52 | Mission lifecycle FSM (17 states, stable ids, ONE return) | MISSION_DIRECTOR.md §13 |
+| P53 | Settings audit (15-row truth table, /capbotsettings) | STATUS_DIAGNOSTICS.md §9 |
+| P54 | §14 agent-count investigation (no defect) | VALIDATION_REPORT.md §3 |
+| P55 | Release close-out (this record + validation report + local package) | VALIDATION_REPORT.md |
+
+## Feature matrix (P55 — §35)
+
+Statuses per column: IMPLEMENTED = code shipped; WIRED = production
+consumer wired; TESTED = dev-suite covered; LIVE = observed in a real
+session; RELEASE READY = no blockers (full basis in VALIDATION_REPORT.md).
+
+| Feature | Impl | Wired | Tested | Live | Release ready |
+|---|---|---|---|---|---|
+| Task pipeline (lifecycle→scheduler→claims→executor→recovery) | YES | YES | 3664-check suite | YES (full chains) | YES |
+| Emergency director + suppression | YES | YES | YES | YES | YES |
+| Crew agents/personalities/memory (§14 chain) | YES | YES | YES | YES (7/7/7 & 8/8/8) | YES |
+| Experience accrual | YES | YES | YES | honest zero (no taskObs yet) | YES (data path) |
+| Navigation recovery | YES | YES | YES | YES | YES |
+| Mission detection + lifecycle FSM + return policy | YES | YES | YES | YES | YES |
+| Economy/combat/captain/planning/missionwork/adjustment/learning directors | YES | YES | YES | counters live | YES |
+| Ollama/Qwen advisors (recommend-only) | YES | YES | YES | YES (qwen3:latest) | YES |
+| Persistence (crew data) | YES | YES | YES | save path live | YES |
+| MP authority monitor | YES | YES | YES | boot+IL (flip manual) | YES |
+| Conflict engine + quarantine + Safe Mode | YES | YES | YES | boot wiring live | YES |
+| Secure updater | YES | YES | YES | report line live | YES |
+| Settings audit (/capbotsettings) | YES | YES | YES | 10/15 rows on screen | YES |
+| Status diagnostics (/capbotstatus) | YES | YES | YES | full + focused | YES |
+
 ## Status
 
-Phases 1–33 complete and locally committed (see CHANGELOG for per-phase
-hashes). Remaining per plan: P34 documentation (this file + README
-refresh), P35 final audit — then STOP (no push/publish/release without
-separate owner authorization).
+Phases 1–55 complete and locally committed (see CHANGELOG for per-phase
+hashes). Release package: `Release\Alpha-1.2.2-expansion\` (LOCAL ONLY).
+**NO push/Workshop/publish without separate owner authorization (§47–48:
+STOP).**
