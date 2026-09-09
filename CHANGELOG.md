@@ -152,13 +152,11 @@ auto-clear) and fail-closed everywhere.
 - LIVE-PASS (boot, appid 252870): `QuarantineExecutor wired modsDir=…`,
   `SymptomDetectors wired (log pipeline live, exception fingerprinting
   on)`, `OllamaModelAvailable=true`; 0 wiring-failure lines; no
-  exceptions. IN-SHIP POSITIVE EVIDENCE PENDING at release of this
-  section: the game was held at the main menu (owner actively using the
-  machine — a browser window overlaps the game; input automation was
-  suspended rather than fight it). The first in-ship `WorldTick` emits
-  the `SafeModeGate suspended=no ticks=` line; /capbotstatus conflicts
-  then shows the full gate status. This line will be updated with the
-  captured evidence when the session goes idle.
+  exceptions. IN-SHIP POSITIVE EVIDENCE CAPTURED 2026-09-08 (P51 deploy
+  session): `SafeModeGate suspended=no ticks=0/1` first-tick line
+  present in an in-ship session (offline crew), `/capbotstatus
+  conflicts` gate lines reachable; HarmonyMapAudit unchanged
+  (434/486/6/1). P50 in-ship acceptance CLOSED.
 
 ## [Phase 49 — Symptom detectors wired to live telemetry] — unreleased (built from Alpha 1.2.2 source)
 
