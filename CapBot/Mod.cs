@@ -392,6 +392,89 @@ namespace CapBot
             // engine's profile registry (no per-frame scans, the P46 perf rule).
             // The engine is evidence-driven: without a recorded symptom it
             // classifies every mod Compatible and quarantines nothing.
+            // ---- Phase 47: quarantine executor wiring (the sanctioned IO layer) ----
+            // Seams first, then the boot gate, then the state-listener → ledger
+            // rebuild. Every block is try/catch fail-safe: one faulting seam or
+            // one corrupt ledger never blocks the mod from loading.
+            try
+            {
+                CapBot.Core.Compatibility.QuarantineExecutor.SetModsDirProvider(delegate
+                {
+                    return PulsarModLoader.ModManager.GetModsDir();
+                });
+                CapBot.Core.Compatibility.QuarantineExecutor.SetIsProtectedProvider(delegate (string modName)
+                {
+                    return CapBot.Core.Compatibility.ProtectedModList.IsProtected(modName);
+                });
+                CapBot.Core.Compatibility.QuarantineExecutor.SetFileHashProvider(delegate (string path)
+                {
+                    using (var sha = System.Security.Cryptography.SHA256.Create())
+                    using (var fs = System.IO.File.Open(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite))
+                    {
+                        System.Text.StringBuilder hash = new System.Text.StringBuilder(64);
+                        foreach (byte b in sha.ComputeHash(fs)) hash.Append(b.ToString("x2"));
+                        return hash.ToString();
+                    }
+                });
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.COMPAT, "QuarantineExecutor seam wiring failed (fail-safe: executor unwired = refuses all)", ex);
+            }
+            try
+            {
+                // Boot gate: re-mark persisted quarantine states BEFORE any engine
+                // evaluation. The ledger is written only after a CONFIRMED Class-D
+                // decision; boot NEVER auto-restores (DisabledUntilCompatibilityTest
+                // semantics) — a mod whose DLL was physically moved stays moved, and
+                // its engine state is restored here so /capbotcompat reports truth.
+                // (Decision lines already flow through ConflictLogBridge.Ensure().)
+                System.Collections.Generic.List<string> seeded = new System.Collections.Generic.List<string>();
+                foreach (CapBot.Core.Compatibility.CompatibilityStateRow row in CapBot.Core.Compatibility.QuarantineExecutor.ReadState())
+                {
+                    if (string.IsNullOrEmpty(row.ModName)) continue;
+                    if (!CapBot.Core.Compatibility.ConflictEngine.SeedQuarantineState(
+                            row.ModName, row.QuarantineState, row.Reconfirmations, CapBot.Core.Tasks.TaskClock.NowMs)) continue;
+                    seeded.Add(row.ModName + "=" + row.QuarantineState);
+                }
+                if (seeded.Count > 0)
+                    CapBotLog.Info(CapBotLog.COMPAT, "ConflictEngine boot gate seeded " + seeded.Count + " ledger row(s): " + string.Join(", ", seeded.ToArray()));
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.COMPAT, "ConflictEngine boot gate failed (fail-safe: no seeded states)", ex);
+            }
+            // P47.1: emit AFTER the boot gate so ProductionModsDir reflects the
+            // live provider (ReadState resolves and stamps it even with no ledger).
+            CapBotLog.Info(CapBotLog.COMPAT, "QuarantineExecutor wired modsDir=" + (CapBot.Core.Compatibility.QuarantineExecutor.ProductionModsDir ?? "unavailable"));
+            try
+            {
+                // State-listener → ledger rebuild: every quarantine-state transition
+                // rewrites compatibility-state.json from engine snapshots. The
+                // executor performs the IO; the engine stays pure.
+                CapBot.Core.Compatibility.ConflictEngine.SetStateListener(delegate (string modName, CapBot.Core.Compatibility.ConflictEngine.QuarantineState newState)
+                {
+                    System.Collections.Generic.List<CapBot.Core.Compatibility.CompatibilityStateRow> rows =
+                        new System.Collections.Generic.List<CapBot.Core.Compatibility.CompatibilityStateRow>();
+                    System.Collections.Generic.List<string> tracked = CapBot.Core.Compatibility.ConflictEngine.TrackedModNames();
+                    for (int i = 0; i < tracked.Count; i++)
+                    {
+                        string st = CapBot.Core.Compatibility.ConflictEngine.QuarantineStateText(tracked[i]);
+                        // Ledger carries only states that survive reboot meaningfully.
+                        if (st == "" || st == "None" || st == "QuarantineRecommended") continue;
+                        rows.Add(new CapBot.Core.Compatibility.CompatibilityStateRow(
+                            tracked[i], st,
+                            CapBot.Core.Compatibility.ConflictEngine.QuarantineAgainCount(tracked[i]),
+                            CapBot.Core.Tasks.TaskClock.NowMs,
+                            "state-listener rebuild"));
+                    }
+                    CapBot.Core.Compatibility.QuarantineExecutor.WriteState(rows);
+                });
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.COMPAT, "ConflictEngine state-listener wiring failed (fail-safe: no ledger rebuild)", ex);
+            }
             try
             {
                 foreach (PulsarModLoader.PulsarMod loadedMod in PulsarModLoader.ModManager.Instance.GetAllMods())

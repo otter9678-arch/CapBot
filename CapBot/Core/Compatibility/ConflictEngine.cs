@@ -296,6 +296,43 @@ namespace CapBot.Core.Compatibility
             }
         }
 
+        // ---- boot-state seeding (ledger-fed, NOT a decision) --------------------------
+
+        // Boot restores a persisted quarantine state from compatibility-state.json.
+        // This is bookkeeping, not classification: the ledger was written by a
+        // previous session's CONFIRMED decision, so seeding it back is honest —
+        // it never fires the state listener (no transition happened) and never
+        // emits a CompatibilityDecision line. Only valid from state None; a mod
+        // with fresh in-session evidence keeps ITS state (live evidence wins).
+        public static bool SeedQuarantineState(string modName, string quarantineStateText, int reconfirmations, long nowMs)
+        {
+            if (string.IsNullOrEmpty(modName) || string.IsNullOrEmpty(quarantineStateText)) { CountRefused(); return false; }
+            QuarantineState seeded;
+            switch (quarantineStateText)
+            {
+                case "Quarantined": seeded = QuarantineState.Quarantined; break;
+                case "QuarantineAgain": seeded = QuarantineState.QuarantineAgain; break;
+                case "RestoredForRetest": seeded = QuarantineState.RestoredForRetest; break;
+                case "CompatibleAfterRetest": seeded = QuarantineState.CompatibleAfterRetest; break;
+                default: return false;   // unknown state text: refuse (fail-safe)
+            }
+            lock (m_Lock)
+            {
+                ModRecord r = GetOrCreateLocked(modName);
+                if (r == null) return false;
+                if (r.Quarantine != QuarantineState.None) return false;   // live evidence or earlier seed wins
+                r.Quarantine = seeded;
+                r.QuarantineAgainCount = reconfirmations < 0 ? 0 : reconfirmations;
+                if (seeded == QuarantineState.Quarantined || seeded == QuarantineState.QuarantineAgain)
+                {
+                    r.QuarantineReason = "persisted from compatibility-state ledger (boot seed)";
+                    r.QuarantinedAtMs = nowMs;
+                }
+                EmitLocked("CompatibilityStateSeeded mod=" + r.Name + " state=" + quarantineStateText);
+                return true;
+            }
+        }
+
         // ---- duplicate CapBot execution (STOP condition) -----------------------------
 
         // Production inventory detects more than one active CapBot assembly.
@@ -374,6 +411,42 @@ namespace CapBot.Core.Compatibility
                 if (!m_Mods.TryGetValue(modName, out r)) return null;
                 return r.LastDecision;
             }
+        }
+
+        // Quarantine-state readback for the state-ledger writer (the
+        // state-listener wiring rebuilds the ledger from these snapshots).
+        public static string QuarantineStateText(string modName)
+        {
+            if (string.IsNullOrEmpty(modName)) return "";
+            lock (m_Lock)
+            {
+                ModRecord r;
+                if (!m_Mods.TryGetValue(modName, out r)) return "";
+                return r.Quarantine.ToString();
+            }
+        }
+
+        public static int QuarantineAgainCount(string modName)
+        {
+            if (string.IsNullOrEmpty(modName)) return 0;
+            lock (m_Lock)
+            {
+                ModRecord r;
+                if (!m_Mods.TryGetValue(modName, out r)) return 0;
+                return r.QuarantineAgainCount;
+            }
+        }
+
+        // Snapshot of every tracked mod name (bounded) — the ledger writer
+        // iterates it to rebuild compatibility-state.json.
+        public static List<string> TrackedModNames()
+        {
+            List<string> names = new List<string>();
+            lock (m_Lock)
+            {
+                foreach (KeyValuePair<string, ModRecord> kv in m_Mods) names.Add(kv.Key);
+            }
+            return names;
         }
 
         public static int TrackedModCount { get { lock (m_Lock) { return m_Mods.Count; } } }

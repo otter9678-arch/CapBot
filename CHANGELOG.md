@@ -3,6 +3,61 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 47 — Physical quarantine executor + boot gate + ledger] — unreleased (built from Alpha 1.2.2 source)
+
+The ONLY compatibility component performing file IO. The conflict engine
+stays pure; `QuarantineExecutor` performs sanctioned IO and is wired
+exclusively in `Mod.cs` behind try/catch fail-safe seams.
+
+### Added
+- `Core/Compatibility/QuarantineExecutor.cs`: atomic quarantine
+  (File.Move to `<modsDir>\CapBot_Quarantine\<mod>\<timestampMs>\<assembly>.dll`,
+  bytes never rewritten; conflict.json = `QuarantineRecord` JSON + appended
+  `assemblySha256` line; rollback on record-write failure restores the DLL —
+  quarantine is atomic); `WriteState`/`ReadState` for
+  `compatibility-state.json` (temp file + `File.Replace`, bounded hand-rolled
+  parser ≤64 rows; corrupt/missing ledger ⇒ empty list = boot fail-open);
+  `RestoreForRetest` (refuses overwrite/missing); identity refusals
+  (empty/non-.dll/path-traversal/protected mods/missing file/unwired
+  provider — EVERY refusal audited via `CompatibilityQuarantineFailed`).
+- `ConflictEngine.SeedQuarantineState(modName, stateText, reconfirmations,
+  nowMs)`: ledger-fed boot restore, ONLY from state None (live evidence
+  always wins), refuses unknown state text before any record creation,
+  never fires the state listener; readbacks `QuarantineStateText`,
+  `QuarantineAgainCount`, `TrackedModNames`.
+- Mod.cs P47 wiring: `SetModsDirProvider` → `PulsarModLoader.ModManager.GetModsDir()`
+  (static, reflection-verified against PML 0.12.3.31), `SetIsProtectedProvider`
+  → `ProtectedModList.IsProtected`, `SetFileHashProvider` → SHA-256 hex over
+  `FileShare.ReadWrite` opens; boot gate (ReadState → SeedQuarantineState
+  with seeded-count audit); state-listener → ledger rebuild
+  (TrackedModNames × QuarantineStateText, skipping ""/None/QuarantineRecommended
+  → WriteState).
+
+### Verified
+- Tests: 3301/3301 (52 new `QuarantineExecutorTests` QE01–QE14: refusal
+  ladder, atomicity+rollback, ledger roundtrip/escaping, corrupt-ledger
+  fail-open, restore refusals, seed refusals, full-causality E2E — record
+  symptom → A/B comparison → CONFIRMED Class D → Quarantine → engine
+  re-mark → reboot re-seed). QE14 wires the state-listener exactly as
+  Mod.cs does.
+- Build: Release 0 warnings; DLL 448,000 bytes; deployed with SHA256
+  parity (`8D4AD030…037E`), backup `CapBot.dll.pre_p471.bak` (= first
+  P47 build `FA037703…2830`), prior chain `CapBot.dll.pre_p47.bak`
+  (= P46.1 `3C983F31…3475`) preserved.
+- Live boot (P47.1): CapBot loaded, 0 wiring failures, 0 exceptions, and
+  the one-time boot audit line reports the real mods dir:
+  `QuarantineExecutor wired modsDir=C:\SteamLibrary\steamapps\common\PULSARLostColony\Mods`.
+  (First P47 boot shipped an empty value — audit line ran before the boot
+  gate ever resolved the provider; P47.1 moved the line after the boot
+  gate, which stamps `m_LastModsDir` in `ReadState` even when no ledger
+  file exists.)
+- Runtime facts verified live: mod DLLs are UNLOCKED while the game runs
+  (PML releases handles after load), so runtime `File.Move` takes effect
+  next boot — matching the boot-gate model; Player.log must be read with
+  `FileShare.ReadWrite` while the game runs.
+- Launch: correct Steam appid is 252870 (`steam://rungameid/252870`);
+  402840 exists in NO library and was always a silent no-op.
+
 ## [Phase 46 — Mod Conflict Detection Engine (core)] — unreleased (built from Alpha 1.2.2 source)
 
 Foundation of the standing mod-conflict directive: the deterministic

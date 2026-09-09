@@ -63,6 +63,7 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'CapBot\Core\Compatibility\ConflictEngine.cs') `
   (Join-Path $repo 'CapBot\Core\Compatibility\ProtectedModList.cs') `
   (Join-Path $repo 'CapBot\Core\Compatibility\QuarantineRecord.cs') `
+  (Join-Path $repo 'CapBot\Core\Compatibility\QuarantineExecutor.cs') `
   (Join-Path $repo 'CapBot\Core\Persistence\CrewPersistence.cs') `
   (Join-Path $repo 'CapBot\Core\Diagnostics\StatusHub.cs') `
   (Join-Path $repo 'CapBot\Core\Update\UpdatePolicy.cs') `
@@ -95,6 +96,7 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'tests\MultiplayerHardeningTests.cs') `
   (Join-Path $repo 'tests\CompatManagerTests.cs') `
   (Join-Path $repo 'tests\ConflictEngineTests.cs') `
+  (Join-Path $repo 'tests\QuarantineExecutorTests.cs') `
   (Join-Path $repo 'tests\PersistenceTests.cs') `
   (Join-Path $repo 'tests\StatusDiagnosticsTests.cs') `
   (Join-Path $repo 'tests\UpdatePolicyTests.cs') `

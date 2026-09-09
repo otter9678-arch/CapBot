@@ -226,15 +226,15 @@ input is a recommendation only and can never reach the state machine.
 
 ### What Phase 46 deliberately does NOT do
 
-- No physical quarantine executor yet (file moves + conflict.json writing
-  are a future phase; the state machine, records, and state-listener seam
-  are ready and testable).
+- No physical quarantine executor at P46 time (file moves + conflict.json
+  writing landed in Phase 47 — see §8 below; the state machine, records,
+  and state-listener seam were ready and testable at P46).
 - No runtime Harmony-map enrichment of `usesHarmony` flags yet.
 - No A/B automation (experiments stay manual one-variable runs).
 - No Safe Mode behavioral changes yet (latch + audit only; the boot-safety
-  gate `DisabledUntilCompatibilityTest` lands with the executor — the
-  `CompatibilityStateRow.BootMustKeepQuarantined` rule it will enforce is
-  already in the model).
+  gate `DisabledUntilCompatibilityTest` semantics are enforced by the
+  Phase 47 boot gate — the `CompatibilityStateRow.BootMustKeepQuarantined`
+  rule it enforces is already in the model).
 
 ### Tests
 
@@ -250,3 +250,94 @@ edges; protected-list membership; state-listener transition events
 (CE22); record factory + verbatim JSON escaping (CE23); boot-gate rule
 (CE24); audit-trail bounds + drop counting (CE25). Suite total after
 P46.1: 3249/0.
+
+## 8. Quarantine executor (Phase 47, `Core/Compatibility/`)
+
+The production layer P46 deferred: the ONLY compatibility component
+performing file IO. `QuarantineExecutor.cs` is static, thread-safe
+(single lock), and wired exclusively in `Mod.cs` behind try/catch
+fail-safe seams — one faulting seam never blocks the mod from loading;
+an unwired executor refuses ALL operations (fail-closed).
+
+### Production seams (Mod.cs)
+
+- `SetModsDirProvider` → `PulsarModLoader.ModManager.GetModsDir()`
+  (STATIC call — reflection-verified against PML 0.12.3.31; there is no
+  instance accessor). Any fault ⇒ executor refuses, nothing quarantines.
+- `SetIsProtectedProvider` → `ProtectedModList.IsProtected` (second
+  gate, defense-in-depth: the engine refuses protected mods first).
+- `SetFileHashProvider` → SHA-256 hex; file opened with
+  `FileShare.ReadWrite` because PML keeps no locks (mod DLLs are
+  UNLOCKED while the game runs — verified live; PML releases handles
+  after load).
+- Boot audit: one-time `QuarantineExecutor wired modsDir=…` line
+  emitted AFTER the boot gate (P47.1 ordering fix — the first P47 boot
+  logged an empty value because the line ran before any provider call
+  resolved and stamped `m_LastModsDir`).
+
+### Operations
+
+- **Quarantine(modName, modAssembly):** refusal ladder first (identity:
+  empty name / non-.dll / filename-hostile chars; protected mod;
+  missing assembly; unwired provider) — every refusal audited
+  `CompatibilityQuarantineFailed` with a reason. Success path:
+  atomic `File.Move` to
+  `<modsDir>\CapBot_Quarantine\<mod>\<timestampMs>\<assembly>.dll`
+  (bytes never rewritten), then `conflict.json` written next to the
+  moved DLL = `QuarantineRecord` JSON with an appended
+  `"assemblySha256"` line. If the record write fails the DLL is moved
+  BACK (quarantine is atomic — never a half-quarantined copy). Runtime
+  moves take effect next boot (PML loads mod DLLs once at boot).
+- **WriteState(rows) / ReadState():** `compatibility-state.json` in
+  `CapBot_Quarantine\` — temp file + `File.Replace` (atomic-ish; a torn
+  file must never disable boot safety). Hand-rolled bounded parser
+  (≤64 rows, control-char-safe). Corrupt or missing ledger ⇒ empty
+  list = boot fail-open (a mod with no ledger entry is not quarantined;
+  its DLL is present and boots — the correct fail-open for "unknown").
+- **RestoreForRetest(modName, modAssembly, quarantineDir):** moves the
+  DLL back for a compatibility retest; refuses to overwrite an existing
+  destination and refuses when the quarantined source is missing.
+- **ProductionModsDir:** readback of the last live-resolved mods dir
+  (stamped by `ReadState`/`WriteState` after validation; empty until
+  first resolution).
+
+### Boot gate (Mod.cs, P47)
+
+`ReadState()` → `ConflictEngine.SeedQuarantineState(...)` per row —
+BEFORE any engine evaluation. Seeding is ONLY accepted from engine
+state None (live evidence always wins), refuses unknown state text
+before any record is created, and never fires the state listener
+(no ledger rewrite loop at boot). Boot NEVER auto-restores: a mod the
+ledger says is Quarantined/QuarantineAgain stays quarantined
+(`DisabledUntilCompatibilityTest` semantics — the DLL was physically
+moved; only an explicit `/capbotcompat` retest flow restores).
+Seeded rows are audited: `ConflictEngine boot gate seeded N ledger row(s): …`.
+State-listener → ledger rebuild: every state transition rewrites the
+ledger from `TrackedModNames() × QuarantineStateText()`, skipping
+`""`/`None`/`QuarantineRecommended` (states that survive reboot
+meaningfully only).
+
+### Tests (QE01–QE14, 52 assertions, `tests/QuarantineExecutorTests.cs`)
+
+Refusal ladder + audit coverage (QE01–QE04); atomic quarantine incl.
+bytes-preserved + JSON shape + SHA (QE05); write-fault rollback
+(QE06 — DLL restored, no half-quarantined copy); ledger roundtrip +
+verbatim escaping + bounded parse + corrupt/missing fail-open (QE07–QE09);
+restore-for-retest incl. refusals (QE10); ledger seed accepted/refused
+(live-wins, unknown-text refusal creates no record) (QE11–QE13); and
+the full-causality E2E (QE14): record symptom → A/B comparison
+(true/false/true) → CONFIRMED Class D → executor moves the DLL →
+engine re-marks Quarantined → state-listener (wired exactly as Mod.cs)
+rebuilds the ledger → simulated reboot (`ResetForTests` + re-seed) →
+`CompatStatus` reports Quarantined. Suite total after P47: 3301/0
+(verified twice pre-deploy; boot re-verified live with 0 wiring
+failures / 0 exceptions).
+
+### What Phase 47 deliberately does NOT do
+
+- No runtime Harmony-map enrichment of `usesHarmony` flags yet.
+- No A/B automation (experiments stay manual one-variable runs).
+- No Safe Mode behavioral changes yet (latch + audit only).
+- No symptom detectors wired to live telemetry yet (the engine's
+  `RecordSymptom`/`RecordComparison` callers are tests only; live
+  exception fingerprinting is a future phase).
