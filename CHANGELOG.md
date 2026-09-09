@@ -64,14 +64,18 @@ ladder with a 120 s cooldown; timeout/latency/queue counters; the
 - UNIT-PASS: tests 3405/0 (3386 prior + 19 net new OA16/CA07/CA11
   checks), run via `tests/run_tests.ps1` (38 suites, TOTAL failed=0
   gate), ×3 consecutive stable runs.
-- Build: bin\Release\CapBot.dll (fresh P51 build), deployed parity
-  pending (deploy deferred — game running).
+- Build: bin\Release\CapBot.dll 465,920 bytes, SHA-256
+  A87F690A2DF973228EA830A7FA2EF8BCAF6697B71BBFD7513259C57B4ADB6E67;
+  deployed parity True (backup CapBot.dll.pre_p51.bak = P50 build
+  BB932E48…D853C).
 - LIVE-PASS (loopback, real Ollama 0.33.3): POST /api/chat with the
   exact self-test body → HTTP 200, message.content "OK",
   model qwen3:latest, 4.2 s (cold model load), inside the 90 s budget.
-- LIVE in-game verification (`OllamaSelfTest=pass` + `/capbotollama`
-  counters in Player.log) PENDING — requires deploy + relaunch after
-  the running game session closes.
+- LIVE-PASS (in game, 2026-09-08 boot): Player.log carries
+  `OllamaConfiguredModel=qwen3:latest`, `OllamaRequestModel=qwen3:latest`,
+  `OllamaModelAvailable=true`, `OllamaSelfTest=pass`; 0 wiring-failure
+  lines; in-ship gameplay shows `OllamaAdvice model=qwen3:latest` and
+  `CrewAdvice model=qwen3:latest` flowing live.
 
 ## [Phase 50 — Safe Mode behavioral suspension] — unreleased (built from Alpha 1.2.2 source)
 
