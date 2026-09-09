@@ -3,6 +3,45 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 53 — Settings audit: honest LIVE/DEAD table + /capbotsettings] — unreleased (built from Alpha 1.2.2 source)
+
+Implements master-prompt §15–19 (settings audit): a single-sourced truth
+table for every SaveValue CapBot declares, the `/capbotsettings` command
+rendering the six mandated fields, and honest dead-knob labels in the
+settings menu. P53 does NOT wire dead sliders — silently changing legacy
+behavior is exactly what the audit forbids; the legacy constants stay
+documented as DATA (P16/P17 contracts).
+
+### Added
+- **SettingsAudit truth table (`Core/Diagnostics/SettingsAudit.cs`):**
+  pure C#, no game/PML references. 15 rows in fixed Config.cs order:
+  9 LIVE (consumer named exactly: Autonomy.OnTick for the 3 toggles,
+  Mod boot for ModUpdaterEnabled, CapBotLog level gate for
+  VerboseLogging, advisor ApplyConfig gates for Ollama/Qwen toggles +
+  OllamaModel with the P44 owner pin note, OllamaAdvisor endpoint for
+  OllamaPort) + 6 DEAD (AutoAssignCaptain, AIReactionSpeed, AIAccuracy,
+  CombatEngageRange, CombatDisengageHealth, MinCreditsReserve —
+  grep-verified zero consumers, audit H4; consumer "NONE (…)",
+  effective "not wired (no consumer)").
+- **`/capbotsettings` chat command (host-only, read-only):** renders
+  `SETTING/CONFIGURED/STORED/RUNTIME/CONSUMER/EFFECTIVE` per row from
+  the live Config values; fail-safe readbacks degrade to "n/a", never
+  invented; OllamaModel shows the pinned model name + index.
+- **Drift detector tests (`SettingsAuditTests`, suite f40, SA01–SA04):**
+  table completeness (every row classified exactly once, 190 checks),
+  honesty (the 6 dead knobs stay DEAD with NONE consumer + not-wired
+  effective), internal consistency (DEAD never claims wired, non-DEAD
+  never claims not-wired, unique names), and safe lookups. A knob that
+  gains a consumer without flipping its row FAILS the suite.
+
+### Changed
+- **Menu dead-knob labels:** the six dead sliders/buttons in Config.cs
+  now say " (not wired — /capbotsettings)" so the UI stops implying
+  they act.
+- Tests: suite count 40; TOTAL 3664 PASS / 0 FAIL ×3 stable. Build
+  artifact: CapBot.dll 485,888 bytes, SHA-256 bdea3bb0a6801b77e42ecd
+  7a3edb9dc94afddedc00f9fe86d8c59b4aa151b825.
+
 ## [Phase 52 — Mission lifecycle FSM, stable mission identity, ONE return decision] — unreleased (built from Alpha 1.2.2 source)
 
 Implements master-prompt §5–§13 (mission pipeline, ONE return decision,

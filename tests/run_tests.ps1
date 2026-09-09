@@ -70,6 +70,7 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'CapBot\Core\Compatibility\SafeModeGate.cs') `
   (Join-Path $repo 'CapBot\Core\Persistence\CrewPersistence.cs') `
   (Join-Path $repo 'CapBot\Core\Diagnostics\StatusHub.cs') `
+  (Join-Path $repo 'CapBot\Core\Diagnostics\SettingsAudit.cs') `
   (Join-Path $repo 'CapBot\Core\Update\UpdatePolicy.cs') `
   (Join-Path $repo 'CapBot\Core\Perf\SceneScanGate.cs') `
   (Join-Path $repo 'tests\TaskLifecycleTests.cs') `
@@ -110,7 +111,8 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'tests\PerfGateTests.cs') `
   (Join-Path $repo 'tests\QaInvariantTests.cs') `
   (Join-Path $repo 'tests\PersonalityLifecycleTests.cs') `
-  (Join-Path $repo 'tests\CommandGateTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
+  (Join-Path $repo 'tests\CommandGateTests.cs') `
+  (Join-Path $repo 'tests\SettingsAuditTests.cs') 2>&1 | ForEach-Object { Write-Output $_ }
 if ($LASTEXITCODE -ne 0) { Write-Output 'COMPILE FAILED'; exit 3 }
 
 $output = & $exe 2>&1 | ForEach-Object { "$_" }

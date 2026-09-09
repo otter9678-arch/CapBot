@@ -1,4 +1,4 @@
-# STATUS DIAGNOSTICS (Phase 29)
+# STATUS DIAGNOSTICS (Phase 29; settings audit added Phase 53)
 
 > **Ownership argument.** Phase 29 wires the read-only user-facing surfaces:
 > a single status aggregation point, a chat command, and a settings-menu
@@ -111,15 +111,66 @@ counters are).
 - nowMs-derived ages in TaskRegistry/CapabilityRegistry lines make
   byte-identical cross-collection equality the WRONG invariant (SD10).
 
-## 8. Verification
+## 9. Settings audit (Phase 53, §15–19)
+
+The honest per-SaveValue truth table lives in ONE place:
+`Core/Diagnostics/SettingsAudit.cs` (pure C#, no game/PML references,
+never throws, bounded). 15 rows in fixed Config.cs order, each
+classified:
+
+- **LIVE (9):** a compile-verified gameplay consumer exists, and the row
+  names it — the 3 autonomy toggles (`Autonomy.OnTick` talents/research/
+  inventory, SmartItemUse, economy/campaign/missions), ModUpdaterEnabled
+  (Mod boot), VerboseLogging (CapBotLog level gate), OllamaAdvisorEnabled
+  + QwenAdvisorEnabled (advisor ApplyConfig → Evaluate gates),
+  OllamaModel (advisors request model; P44 owner pin `qwen3:latest` at
+  boot), OllamaPort (OllamaAdvisor endpoint, clamped 1..65535).
+- **DEAD (6):** the menu shows the knob and the value persists, but
+  NOTHING reads it (audit H4, grep-verified): AutoAssignCaptain,
+  AIReactionSpeed, AIAccuracy, CombatEngageRange, CombatDisengageHealth,
+  MinCreditsReserve. Consumer renders `NONE (…)`; effective renders
+  `not wired (no consumer)`.
+
+P53 deliberately does NOT wire dead sliders — silently changing legacy
+behavior is exactly what the audit forbids. The legacy constants those
+knobs resemble stay documented as DATA in the P16 (EconomyDirector
+ReserveFloor 2500) and P17 (CombatDirector LegacyBlindJumpHullFraction
+0.2) contracts; wiring is a later-phase decision.
+
+**`/capbotsettings` (SettingsCommand.cs, host-only, read-only):**
+renders `SETTING / CONFIGURED / STORED / RUNTIME / CONSUMER / EFFECTIVE`
+per row straight from the audit table + live Config values. STORED
+mirrors CONFIGURED (SaveValue is the in-memory value loaded at boot; the
+single boot-time overwrite — the qwen3 model pin — is reported in the
+consumer column instead). Fail-safe readbacks degrade to "n/a", never
+invented; OllamaModel shows the pinned model name + index.
+
+**Drift protection:** `tests/SettingsAuditTests.cs` (suite f40, SA01–SA04,
+190 checks) pins the table: size 15 = 9 live + 6 dead; every dead knob
+stays DEAD with a NONE consumer and not-wired effective; internal
+consistency (DEAD never claims wired, non-DEAD never claims not-wired,
+consumer text present, unique names); safe lookups. A knob that gains a
+consumer without flipping its row FAILS the suite — the audit cannot
+silently go stale. Conversely a knob reported LIVE without a consumer
+fails the invented-liveness check.
+
+**Menu honesty:** the six dead knobs in Config.cs carry the label suffix
+" (not wired — /capbotsettings)" so the UI stops implying they act.
+
+## 10. Verification (P29 record + P53 addition)
 
 - Build: MSBuild Release 0 warnings / 0 errors.
-- Tests: `TOTAL passed=2614 failed=0` ×3 consecutive (suite now 28 domain
-  files, 19 suites; SD suite 42/42 after fixing 5 test-authoring bugs —
-  counter-not-per-record line counts, terminal-only history, missing
-  authority policy, stale report variable, age-embedded line instability).
-- Reflection (`verify_build_p29.ps1`): 37/0 — hub surface/const;
+- Tests (P29): `TOTAL passed=2614 failed=0` ×3 consecutive at the time
+  (28 domain files, 19 suites; SD suite 42/42 after fixing 5
+  test-authoring bugs — counter-not-per-record line counts,
+  terminal-only history, missing authority policy, stale report
+  variable, age-embedded line instability).
+- Reflection (P29, `verify_build_p29.ps1`): 37/0 — hub surface/const;
   command derives ChatCommand with the full member set; executor
   counters present; hub IL purity (zero forbidden refs) + read-only IL
   proof (no lifecycle mutators, no tick drivers); command IL calls
   Collect + Messaging.Echo; 11 patch classes; prior-phase types intact.
+- Tests (P53): suite f40 `SettingsAuditTests` SA01–SA04 (190 checks);
+  full runner `TOTAL passed=3664 failed=0` ×3 consecutive (40 suites);
+  Release build 0 errors, CapBot.dll 485,888 bytes, SHA-256
+  bdea3bb0a6801b77e42ecd7a3edb9dc94afddedc00f9fe86d8c59b4aa151b825.

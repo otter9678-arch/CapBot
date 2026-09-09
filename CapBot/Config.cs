@@ -96,7 +96,7 @@ namespace CapBot
                 Config.SmartAIEnabled.Value = !Config.SmartAIEnabled;
             if (GUILayout.Button("Mission Auto-Detection: " + (Config.MissionAutoDetectEnabled ? "Enabled" : "Disabled")))
                 Config.MissionAutoDetectEnabled.Value = !Config.MissionAutoDetectEnabled;
-            if (GUILayout.Button("Auto-Assign Captain: " + (Config.AutoAssignCaptain ? "Enabled" : "Disabled")))
+            if (GUILayout.Button("Auto-Assign Captain: " + (Config.AutoAssignCaptain ? "Enabled" : "Disabled") + " (not wired — /capbotsettings)"))
                 Config.AutoAssignCaptain.Value = !Config.AutoAssignCaptain;
             if (GUILayout.Button("Mod Auto-Updater (every launch): " + (Config.ModUpdaterEnabled ? "Enabled" : "Disabled")))
                 Config.ModUpdaterEnabled.Value = !Config.ModUpdaterEnabled;
@@ -119,15 +119,15 @@ namespace CapBot
                 Config.QwenAdvisorEnabled.Value = !Config.QwenAdvisorEnabled;
 
             GUI.skin.label.alignment = TextAnchor.UpperLeft;
-            GUILayout.Label("AI Reaction Speed: " + Config.AIReactionSpeed.Value.ToString("0.0") + "s");
+            GUILayout.Label("AI Reaction Speed: " + Config.AIReactionSpeed.Value.ToString("0.0") + "s (not wired — /capbotsettings)");
             Config.AIReactionSpeed.Value = GUILayout.HorizontalSlider(Config.AIReactionSpeed, 0.1f, 2f);
-            GUILayout.Label("AI Accuracy: " + (Config.AIAccuracy * 100f).ToString("0") + "%");
+            GUILayout.Label("AI Accuracy: " + (Config.AIAccuracy * 100f).ToString("0") + "% (not wired — /capbotsettings)");
             Config.AIAccuracy.Value = GUILayout.HorizontalSlider(Config.AIAccuracy, 0.3f, 1f);
-            GUILayout.Label("Combat Engage Range: " + Config.CombatEngageRange.Value.ToString("0"));
+            GUILayout.Label("Combat Engage Range: " + Config.CombatEngageRange.Value.ToString("0") + " (not wired — /capbotsettings)");
             Config.CombatEngageRange.Value = GUILayout.HorizontalSlider(Config.CombatEngageRange, 10f, 120f);
-            GUILayout.Label("Combat Disengage (flee) at hull: " + (Config.CombatDisengageHealth * 100f).ToString("0") + "%");
+            GUILayout.Label("Combat Disengage (flee) at hull: " + (Config.CombatDisengageHealth * 100f).ToString("0") + "% (not wired — /capbotsettings)");
             Config.CombatDisengageHealth.Value = GUILayout.HorizontalSlider(Config.CombatDisengageHealth, 0.05f, 0.5f);
-            GUILayout.Label("Min Credits Reserve: " + Config.MinCreditsReserve.Value);
+            GUILayout.Label("Min Credits Reserve: " + Config.MinCreditsReserve.Value + " (not wired — /capbotsettings)");
             Config.MinCreditsReserve.Value = (int)GUILayout.HorizontalSlider(Config.MinCreditsReserve, 0, 20000);
 
             GUILayout.Space(8f);
