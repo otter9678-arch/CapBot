@@ -3,6 +3,56 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 48 — Runtime Harmony-map enrichment] — unreleased (built from Alpha 1.2.2 source)
+
+The conflict engine's `usesHarmony` profile flags are now enriched from the
+LIVE Harmony patch map at first in-ship tick — replacing static filename
+speculation with observed reality. Strictly conservative: enrichment only
+ever flips `false → true` (never un-sets), records the Harmony owner id
+read-only, and never feeds the quarantine path by itself.
+
+### Added
+- `ConflictEngine.MarkHarmonyObserved(modName, harmonyOwner, nowMs)`:
+  refuses null/empty/unknown mods; records the owner id read-only; when a
+  mod's `UsesHarmony` is false, flips it to true, increments
+  `m_HarmonyEnrichedCount`, and emits a one-time
+  `CompatibilityHarmonyEnriched mod=<name> owner=<owner|unknown>` audit
+  line. Idempotent — re-observation never double-counts. Readbacks:
+  `HarmonyOwnerText`, `HarmonyEnrichedCount`; StatusLines summary gains
+  `harmonyPatching=<count>`. ResetForTests zeroes the counter.
+- `Patch.HarmonyMapAudit` (one-shot, first WorldTick only, in-ship only —
+  verified absent at main menu and lobby): builds the owner→mod map from
+  `ModManager.GetAllMods()` × `mod.HarmonyIdentifier()`, then walks
+  `HarmonyLib.Harmony.GetAllPatchedMethods()` ×
+  `PatchProcessor.GetPatchInfo(method).Owners`; calls
+  `MarkHarmonyObserved` once per patching mod and emits a single summary
+  line `HarmonyMapAudit patchedMethods=<n> owners=<n> modsPatching=<n>
+  enriched=<n>`. Fully try/catch fail-safe; any fault emits
+  `Harmony map audit fault (skipped)` and never retries.
+- Harmony API surface verified by reflection probe against the game's
+  0Harmony v2.2.2.0 (not invented): `GetAllPatchedMethods()`,
+  `Harmony.GetPatchInfo`/`PatchProcessor.GetPatchInfo`,
+  `HarmonyLib.Patches.Owners`, `Harmony.HasAnyPatches`.
+
+### Verified
+- Tests: 3319/3319 (18 new CE26 checks: refusal ladder, flip + audit,
+  `RefusalReason.UsesHarmonyOnly` → KeepBoth evaluation, owner readback,
+  idempotency, already-true profiles, null owner → `owner=unknown`,
+  and the honesty invariant — enrichment alone never strengthens a weak
+  A/B into a quarantine).
+- Build: Release 0 warnings; DLL 450,048 bytes; deployed with SHA256
+  parity (`9E9613B9…4880E`), backup `CapBot.dll.pre_p48.bak` (= P47.1
+  `8D4AD030…037E`).
+- LIVE-PASS in-ship (offline crew, Captain, COLONIAL_HUB): first WorldTick
+  fired the one-shot —
+  `HarmonyMapAudit patchedMethods=435 owners=493 modsPatching=7 enriched=1`
+  and `CompatibilityHarmonyEnriched mod=Talents owner=Mest.Talents` (the
+  TMPI owner id, matching its mod author). 0 wiring failures. The only
+  in-game exception line is the known pre-existing TMPI
+  `PLShipInfoUpdatePatch.TalentsUpdateNeeded` NRE (not CapBot).
+- Confirmed: WorldTick does NOT fire at main menu or the Join-a-Crew
+  lobby, so the audit line appears only after entering a crew game.
+
 ## [Phase 47 — Physical quarantine executor + boot gate + ledger] — unreleased (built from Alpha 1.2.2 source)
 
 The ONLY compatibility component performing file IO. The conflict engine

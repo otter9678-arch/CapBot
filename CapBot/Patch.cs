@@ -2843,6 +2843,19 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.TASK, "World refresh tick failed", ex);
             }
+            // ---- Phase 48: runtime Harmony-map enrichment (one-shot) ----
+            // First WorldTick = every mod's static constructor and Harmony patch
+            // pass has run (PML loads and patches all mods before the first frame
+            // update). One bounded enumeration; strictly evidence-only: flips
+            // engine profiles UsesHarmony false->true with the observed owner id.
+            try
+            {
+                HarmonyMapAudit.RunOnce();
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.COMPAT, "Harmony map audit failed", ex);
+            }
             bool isMaster = false;
             try { isMaster = PhotonNetwork.isMasterClient; }
             catch (System.Exception) { isMaster = false; }
@@ -3288,6 +3301,76 @@ namespace CapBot
                 Learning.RecordJump();
             }
             catch (System.Exception ex) { CapBotLog.Error(CapBotLog.PERSISTENCE, "Sector-jump learning record failed", ex); }
+        }
+    }
+
+    // Phase 48: runtime Harmony-map enrichment for the conflict engine.
+    // One-shot (first WorldTick): enumerates Harmony's live patch map —
+    // Harmony.GetAllPatchedMethods() × PatchProcessor.GetPatchInfo(method)
+    // × Patches.Owners (API surface reflection-verified against the game's
+    // 0Harmony v2.2.2) — maps every owner id to a loaded PML mod through
+    // HarmonyIdentifier(), and feeds the engine strictly-conservative
+    // evidence: MarkHarmonyObserved(mod, owner) only ever flips UsesHarmony
+    // false→true (a true observation can never make a mod MORE removable;
+    // the never-remove-for ladder only gains refusals). No name-string
+    // speculation: a mod that never appears as a patch owner stays flagged
+    // as profiled at boot. Bounded: one pass over ≤ a few hundred patched
+    // methods, once per session, wrapped fail-safe.
+    static class HarmonyMapAudit
+    {
+        private static bool _ran;
+
+        internal static void RunOnce()
+        {
+            if (_ran) return;
+            _ran = true;
+            try
+            {
+                // Owner id -> PML mod name, built from the live inventory (the
+                // same enumeration the boot feed uses; a mod's HarmonyIdentifier()
+                // is its authoritative patch-owner id).
+                Dictionary<string, string> ownerToMod = new Dictionary<string, string>(8, System.StringComparer.Ordinal);
+                foreach (PulsarModLoader.PulsarMod mod in PulsarModLoader.ModManager.Instance.GetAllMods())
+                {
+                    if (mod == null || string.IsNullOrEmpty(mod.Name)) continue;
+                    string owner;
+                    try { owner = mod.HarmonyIdentifier(); }
+                    catch (System.Exception) { continue; }
+                    if (string.IsNullOrEmpty(owner)) continue;
+                    if (!ownerToMod.ContainsKey(owner)) ownerToMod.Add(owner, mod.Name);
+                }
+
+                // Walk the live patch map: every patched method × every patch
+                // container (prefixes/transpilers/finalizers/postfixes) × Owners.
+                int methods = 0, ownersSeen = 0;
+                Dictionary<string, bool> reported = new Dictionary<string, bool>(8, System.StringComparer.Ordinal);
+                foreach (System.Reflection.MethodBase method in HarmonyLib.Harmony.GetAllPatchedMethods())
+                {
+                    methods++;
+                    HarmonyLib.Patches info = HarmonyLib.PatchProcessor.GetPatchInfo(method);
+                    if (info == null || info.Owners == null) continue;
+                    foreach (string owner in info.Owners)
+                    {
+                        if (string.IsNullOrEmpty(owner)) continue;
+                        ownersSeen++;
+                        string modName;
+                        if (!ownerToMod.TryGetValue(owner, out modName)) continue;
+                        if (reported.ContainsKey(modName)) continue;
+                        reported.Add(modName, true);
+                        CapBot.Core.Compatibility.ConflictEngine.MarkHarmonyObserved(modName, owner,
+                            CapBot.Core.Tasks.TaskClock.NowMs);
+                    }
+                }
+                CapBotLog.Info(CapBotLog.COMPAT,
+                    "HarmonyMapAudit patchedMethods=" + methods + " owners=" + ownersSeen +
+                    " modsPatching=" + reported.Count + " enriched=" + CapBot.Core.Compatibility.ConflictEngine.HarmonyEnrichedCount);
+            }
+            catch (System.Exception e)
+            {
+                // The audit is evidence-only enrichment: a fault here never
+                // affects gameplay, and _ran already prevents a per-frame retry.
+                CapBotLog.Error(CapBotLog.COMPAT, "Harmony map audit fault (skipped)", e);
+            }
         }
     }
 

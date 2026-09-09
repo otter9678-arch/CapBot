@@ -185,9 +185,10 @@ input is a recommendation only and can never reach the state machine.
   structurally unquarantinable — refusal=PROTECTED_MOD wins over ANY
   symptom or A/B evidence (test CE21 end-to-end).
 - **Evidence intake (bounded):** `SetModProfile` (one boot-time snapshot
-  from PML `GetAllMods`, flags enriched later by the runtime Harmony audit —
-  never name strings), `RecordSymptom` (latest wins), `RecordComparison`
-  (latest A/B wins), ≤32 tracked mods.
+  from PML `GetAllMods`, flags enriched later by the runtime Harmony
+  audit — P48 §9: `MarkHarmonyObserved` flips `false→true` only, from
+  the live patch map — never name strings), `RecordSymptom` (latest
+  wins), `RecordComparison` (latest A/B wins), ≤32 tracked mods.
 - **Audit:** every `Evaluate` emits a rate-limited
   `CompatibilityDecision mod= class= confidence= action= [refusal=] reason=`
   line — re-emitted only when the verdict text changes or 60s elapsed.
@@ -229,7 +230,8 @@ input is a recommendation only and can never reach the state machine.
 - No physical quarantine executor at P46 time (file moves + conflict.json
   writing landed in Phase 47 — see §8 below; the state machine, records,
   and state-listener seam were ready and testable at P46).
-- No runtime Harmony-map enrichment of `usesHarmony` flags yet.
+- No runtime Harmony-map enrichment of `usesHarmony` flags yet (landed
+  in Phase 48 — see §9 below).
 - No A/B automation (experiments stay manual one-variable runs).
 - No Safe Mode behavioral changes yet (latch + audit only; the boot-safety
   gate `DisabledUntilCompatibilityTest` semantics are enforced by the
@@ -335,9 +337,62 @@ failures / 0 exceptions).
 
 ### What Phase 47 deliberately does NOT do
 
-- No runtime Harmony-map enrichment of `usesHarmony` flags yet.
 - No A/B automation (experiments stay manual one-variable runs).
 - No Safe Mode behavioral changes yet (latch + audit only).
 - No symptom detectors wired to live telemetry yet (the engine's
   `RecordSymptom`/`RecordComparison` callers are tests only; live
   exception fingerprinting is a future phase).
+
+## 9. Runtime Harmony-map enrichment (Phase 48, `Patch.cs` + engine)
+
+The conflict engine's `usesHarmony` profile flags — seeded from PML
+metadata at boot (§7) — are enriched from the LIVE Harmony patch map at
+the first in-ship tick. Static filename speculation is gone: enrichment
+reflects what actually patched, observed from the running game.
+
+### Intake API (`ConflictEngine.MarkHarmonyObserved`)
+
+`MarkHarmonyObserved(modName, harmonyOwner, nowMs)` — strictly
+conservative: refuses null/empty/unknown mods; records the Harmony owner
+id read-only; when `UsesHarmony` is false it flips true (never
+un-sets), increments `m_HarmonyEnrichedCount`, and emits a one-time
+`CompatibilityHarmonyEnriched mod=<name> owner=<owner|unknown>` audit.
+Idempotent (re-observation never double-counts). Readbacks:
+`HarmonyOwnerText`, `HarmonyEnrichedCount`; the `/capbotstatus conflicts`
+summary carries `harmonyPatching=<count>`. Honesty invariant (CE26):
+enrichment alone never strengthens a weak A/B — a mod enriched to
+"uses Harmony" without causal evidence still evaluates
+`RefusalReason.UsesHarmonyOnly → KeepBoth`, never quarantine.
+
+### Auditor (`Patch.HarmonyMapAudit`, one-shot on first WorldTick)
+
+Runs only in the ship/game scene (verified: WorldTick does NOT fire at
+main menu or the Join-a-Crew lobby, so the audit line appears only after
+entering a crew game). Builds the owner→mod map from
+`ModManager.GetAllMods()` × `mod.HarmonyIdentifier()`, walks
+`HarmonyLib.Harmony.GetAllPatchedMethods()` ×
+`PatchProcessor.GetPatchInfo(method).Owners` (0Harmony v2.2.2.0 — API
+surface reflection-verified, not invented), calls `MarkHarmonyObserved`
+once per patching mod, and emits a single summary
+`HarmonyMapAudit patchedMethods=<n> owners=<n> modsPatching=<n> enriched=<n>`.
+Fully try/catch fail-safe — any fault emits
+`Harmony map audit fault (skipped)` once and never retries.
+
+### Live verification (P48 boot, offline crew, in-ship)
+
+`HarmonyMapAudit patchedMethods=435 owners=493 modsPatching=7 enriched=1`
+plus `CompatibilityHarmonyEnriched mod=Talents owner=Mest.Talents` —
+the TMPI (TalentsModPerformanceImprovement) owner id, matching its
+author. 0 wiring failures; the only in-game exception is the known
+pre-existing TMPI `PLShipInfoUpdatePatch.TalentsUpdateNeeded` NRE
+(not CapBot, unchanged from P45/P46 observations).
+
+### What Phase 48 deliberately does NOT do
+
+- No A/B automation (experiments stay manual one-variable runs).
+- No Safe Mode behavioral changes yet (latch + audit only).
+- No symptom detectors wired to live telemetry yet (live exception
+  fingerprinting → `RecordSymptom` is a future phase).
+- Enrichment is evidence only: it feeds `CompatibilityHarmonyEnriched`
+  audit lines and `harmonyPatching=`, never the quarantine path by
+  itself (CE26 pins the refusal ladder).

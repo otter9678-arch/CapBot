@@ -34,6 +34,7 @@ namespace CapBot.Core.Compatibility
             internal bool TouchesPlayerOrBot;
             internal bool FilenameSimilarity;
             internal bool StaticSpeculationOnly;
+            internal string HarmonyOwner = "";       // P48: live patch-map owner id ("" = none observed)
             internal SymptomReport Symptom;          // latest wins (bounded store)
             internal ComparisonResult Comparison;    // latest A/B wins
             internal ConflictDecision LastDecision;  // last Evaluate() verdict
@@ -70,6 +71,7 @@ namespace CapBot.Core.Compatibility
         private static int m_DecisionEmits;
         private static int m_QuarantineAgainEvents;
         private static int m_DuplicateCapBotEvents;
+        private static int m_HarmonyEnrichedCount;           // P48: mods observed patching live
         private static bool m_SafeMode;
         private static string m_SafeModeReason = "";
         private static long m_SafeModeAtMs = -1;
@@ -109,6 +111,41 @@ namespace CapBot.Core.Compatibility
                 r.FilenameSimilarity = filenameSimilarity;
                 r.StaticSpeculationOnly = staticSpeculationOnly;
                 return true;
+            }
+        }
+
+        // P48 enrichment: the runtime Harmony audit (Patch.cs side) reports the
+        // live patch-map owners it found for a mod. STRICTLY CONSERVATIVE:
+        // only a false->true UsesHarmony flip is applied (never un-sets), the
+        // owner id is recorded read-only, and the flip is audited once per mod.
+        // The engine never touches Harmony itself — this is data intake only.
+        public static bool MarkHarmonyObserved(string modName, string harmonyOwner, long nowMs)
+        {
+            if (string.IsNullOrEmpty(modName)) { CountRefused(); return false; }
+            lock (m_Lock)
+            {
+                ModRecord r;
+                if (!m_Mods.TryGetValue(modName, out r)) { CountRefused(); return false; }
+                if (!string.IsNullOrEmpty(harmonyOwner)) r.HarmonyOwner = harmonyOwner;
+                if (!r.UsesHarmony)
+                {
+                    r.UsesHarmony = true;
+                    m_HarmonyEnrichedCount++;
+                    EmitLocked("CompatibilityHarmonyEnriched mod=" + r.Name
+                        + " owner=" + (string.IsNullOrEmpty(r.HarmonyOwner) ? "unknown" : r.HarmonyOwner));
+                }
+                return true;
+            }
+        }
+
+        public static string HarmonyOwnerText(string modName)
+        {
+            if (string.IsNullOrEmpty(modName)) return "";
+            lock (m_Lock)
+            {
+                ModRecord r;
+                if (!m_Mods.TryGetValue(modName, out r)) return "";
+                return r.HarmonyOwner;
             }
         }
 
@@ -455,6 +492,7 @@ namespace CapBot.Core.Compatibility
         public static int DecisionEmitCount { get { lock (m_Lock) { return m_DecisionEmits; } } }
         public static int QuarantineAgainEvents { get { lock (m_Lock) { return m_QuarantineAgainEvents; } } }
         public static int DuplicateCapBotEvents { get { lock (m_Lock) { return m_DuplicateCapBotEvents; } } }
+        public static int HarmonyEnrichedCount { get { lock (m_Lock) { return m_HarmonyEnrichedCount; } } }
         public static int MaxTrackedModsBound { get { return MaxTrackedMods; } }
         public static int MaxStatusLinesBound { get { return MaxStatusLines; } }
 
@@ -470,6 +508,7 @@ namespace CapBot.Core.Compatibility
                           " evaluations=" + m_Evaluations +
                           " quarantineAgain=" + m_QuarantineAgainEvents +
                           " dupCapBot=" + m_DuplicateCapBotEvents +
+                          " harmonyPatching=" + m_HarmonyEnrichedCount +
                           " safeMode=" + (m_SafeMode ? "yes" : "no"));
                 int remaining = m_Mods.Count;
                 foreach (KeyValuePair<string, ModRecord> kv in m_Mods)
@@ -505,6 +544,7 @@ namespace CapBot.Core.Compatibility
                 m_DecisionEmits = 0;
                 m_QuarantineAgainEvents = 0;
                 m_DuplicateCapBotEvents = 0;
+                m_HarmonyEnrichedCount = 0;
                 m_SafeMode = false;
                 m_SafeModeReason = "";
                 m_SafeModeAtMs = -1;

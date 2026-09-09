@@ -24,6 +24,8 @@
 //   CE18 bounded tracking (MaxTrackedMods) + refusals counted
 //   CE19 ResetForTests clears everything
 //   CE20 CompatStatus vocabulary for untracked/empty/unknown
+//   CE26 P48 Harmony-map enrichment: strictly conservative flip (never un-sets),
+//        owner recorded, audited once, cannot weaken any A/B verdict
 using System;
 using System.Collections.Generic;
 using CapBot.Core.Compatibility;
@@ -459,6 +461,51 @@ namespace CapBot.TaskTests
             CompatibilityAuditTrail.Append(null);
             CompatibilityAuditTrail.Append("");
             Check(CompatibilityAuditTrail.Count == CompatibilityAuditTrail.MaxEntriesBound, "CE25 null/empty lines ignored");
+
+            // ---- CE26: P48 Harmony-map enrichment (strictly conservative) -------------
+            FreshSetup();
+            ConflictEngine.SetModProfile("QuietMod", false, false, false, false, false, false);
+            ConflictEngine.SetModProfile("PatchingMod", false, false, false, false, false, false);
+            ConflictEngine.SetModProfile("AlreadyHarmony", false, true, false, false, false, false);
+            // Unknown mod refused; empty name refused.
+            Check(!ConflictEngine.MarkHarmonyObserved("Untracked", "owner.x", 1000), "CE26 unknown mod refused");
+            Check(!ConflictEngine.MarkHarmonyObserved("", "owner.x", 1000), "CE26 empty name refused");
+            // Flip false->true, owner recorded, audited once.
+            Check(ConflictEngine.MarkHarmonyObserved("PatchingMod", "owner.patching", 1000), "CE26 flip accepted");
+            ConflictDecision d26 = ConflictEngine.Evaluate("PatchingMod", 1000);
+            Check(d26 != null && d26.Refusal == RefusalReason.UsesHarmonyOnly && d26.Action == Remediation.KeepBoth,
+                "CE26 enriched mod is harmony-only => never removed");
+            Check(HasLineContaining("CompatibilityHarmonyEnriched mod=PatchingMod owner=owner.patching"),
+                "CE26 enrichment audited with owner");
+            Check(ConflictEngine.HarmonyOwnerText("PatchingMod") == "owner.patching", "CE26 owner readback");
+            Check(ConflictEngine.HarmonyEnrichedCount == 1, "CE26 enriched counter");
+            // Idempotent: same mod again never re-enriches (counter stays 1).
+            Check(ConflictEngine.MarkHarmonyObserved("PatchingMod", "owner.patching", 2000), "CE26 re-observe ok");
+            Check(ConflictEngine.HarmonyEnrichedCount == 1, "CE26 idempotent (no double-count)");
+            Check(!HasLineContaining("mod=PatchingMod owner=owner.patching") || HasLineContaining("CompatibilityHarmonyEnriched mod=PatchingMod owner=owner.patching"),
+                "CE26 single audit line for stable state");
+            // Already-true profile: observation updates owner, never re-enriches.
+            Check(ConflictEngine.MarkHarmonyObserved("AlreadyHarmony", "owner.already", 1000), "CE26 already-true ok");
+            Check(ConflictEngine.HarmonyEnrichedCount == 1, "CE26 already-true not double-counted");
+            Check(ConflictEngine.HarmonyOwnerText("AlreadyHarmony") == "owner.already", "CE26 owner recorded for already-true");
+            Check(!HasLineContaining("mod=AlreadyHarmony"), "CE26 no audit for non-flip");
+            // Null owner tolerated (owner stays whatever it was; flip still happens).
+            FreshSetup();
+            ConflictEngine.SetModProfile("NullOwnerMod", false, false, false, false, false, false);
+            Check(ConflictEngine.MarkHarmonyObserved("NullOwnerMod", null, 1000), "CE26 null owner tolerated");
+            Check(ConflictEngine.HarmonyEnrichedCount == 1, "CE26 null owner still enriches");
+            Check(HasLineContaining("owner=unknown"), "CE26 null owner audited as unknown");
+            // Enrichment can never make a quarantined-decision mod MORE removable:
+            // symptom + A/B + enrichment all present => still harmony-refused on
+            // a non-implicating A/B (evidence-only, no behavior change).
+            FreshSetup();
+            ConflictEngine.SetModProfile("Mixed", false, false, false, false, false, false);
+            ConflictEngine.RecordSymptom("Mixed", SymptomKind.ExceptionStorm, "Mixed", "fp", 10, 100, 200);
+            ConflictEngine.RecordComparison("Mixed", "ab", false, false, false, 300);
+            ConflictEngine.MarkHarmonyObserved("Mixed", "owner.mixed", 400);
+            ConflictDecision d26b = ConflictEngine.Evaluate("Mixed", 400);
+            Check(d26b != null && d26b.Action == Remediation.KeepBoth && d26b.Confidence == ConflictConfidence.Unverified,
+                "CE26 enrichment does not strengthen a weak A/B");
 
             Console.WriteLine("");
             Console.WriteLine("SUMMARY passed=" + s_Passed + " failed=" + s_Failed);
