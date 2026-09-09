@@ -7,7 +7,7 @@ namespace CapBot
 {
     public class Mod : PulsarMod
     {
-        public override string Version => "Alpha 1.2.2";
+        public override string Version => "Alpha 1.2.3";
 
         public override string Author => "otter9678-arch (original by pokegustavo; Alpha 1.2.x expansion inspired by the PULSAR-Modders community tools: PML by the PULSAR-Modders team, Better AI/Quality Improver/Exotic Components by pokegustavo, Talents framework by Mest/TheRealMesteven, TalentsModPerformanceImprovement by OnHyex)";
 

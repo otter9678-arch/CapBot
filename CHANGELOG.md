@@ -3,6 +3,14 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Release v1.2.3 — Alpha 1.2.3] — 2026-09-09
+
+First published release of the P1–P55 expansion line (owner-authorized
+GitHub push; all prior commits were local-only by policy). Version bump
+Alpha 1.2.2 → **Alpha 1.2.3** in Mod.cs + README. Production code is
+byte-for-byte the validated P52+P53 build (see §49 report in the P55
+section below); only the version string changes in the shipped DLL.
+
 ## [Phase 55 — Release close-out: validation report, feature matrix, local package, §49 record] — unreleased (docs + package; no code change)
 
 Master-prompt §33–50 release close-out. Zero production changes (the

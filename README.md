@@ -3,7 +3,7 @@
 A PULSAR: Lost Colony mod that adds a bot Captain — and makes **every crew bot smart and autonomous**.
 
 **Author:** otter9678-arch
-**Current version:** Alpha 1.2.2 (expansion line P1–P55; verification record in `docs/VALIDATION_REPORT.md`)
+**Current version:** Alpha 1.2.3 (expansion line P1–P55; verification record in `docs/VALIDATION_REPORT.md`)
 
 ## Credits
 
