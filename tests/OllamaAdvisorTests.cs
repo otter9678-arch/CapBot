@@ -274,7 +274,11 @@ namespace CapBot.TaskTests
             Advance(OllamaAdvisor.MinRecheckMs);
             s_Snap = FreshCalm(s_Clock.NowMs);
             Eval(); // consume null body
-            Check(HasLineContaining("OllamaAdviceInvalid"), "OA06a null body = invalid-response line");
+            // P51: a parked null body is now classified as a HARD failure
+            // (server unreachable => the request failed, not the advice).
+            Check(HasLineContaining("OllamaAdviceFailed outcome=fault"), "OA06a null body = hard-fault line");
+            Check(OllamaAdvisor.GetRequestsFailed() == 1, "OA06b hard fault counted in RequestsFailed");
+            Check(OllamaAdvisor.GetAdviceRejected() == 0, "OA06b hard fault is not an advice rejection");
             // Two more failures: consecutive-failure ladder arms back-off.
             for (int i = 0; i < 2; i++)
             {
@@ -286,12 +290,17 @@ namespace CapBot.TaskTests
                 s_Snap = FreshCalm(s_Clock.NowMs);
                 Eval(); // consume
             }
-            Check(OllamaAdvisor.GetRequestsFailed() == 0, "OA06b completed-but-unusable counts as rejected, not failed");
-            // Drive real failures (transport exception path is exercised via
-            // null bodies; the back-off ladder keys on consecutive failures —
-            // rejected advice increments ConsecutiveFailures internally only
-            // on hard faults, so verify the counter surface instead).
-            Check(OllamaAdvisor.GetBackoffBlocks() == 0, "OA06c no back-off from soft rejects");
+            Check(OllamaAdvisor.GetRequestsFailed() == 3, "OA06b three hard failures counted");
+            Check(OllamaAdvisor.GetBackoffBlocks() > 0, "OA06c back-off armed after ladder; subsequent dispatch blocked");
+            // Back-off expiry re-opens the cadence window (exponential
+            // back-off per the mandate: a cooldown, then recovery).
+            s_Clock.NowMs += OllamaAdvisor.CooldownAfterFailureMs + 1000;
+            s_Snap = FreshCalm(s_Clock.NowMs);
+            int sentBeforeExpiry = (int)OllamaAdvisor.GetRequestsSent();
+            Eval();
+            WaitForPark(2000);
+            Check((int)OllamaAdvisor.GetRequestsSent() == sentBeforeExpiry + 1,
+                "OA06d back-off expiry re-allows dispatch");
 
             // ---- OA07: snapshot fail-safe (fail-open, no dispatch) ---------------
             FreshSetup();
@@ -453,8 +462,86 @@ namespace CapBot.TaskTests
             Eval(); // seams nulled → deny-by-default, no throw
             Check(OllamaAdvisor.GetRequestsSent() == 0, "OA13f reset nulls seams (inert)");
 
+            // ---- OA16: P51 counters + self-test seam (owner mandate) -------------
+            // Counters: latency + timeout classification.
+            FreshSetup();
+            OllamaAdvisor.TimeoutGraceMs = 900; // shrink the effective timeout for the test
+            try
+            {
+                s_Transport.ResponseBody = null;
+                s_Transport.DelayMs = 120; // returns null at ~120ms: a FAULT (below timeout threshold)
+                Eval(); // dispatch
+                WaitForPark(2000);
+                Advance(OllamaAdvisor.MinRecheckMs);
+                s_Snap = FreshCalm(s_Clock.NowMs);
+                Eval(); // consume
+                Check(OllamaAdvisor.GetRequestsTimeouts() == 0, "OA16a early null classified as fault, not timeout");
+                Check(OllamaAdvisor.GetLatencyAverageMs() >= 0, "OA16b latency sampled on failure");
+                long samples = OllamaAdvisor.GetLatencyAverageMs(); // ≥0 means samples exist
+                // Timeout classification: a null body at/after the effective
+                // budget (RequestTimeoutMs - grace) classifies as timeout.
+                // The fake transport's DelayMs is used to cross the threshold:
+                // RequestTimeoutMs(90000) - grace(900) = 89100 — not waitable.
+                // Instead the grace seam makes a SHORT delay a timeout by
+                // shrinking the effective budget via the same formula: set
+                // grace so RequestTimeoutMs - grace ≈ 100ms.
+                OllamaAdvisor.TimeoutGraceMs = RequestTimeoutMsOverride(); // effective budget ≈ 100ms
+                s_Transport.DelayMs = 150; // 150ms > effective 100ms budget
+                Eval(); // dispatch (fresh setup cleared gates? no — same session)
+                WaitForPark(2000);
+                Advance(OllamaAdvisor.MinRecheckMs);
+                s_Snap = FreshCalm(s_Clock.NowMs);
+                Eval(); // consume
+                Check(OllamaAdvisor.GetRequestsTimeouts() >= 1, "OA16c late null classified as timeout");
+            }
+            finally
+            {
+                OllamaAdvisor.TimeoutGraceMs = 1000; // restore production grace
+            }
+            // Queue depth: 0 when idle. Drain the request the timeout
+            // consume-Eval above dispatched (consume-before-gates re-dispatches
+            // while the ladder is under 3): park -> advance -> consume. The
+            // 3rd consecutive failure arms the back-off, so the drain Eval
+            // dispatches nothing and the queue reads empty (expiry re-dispatch
+            // is OA06d's job).
+            WaitForPark(2000);
+            Advance(OllamaAdvisor.MinRecheckMs);
+            s_Snap = FreshCalm(s_Clock.NowMs);
+            Eval();
+            Check(OllamaAdvisor.GetQueueDepth() == 0, "OA16d idle queue depth 0");
+            // Self-test seam: unwired => honest not-wired failure.
+            FreshSetup(); // also ResetForTests (clears self-test state)
+            Check(!OllamaAdvisor.RunChatSelfTest(11434) && !OllamaAdvisor.SelfTestDone,
+                "OA16e unwired self-test = not-wired, not fabricated");
+            // Wired fake: body with message.content => pass.
+            OllamaAdvisor.SetChatSelfTest(delegate(int port) { return "{\"message\":{\"content\":\"OK\"}}"; });
+            Check(OllamaAdvisor.RunChatSelfTest(11434), "OA16f self-test pass on parseable body");
+            List<string> stLines = OllamaAdvisor.SelfTestDiagnosticLines();
+            Check(stLines.Count == 1 && stLines[0] == "OllamaSelfTest=pass", "OA16g self-test diagnostic line");
+            // Wired fake: null body => fail + exact error line.
+            OllamaAdvisor.ResetForTests();
+            OllamaAdvisor.SetChatSelfTest(delegate(int port) { return null; });
+            Check(!OllamaAdvisor.RunChatSelfTest(11434), "OA16h self-test fail on null body");
+            stLines = OllamaAdvisor.SelfTestDiagnosticLines();
+            Check(stLines.Count == 2 && stLines[0] == "OllamaSelfTest=fail"
+                && stLines[1].IndexOf("OllamaSelfTestError=", StringComparison.Ordinal) == 0,
+                "OA16i self-test error surfaced");
+            // Wired fake: unparseable body (no content) => fail.
+            OllamaAdvisor.ResetForTests();
+            OllamaAdvisor.SetChatSelfTest(delegate(int port) { return "{\"done\":true}"; });
+            Check(!OllamaAdvisor.RunChatSelfTest(11434), "OA16j self-test fail on body without content");
+
             Console.WriteLine("SUMMARY passed=" + s_Passed + " failed=" + s_Failed);
             return s_Failed;
+        }
+
+        // OA16 timeout-classification helper: RequestTimeoutMs is a const the
+        // test cannot shrink, so the grace seam is set to
+        // (RequestTimeoutMs - 100) making the effective budget ≈ 100 ms —
+        // a fake transport DelayMs of 150 then classifies as timeout.
+        private static int RequestTimeoutMsOverride()
+        {
+            return OllamaAdvisor.RequestTimeoutMs - 100;
         }
 
         // Snapshot builder with custom crew (ships/threats/nav/resources calm).

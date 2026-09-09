@@ -217,7 +217,16 @@ namespace CapBot
             CapBot.Core.Ollama.OllamaAdvisor.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Ollama.OllamaAdvisor.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Ollama.OllamaAdvisor.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
-            CapBot.Core.Ollama.OllamaAdvisor.SetTransport(new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value));
+            // P51 (owner mandate): ONE shared OllamaHttpTransport (one
+            // HttpClient) serves the advisor, the crew advisor, the model
+            // probe, and the startup self-test. The transport's port is
+            // captured at construction from the config default — the port
+            // slider remains validated/clamped per request where it matters
+            // (probe + self-test take the live port explicitly). No second
+            // HttpClient, no competing transport anywhere in this stack.
+            CapBot.Core.Ollama.OllamaHttpTransport sharedOllamaTransport =
+                new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value);
+            CapBot.Core.Ollama.OllamaAdvisor.SetTransport(sharedOllamaTransport);
             // P44 (owner mandate): qwen3:latest is the REQUIRED advisor model
             // (KnownModels[0]). OllamaModel is a persisted INDEX into the
             // model table; an index saved before the P44 reorder points at a
@@ -249,7 +258,7 @@ namespace CapBot
             CapBot.Core.Qwen.CrewAdvisor.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Qwen.CrewAdvisor.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Qwen.CrewAdvisor.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
-            CapBot.Core.Qwen.CrewAdvisor.SetTransport(new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value));
+            CapBot.Core.Qwen.CrewAdvisor.SetTransport(sharedOllamaTransport); // P51: shared HttpClient
             CapBot.Core.Qwen.CrewAdvisor.ApplyConfig(Config.QwenAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
             // ---- P44: owner-mandated model identity probe (one-shot, startup) ----
             // The owner's Ollama model is qwen3:latest (KnownModels[0]); no
@@ -258,13 +267,23 @@ namespace CapBot
             // (/api/tags, loopback, 5 s timeout) on a background thread and
             // the mandated diagnostic (OllamaConfiguredModel/RequestModel/
             // ModelAvailable + exact probe error) is logged once.
-            CapBot.Core.Ollama.OllamaAdvisor.SetModelProbe(
-                new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value).ProbeModelAvailable);
+            CapBot.Core.Ollama.OllamaAdvisor.SetModelProbe(sharedOllamaTransport.ProbeModelAvailable); // P51: shared HttpClient
+            // ---- P51: harmless /api/chat startup self-test (owner mandate) ----
+            // One-shot POST /api/chat (pure-echo prompt, no game state, no
+            // gameplay action) proving the FULL request path: transport =>
+            // model => JSON response => content extraction. Same background
+            // thread as the model probe, sequenced AFTER it (tags first, then
+            // chat). Results are logged as bounded diagnostic lines.
+            CapBot.Core.Ollama.OllamaAdvisor.SetChatSelfTest(
+                delegate(int port) { return sharedOllamaTransport.PostChatSelfTest(port, CapBot.Core.Ollama.OllamaAdvisor.RequiredModel); });
             System.Threading.Thread modelProbeThread = new System.Threading.Thread(delegate()
             {
                 CapBot.Core.Ollama.OllamaAdvisor.RunModelProbe();
                 foreach (string diagLine in CapBot.Core.Ollama.OllamaAdvisor.ModelDiagnosticLines())
                     CapBot.Core.Logging.CapBotLog.Info(CapBot.Core.Logging.CapBotLog.OLLAMA, diagLine);
+                CapBot.Core.Ollama.OllamaAdvisor.RunChatSelfTest(Config.OllamaPort.Value);
+                foreach (string selfTestLine in CapBot.Core.Ollama.OllamaAdvisor.SelfTestDiagnosticLines())
+                    CapBot.Core.Logging.CapBotLog.Info(CapBot.Core.Logging.CapBotLog.OLLAMA, selfTestLine);
             });
             modelProbeThread.IsBackground = true;
             modelProbeThread.Name = "CapBot-ModelProbe";

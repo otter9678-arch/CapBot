@@ -1,4 +1,4 @@
-# Crew Advisor (Phase 21)
+# Crew Advisor (Phase 21; P51 hardening)
 
 ## Purpose and scope
 
@@ -28,14 +28,14 @@ re-alignment.
 
 | File | Role |
 | --- | --- |
-| `CapBot/Core/Qwen/CrewAdvisor.cs` | Crew advisor core: gates, cadence, dispatch, single-slot buffer, consumption, crew prompt build (~520 lines) |
+| `CapBot/Core/Qwen/CrewAdvisor.cs` | Crew advisor core: gates, cadence, dispatch, single-slot buffer, consumption, crew prompt build; P51: outcome classification, hard-failure ladder, latency/timeout counters (~597 lines) |
 | `CapBot/Core/Qwen/CrewAdvisorLogBridge.cs` | Boot attach of the `QWEN` log subsystem |
 | `CapBot/Core/Logging/CapBotLog.cs` | +`QWEN` const (additive) |
 | `CapBot/Core/Crew/CrewAgentRegistry.cs` | +`AgentView`/`AgentViews()` additive point-in-time readback (no behavior change to the registry) |
 | `CapBot/Config.cs` | +`QwenAdvisorEnabled` (bool, **false**); menu toggle |
 | `CapBot/Mod.cs` | Boot wiring: bridge, seams, transport (shared `OllamaHttpTransport`), `ApplyConfig` |
 | `CapBot/Patch.cs` | `WorldTick` postfix: guarded `ApplyConfig` + `Evaluate` block after the P20 block |
-| `tests/CrewAdvisorTests.cs` | CA01–CA10 (~70 assertions) |
+| `tests/CrewAdvisorTests.cs` | CA01–CA11 (~85 assertions) |
 | `tests/OllamaAdvisorTests.cs` | `FakeTransport` visibility `private` → `internal` (reused by the CA suite) |
 | `tests/run_tests.ps1`, `tests/TaskRecoveryTests.cs` | Suite registration (20 suites total) |
 
@@ -61,10 +61,14 @@ CrewAdvisor is a structural mirror of `OllamaAdvisor`:
   `OllamaAdvisor.ValidateAdvice` (≥8 chars, ≤240 truncated, `ADVICE:` prefix
   case-insensitive, zero control chars). Same `keep_alive:"30m"`,
   `stream:false`, `num_predict:48`, `temperature:0.2` options.
-- **Same failure semantics:** soft faults (rejected advice) never escalate;
-  hard faults arm a back-off ladder (3 consecutive ⇒ 120 s cooldown); no
-  auto-retry (the consume-eval legitimately opens the next cadence window —
-  exactly one follow-up).
+- **Same failure semantics (P51):** soft faults (rejected advice) never
+  escalate; a parked null body is a HARD failure (classified fault vs
+  timeout by latency, same grace as P20) counted in `RequestsFailed`
+  (+`RequestsTimeouts`) and fed into the ladder (3 consecutive ⇒ 120 s
+  cooldown anchored on the game-thread cadence clock); no auto-retry (the
+  consume-eval legitimately opens the next cadence window — exactly one
+  follow-up). P51 counters: `timeouts=` and `avgLatency=` in
+  `StatusLines()`.
 - **Same MUST-NOT boundary** as `docs/OLLAMA_ADVISOR.md`, plus one
   crew-specific rule: MUST NOT call `CrewAgentRegistry.AssignTask`/
   `ClearTask`/`AddCapabilityReference` — the advisor holds no registry
@@ -100,20 +104,21 @@ adds one toggle button; no new text inputs.
 | CA04 | successful advice consumed + logged; data-only (no registry handles by design) |
 | CA05 | malformed content rejected; exactly one follow-up via `RequestsSent` (race-free anti-loop invariant) |
 | CA06 | newline injection rejected; injected content never stored |
-| CA07 | transport fault (null body) = soft rejection, no back-off |
+| CA07 | transport fault (null body) = HARD failure (P51: `CrewAdviceFailed outcome=`, RequestsFailed++, not an advice rejection; single fault arms no back-off — ladder is CA11) |
 | CA08 | snapshot fail-safe: null / stale / not-started ⇒ no dispatch, uncertain counted |
 | CA09 | prompt bounds + roster sentinel degradation (null-TLI agent ⇒ `lastLoc=unknown`, `lastOutcome=unknown`) |
 | CA10 | readbacks, status format, reset determinism, post-reset inert |
+| CA11 | P51 hard-failure classification: fault line, RequestsFailed ladder of 3, back-off expiry re-allows dispatch |
 
 Race lessons from P20 carried over: `WaitForCall` (worker entered transport —
 in-flight observable) vs `WaitForPark` (worker parked) are distinct; retry
 invariants assert on the game-thread-only `RequestsSent`, never `CallCount`.
 
-## Verification (2026-09-08)
+## Verification (2026-09-08, P51 re-run)
 
 - Build: MSBuild Release, 0 warnings / 0 errors.
-- Tests: `TOTAL passed=1920 failed=0` ×3 consecutive runs (raw-output grep,
-  zero FAIL lines; suite now 20 files).
+- Tests: P51 `TOTAL passed=3405 failed=0` ×3 consecutive runs (raw-output
+  grep, zero FAIL lines; P21 baseline 1920/0 ×3, suite now 38 files).
 - Reflection (`verify_build_p21.ps1`): 205 types (175 named); CrewAdvisor
   static class, all 13 probed members; `CrewAdvisorLogBridge`;
   `AgentViews`+`AgentView` present; internal `ExtractContent`/`ValidateAdvice`

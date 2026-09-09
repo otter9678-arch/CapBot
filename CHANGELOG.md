@@ -3,6 +3,76 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 51 — Ollama↔Qwen3 connect (shared transport, startup self-test, offline ladder)] — unreleased (built from Alpha 1.2.2 source)
+
+Connects the EXISTING Ollama integration (P20 advisor + P21 crew
+advisor + P44 model probe) to the live qwen3:latest server — no second
+Ollama system was built. Gaps closed: one shared HttpClient for
+everything; a harmless startup /api/chat self-test; offline behavior
+upgraded from a silent per-cadence retry to a counted hard-failure
+ladder with a 120 s cooldown; timeout/latency/queue counters; the
+`/capbotollama` status command.
+
+### Added
+- **Shared transport (no duplicate HTTP clients):** Mod.cs constructs
+  ONE `OllamaHttpTransport` and wires it to OllamaAdvisor
+  (`SetTransport`), CrewAdvisor (`SetTransport`), the model probe
+  (`SetModelProbe(transport.ProbeModelAvailable)`) and the new
+  self-test (`SetChatSelfTest`) — replacing three separate
+  HttpClient-holding transports. The transport class still owns one
+  HttpClient per instance; the mod now holds exactly one instance.
+- **Startup self-test (owner mandate):** after the `/api/tags` model
+  probe on the existing CapBot-ModelProbe background thread, a ONE-SHOT
+  harmless `/api/chat` echo ("Reply with exactly: OK", num_predict 8,
+  temperature 0.0, keep_alive 30m, `think:false` for qwen3) runs via
+  `OllamaHttpTransport.PostChatSelfTest` (reuses the shared client).
+  No gameplay actions; result classified by the advisor
+  (`RunChatSelfTest` accepts ANY parseable message.content — the
+  self-test contract is transport health, not ADVICE grammar) and
+  logged via `OllamaSelfTest=pass|fail|not-run` (+ exact
+  `OllamaSelfTestError=…` on failure).
+- `/capbotollama` chat command (`OllamaCommand.cs`): read-only host
+  view — endpoint, model + configured model, availability, API
+  READY/ERROR/NOT-TESTED, requests/successful/failed/timeouts, average
+  latency, queue depth (0/1 single-flight), last error, last advice.
+- Counters (both advisors): `RequestsTimeouts`, latency
+  (sum/samples/average readback), queue depth; surfaced in
+  `StatusLines()` (timeouts=/avgLatency=/queue=) and
+  `/capbotollama`.
+
+### Changed
+- **Offline = hard failure with back-off (was: silent retry):** a
+  parked null transport body is now classified by the worker
+  (latency ≥ RequestTimeoutMs−TimeoutGraceMs ⇒ "timeout", else "fault")
+  and consumed as a HARD failure — `RequestsFailed++`
+  (+`RequestsTimeouts`), latency sampled, `ConsecutiveFailures++`, and
+  after 3 consecutive: `BackoffUntilMs = nowMs + 120000`. Previously a
+  null body was an AdviceRejected with NO back-off (retried every
+  cadence window forever). Valid-but-unparseable responses remain soft
+  advice rejections (no ladder entry).
+- Back-off anchors on the GAME-THREAD cadence clock (`nowMs` passed
+  into `Evaluate`), never the worker's wall-clock stamp — the same
+  clock the expiry gate reads (test-driven fix; tests drive the cadence
+  clock virtually).
+- Worker parks into the DirectorState captured at dispatch (not the
+  static slot), so a reset/test teardown can never receive a stale
+  parked response (race caught by CA07b).
+- `OllamaAdvisor.TimeoutGraceMs` seam (default 1000, production
+  behavior) for timeout-vs-fault classification in tests.
+
+### Verified
+- UNIT-PASS: tests 3405/0 (3386 prior + 19 net new OA16/CA07/CA11
+  checks), run via `tests/run_tests.ps1` (38 suites, TOTAL failed=0
+  gate), ×3 consecutive stable runs.
+- Build: bin\Release\CapBot.dll (fresh P51 build), deployed parity
+  pending (deploy deferred — game running).
+- LIVE-PASS (loopback, real Ollama 0.33.3): POST /api/chat with the
+  exact self-test body → HTTP 200, message.content "OK",
+  model qwen3:latest, 4.2 s (cold model load), inside the 90 s budget.
+- LIVE in-game verification (`OllamaSelfTest=pass` + `/capbotollama`
+  counters in Player.log) PENDING — requires deploy + relaunch after
+  the running game session closes.
+
 ## [Phase 50 — Safe Mode behavioral suspension] — unreleased (built from Alpha 1.2.2 source)
 
 The P46 engine's Safe Mode latch finally gets its production reader: a

@@ -89,12 +89,17 @@ namespace CapBot.Core.Qwen
             public int InFlightRequestMs = -1;
             public int LastEvalMs = -1;
             public string PendingResponse;
+            public string PendingOutcome = "ok";     // ok | fault | timeout (worker classification)
+            public int PendingLatencyMs;
             public int PendingResponseMs;
             public bool PendingResponseSet;
 
             public long RequestsSent;
             public long RequestsFailed;
             public long RequestsSucceeded;
+            public long RequestsTimeouts;
+            public long LatencySumMs;
+            public long LatencySamples;
             public long AdviceAccepted;
             public long AdviceRejected;
             public long UncertainPasses;
@@ -127,6 +132,14 @@ namespace CapBot.Core.Qwen
         public static long GetRequestsSent() { lock (m_Lock) return s_State.RequestsSent; }
         public static long GetRequestsFailed() { lock (m_Lock) return s_State.RequestsFailed; }
         public static long GetRequestsSucceeded() { lock (m_Lock) return s_State.RequestsSucceeded; }
+        public static long GetRequestsTimeouts() { lock (m_Lock) return s_State.RequestsTimeouts; }
+        public static long GetLatencyAverageMs()
+        {
+            lock (m_Lock)
+            {
+                return s_State.LatencySamples == 0 ? -1 : s_State.LatencySumMs / s_State.LatencySamples;
+            }
+        }
         public static long GetAdviceAccepted() { lock (m_Lock) return s_State.AdviceAccepted; }
         public static long GetAdviceRejected() { lock (m_Lock) return s_State.AdviceRejected; }
         public static long GetUncertainPasses() { lock (m_Lock) return s_State.UncertainPasses; }
@@ -163,9 +176,15 @@ namespace CapBot.Core.Qwen
             List<string> lines = new List<string>();
             lock (m_Lock)
             {
+                long avgLatency = s_State.LatencySamples == 0
+                    ? -1 : s_State.LatencySumMs / s_State.LatencySamples;
                 lines.Add("CrewAdvisor: enabled=" + (s_State.Enabled ? "yes" : "no")
                     + " model=" + OllamaAdvisor.ModelName(s_State.ModelIndex)
                     + " sent=" + s_State.RequestsSent
+                    + " failed=" + s_State.RequestsFailed
+                    + " timeouts=" + s_State.RequestsTimeouts
+                    + " avgLatency=" + (avgLatency >= 0
+                        ? avgLatency.ToString(System.Globalization.CultureInfo.InvariantCulture) + "ms" : "-")
                     + " accepted=" + s_State.AdviceAccepted
                     + " rejected=" + s_State.AdviceRejected);
             }
@@ -214,6 +233,8 @@ namespace CapBot.Core.Qwen
             // 3) Consume a completed response FIRST (bounded, no lock held
             // across HTTP; the worker never takes this lock — see RunWorker).
             string responseText = null;
+            string outcomeText = "ok";
+            int latencyMs = 0;
             bool responsePresent = false;
             int completedMs = -1;
             lock (m_Lock)
@@ -221,9 +242,13 @@ namespace CapBot.Core.Qwen
                 if (s_State.PendingResponseSet)
                 {
                     responseText = s_State.PendingResponse;
+                    outcomeText = s_State.PendingOutcome;
+                    latencyMs = s_State.PendingLatencyMs;
                     responsePresent = true;
                     completedMs = s_State.PendingResponseMs;
                     s_State.PendingResponse = null;
+                    s_State.PendingOutcome = "ok";
+                    s_State.PendingLatencyMs = 0;
                     s_State.PendingResponseMs = 0;
                     s_State.PendingResponseSet = false;
                     s_State.InFlightRequestMs = -1;
@@ -231,7 +256,7 @@ namespace CapBot.Core.Qwen
             }
             if (responsePresent)
             {
-                ConsumeResponse(responseText, completedMs, modelIndex, pending, ref emitted);
+                ConsumeResponse(responseText, outcomeText, latencyMs, completedMs, nowMs, modelIndex, pending, ref emitted);
                 // Fire consumed-response lines IMMEDIATELY (before any early
                 // return below) so advice is never held hostage by the
                 // cadence/back-off gates.
@@ -305,7 +330,11 @@ namespace CapBot.Core.Qwen
             }
 
             // Dedicated worker thread: touches no game state. Captures the
-            // validated port/model (never re-read config off-thread).
+            // validated port/model (never re-read config off-thread) and the
+            // DirectorState reference captured BEFORE the worker starts: the
+            // worker parks into THAT object, so a reset (state object
+            // swapped) can never receive a stale parked response (CA07b).
+            DirectorState stateCapture = s_State;
             int portCapture = port;
             int modelCapture = modelIndex;
             string promptCapture = requestJson;
@@ -313,7 +342,7 @@ namespace CapBot.Core.Qwen
             {
                 Thread worker = new Thread(delegate()
                 {
-                    RunWorker(transport, promptCapture, portCapture, modelCapture);
+                    RunWorker(stateCapture, transport, promptCapture, portCapture, modelCapture);
                 });
                 worker.IsBackground = true;
                 worker.Name = "CapBot-CrewAdvisor";
@@ -333,28 +362,72 @@ namespace CapBot.Core.Qwen
             return emitted;
         }
 
-        // Worker-thread body: HTTP via the transport seam, then park the raw
-        // body in the single-slot buffer (brief m_Lock hold, reference-only).
-        private static void RunWorker(OllamaAdvisor.ITransport transport, string requestJson, int port, int modelIndex)
+        // Worker-thread body: HTTP via the transport seam, then park the
+        // classified result in the single-slot buffer (brief m_Lock hold,
+        // reference-only). Timeout/fault classification mirrors
+        // OllamaAdvisor.RunWorker exactly.
+        private static void RunWorker(DirectorState state, OllamaAdvisor.ITransport transport, string requestJson, int port, int modelIndex)
         {
             string body = null;
-            try { body = transport.PostChatJson(requestJson, RequestTimeoutMs); }
-            catch (Exception) { body = null; }
+            string outcome = "ok";
+            int latency = 0;
+            try
+            {
+                int startedMs = Environment.TickCount;
+                body = transport.PostChatJson(requestJson, RequestTimeoutMs);
+                latency = unchecked(Environment.TickCount - startedMs);
+                if (body == null)
+                    outcome = (latency >= RequestTimeoutMs - OllamaAdvisor.TimeoutGraceMs) ? "timeout" : "fault";
+            }
+            catch (Exception)
+            {
+                body = null;
+                outcome = "fault";
+            }
 
             lock (m_Lock)
             {
-                s_State.PendingResponse = body;
-                s_State.PendingResponseMs = Environment.TickCount;
-                s_State.PendingResponseSet = true;
+                state.PendingResponse = body;
+                state.PendingOutcome = outcome;
+                state.PendingLatencyMs = latency;
+                state.PendingResponseMs = Environment.TickCount;
+                state.PendingResponseSet = true;
             }
         }
 
         // ---- response consumption (game thread) --------------------------------
         private static void ConsumeResponse(
-            string responseText, int completedMs, int modelIndex,
+            string responseText, string outcome, int latencyMs, int completedMs, int nowMs, int modelIndex,
             List<string> pending, ref int emitted)
         {
             s_WorkerRunning = 0;
+
+            if (responseText == null && outcome != "ok")
+            {
+                // Hard failure (server down / timeout): failure counters +
+                // back-off ladder (offline Ollama is re-probed slowly). The
+                // back-off anchors on the GAME-THREAD cadence clock (nowMs),
+                // never the worker's wall-clock stamp (tests drive the
+                // cadence clock virtually).
+                lock (m_Lock)
+                {
+                    s_State.RequestsFailed++;
+                    if (outcome == "timeout") s_State.RequestsTimeouts++;
+                    s_State.LatencySumMs += latencyMs;
+                    s_State.LatencySamples++;
+                    s_State.ConsecutiveFailures++;
+                    s_State.LastFailureReason = outcome == "timeout"
+                        ? "chat request timeout (" + RequestTimeoutMs + "ms budget)"
+                        : "chat request fault (server unreachable or refused)";
+                    if (s_State.ConsecutiveFailures >= MaxConsecutiveFailures)
+                        s_State.BackoffUntilMs = unchecked(nowMs + CooldownAfterFailureMs);
+                    pending.Add("CrewAdviceFailed outcome=" + outcome
+                        + " consecutive=" + s_State.ConsecutiveFailures
+                        + " backoff=" + (s_State.BackoffUntilMs >= 0 ? "armed" : "not-armed"));
+                    emitted = pending.Count;
+                }
+                return;
+            }
 
             // Same shared advisory data contract as P20: message.content
             // extraction + ADVICE validation (control chars rejected).
@@ -363,6 +436,8 @@ namespace CapBot.Core.Qwen
             bool accepted = OllamaAdvisor.ValidateAdvice(content, out advice);
             lock (m_Lock)
             {
+                s_State.LatencySumMs += latencyMs;
+                s_State.LatencySamples++;
                 if (accepted)
                 {
                     s_State.RequestsSucceeded++;

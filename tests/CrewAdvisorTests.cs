@@ -246,7 +246,7 @@ namespace CapBot.TaskTests
             Check(HasLineContaining("CrewAdviceInvalid"), "CA06 newline injection rejected");
             Check(CrewAdvisor.GetLastAdvice().Length == 0, "CA06 injected content never stored");
 
-            // ---- CA07: transport fault = soft failure --------------------------------
+            // ---- CA07: transport fault = hard failure (P51, mirrors OA06) --------
             FreshSetup();
             s_Transport.ResponseBody = null;
             Eval(); // dispatch
@@ -254,9 +254,12 @@ namespace CapBot.TaskTests
             Advance(CrewAdvisor.MinRecheckMs);
             s_Snap = FreshCalm(s_Clock.NowMs);
             Eval(); // consume null body
-            Check(HasLineContaining("CrewAdviceInvalid"), "CA07a null body = invalid-response line");
-            Check(CrewAdvisor.GetRequestsFailed() == 0, "CA07b completed-but-unusable counts as rejected, not failed");
-            Check(CrewAdvisor.GetBackoffBlocks() == 0, "CA07c no back-off from soft rejects");
+            // P51: a parked null body is a HARD failure (server unreachable =>
+            // the request failed, not the advice). Ladder + expiry live in CA11.
+            Check(HasLineContaining("CrewAdviceFailed outcome="), "CA07a null body = hard-fault line");
+            Check(CrewAdvisor.GetRequestsFailed() == 1, "CA07b hard fault counted in RequestsFailed");
+            Check(CrewAdvisor.GetAdviceRejected() == 0, "CA07b hard fault is not an advice rejection");
+            Check(CrewAdvisor.GetBackoffBlocks() == 0, "CA07c single fault: no back-off yet (ladder is CA11)");
 
             // ---- CA08: snapshot fail-safe (fail-open, no dispatch) --------------------
             FreshSetup();
@@ -338,6 +341,35 @@ namespace CapBot.TaskTests
             Check(CrewAdvisor.GetLastAdvice().Length == 0, "CA10e reset clears advice");
             Eval(); // seams nulled => deny-by-default, no throw
             Check(CrewAdvisor.GetRequestsSent() == 0, "CA10f reset nulls seams (inert)");
+            // ---- CA11: P51 hard-failure classification (offline back-off) ----
+            FreshSetup();
+            s_Transport.ResponseBody = null;
+            Eval(); // dispatch
+            WaitForPark(2000);
+            Advance(CrewAdvisor.MinRecheckMs);
+            s_Snap = FreshCalm(s_Clock.NowMs);
+            Eval(); // consume null body
+            Check(HasLineContaining("CrewAdviceFailed outcome="), "CA11a null body = hard-fault line");
+            Check(CrewAdvisor.GetRequestsFailed() == 1, "CA11b hard fault counted in RequestsFailed");
+            Check(CrewAdvisor.GetLatencyAverageMs() >= 0, "CA11c latency sampled");
+            // Ladder: two more failures arm the back-off; dispatch blocked.
+            for (int i = 0; i < 2; i++)
+            {
+                Advance(CrewAdvisor.MinRecheckMs);
+                s_Snap = FreshCalm(s_Clock.NowMs);
+                Eval();
+                WaitForPark(2000);
+                Advance(CrewAdvisor.MinRecheckMs);
+                s_Snap = FreshCalm(s_Clock.NowMs);
+                Eval();
+            }
+            Check(CrewAdvisor.GetRequestsFailed() == 3, "CA11d ladder of three hard failures");
+            s_Clock.NowMs += CrewAdvisor.CooldownAfterFailureMs + 1000;
+            s_Snap = FreshCalm(s_Clock.NowMs);
+            int sentBefore = (int)CrewAdvisor.GetRequestsSent();
+            Eval();
+            WaitForPark(2000);
+            Check((int)CrewAdvisor.GetRequestsSent() == sentBefore + 1, "CA11e back-off expiry re-allows dispatch");
             CrewAgentRegistry.ResetForTests();
 
             Console.WriteLine("SUMMARY passed=" + s_Passed + " failed=" + s_Failed);

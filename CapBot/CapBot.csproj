@@ -122,6 +122,7 @@
     <Compile Include="Core\Compatibility\SafeModeGate.cs" />
     <Compile Include="Core\Compatibility\SafeModeLogBridge.cs" />
     <Compile Include="CompatCommand.cs" />
+    <Compile Include="OllamaCommand.cs" />
     <Compile Include="Core\Persistence\CrewPersistence.cs" />
     <Compile Include="CrewPersistenceAdapter.cs" />
     <Compile Include="Core\Diagnostics\StatusHub.cs" />

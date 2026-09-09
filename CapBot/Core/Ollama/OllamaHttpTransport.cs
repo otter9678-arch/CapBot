@@ -81,6 +81,67 @@ namespace CapBot.Core.Ollama
             }
         }
 
+        // ---- P51: harmless /api/chat startup self-test (owner mandate) -------
+        //
+        // One-shot POST /api/chat with a pure-echo prompt against the
+        // REQUIRED model — no game state, no gameplay action. Reuses this
+        // transport's single HttpClient (no second client, no competing
+        // transport). Returns the raw response body (null on failure); the
+        // advisor classifies + records the result. Hard 90 s budget covers a
+        // cold qwen3 model load (measured ~40 s). Worker/startup thread only.
+        public string PostChatSelfTest(int port, string modelName)
+        {
+            string safeModel = string.IsNullOrEmpty(modelName) ? OllamaAdvisor.RequiredModel : modelName;
+            string requestJson = "{\"model\":\"" + EscapeJson(safeModel) + "\""
+                + ",\"messages\":[{\"role\":\"system\",\"content\":\"Health check. Reply with exactly: OK\"}"
+                + ",{\"role\":\"user\",\"content\":\"Reply with exactly: OK\"}]"
+                + ",\"stream\":false,\"keep_alive\":\"30m\""
+                + (OllamaAdvisor.IsRequestingModelThinking(safeModel) ? ",\"think\":false" : "")
+                + ",\"options\":{\"num_predict\":8,\"temperature\":0.0}}";
+            try
+            {
+                Uri uri = new Uri("http://" + LoopbackHost + ":"
+                    + OllamaAdvisor.ClampPort(port).ToString(CultureInfo.InvariantCulture) + ChatPath);
+                using (CancellationTokenSource cts = new CancellationTokenSource(OllamaAdvisor.RequestTimeoutMs))
+                {
+                    Task<HttpResponseMessage> sendTask = m_Client.PostAsync(
+                        uri, new StringContent(requestJson, Encoding.UTF8, "application/json"), cts.Token);
+                    sendTask.Wait(cts.Token);
+                    using (HttpResponseMessage response = sendTask.Result)
+                    {
+                        if (!response.IsSuccessStatusCode) return null;
+                        Task<string> readTask = response.Content.ReadAsStringAsync();
+                        readTask.Wait(cts.Token);
+                        return readTask.Result;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                return null; // timeout/refused/aborted = soft failure
+            }
+        }
+
+        private static string EscapeJson(string text)
+        {
+            if (text == null) return string.Empty;
+            StringBuilder sb = new StringBuilder(text.Length + 8);
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                switch (c)
+                {
+                    case '"': sb.Append("\\\""); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    default:
+                        if (char.IsControl(c)) sb.Append(' ');
+                        else sb.Append(c);
+                        break;
+                }
+            }
+            return sb.ToString();
+        }
+
         // ---- P44: one-shot model availability probe (owner mandate) ----------
         //
         // GET /api/tags (bounded loopback call) — null when the model is
