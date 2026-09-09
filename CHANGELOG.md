@@ -10,8 +10,8 @@ P52+P53 build is the release artifact; nothing re-verified worse).
 Verbatim §49 final report follows.
 
 ### Added
-- **`docs/VALIDATION_REPORT.md`** — the §42–44 release-candidate
-  record: artifact identity (rebuild byte-identical to deployed DLL),
+- **`docs/VALIDATION_REPORT.md`** — the §42–44 release record:
+  artifact identity (rebuild byte-identical to deployed DLL),
   test gates ×3, live-evidence ledger for the shipped build, the
   34-item test matrix (✔ live / ○ unit / · manual), known manual
   surface, release disposition.
@@ -21,7 +21,8 @@ Verbatim §49 final report follows.
 - **Local release package `Release\Alpha-1.2.2-expansion\`:**
   CapBot.dll + CapBot.pdb + README (install/commands/settings) +
   CHANGELOG.md + docs snapshot — LOCAL ONLY (§47: no workshop, no
-  public upload).
+  public upload). Intentionally not committed (`[Rr]elease/` is
+  gitignored).
 - **P54 record cross-check:** §14 invariant evidence folded into the
   validation report (7/7/7 current world, 8/8/8 prior world).
 
