@@ -624,6 +624,14 @@ namespace CapBot.Core.Crew
                 // task resolution.
                 try { CrewMemorySystem.RememberTaskOutcome(agentId, taskId, outcome, nowMs); }
                 catch (Exception) { }
+                // Phase 25: adaptive learning — additive and fail-safe, same
+                // discipline: outside the agent-registry lock, own try/catch;
+                // a faulting learning layer can never affect agent state or
+                // task resolution. The director is deny-by-default (its own
+                // authority gate) and consumes the SAME resolved outcome the
+                // P12 accrual just processed.
+                try { CapBot.Core.Learning.AdaptiveLearningDirector.NotifyOutcome(agentId, outcome, nowMs); }
+                catch (Exception) { }
             }
             return cleared;
         }

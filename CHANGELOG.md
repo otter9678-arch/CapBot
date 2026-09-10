@@ -3,6 +3,66 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 25 — Adaptive learning (trait maturation)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Learning/AdaptiveLearningDirector.cs` — the "adjust/adaptive"
+  phase as the contracts assign it: adjusts personality trait VALUES
+  through the P11 SetPersonality write path (the sole sanctioned
+  personality write channel), using CrewExperience Level/ExperiencePoints
+  as inputs, triggered by LEVEL CROSSINGS off the P10 ClearTask funnel.
+  Deterministic direction rules at a crossing: completion-dominant
+  (`2*TasksCompleted >= TotalOutcomes`) ⇒ +1 Diligence;
+  adversity-dominant (`2*(TasksFailed+TasksVanished) >= TotalOutcomes`)
+  ⇒ +1 Adaptability; otherwise the crossing is consumed silently (never
+  fabricate an adjustment); completion outranks adversity by precedence.
+  First readable pass arms the baseline only (observation-free);
+  one-shot consumption per crossing; clamp-bound crossings consume with
+  NO fabricated write; evaluation rate-limited 1 s/record with crossings
+  persisting through the gate; hygiene decay at ActiveExpiryMs=30000 with
+  bounded history; bounded records (≤32), bounded emissions (≤4/pass),
+  fixed delta (+1, ClampTrait-bounded). Event-driven off the P10
+  ClearTask funnel (one additive fail-safe hook after the P12/P13 hooks,
+  fired outside the agent lock with its own try/catch) — NO new Harmony
+  patch class (11-class ceiling kept), no tick driver, no WorldTick
+  block. Traits remain DATA until a consumer phase reads them (verified:
+  nothing in the tree reads trait values today). CrewExperience is READ
+  ONLY (SnapshotOf defensive copy). Deny-by-default authority seam keeps
+  clients inert. No config toggle (P18–P24 deterministic-director
+  precedent). Cross-session persistence of matured personalities is P28's
+  assignment (documented contract gap).
+- `Core/Learning/LearningLogBridge.cs` + `CapBotLog.LEARNING` — boot
+  attach of the new `LEARNING` log subsystem (additive).
+- `Mod.cs` P25 boot block (bridge + authority seam) and additive
+  `CrewAgentRegistry.ClearTask` funnel hook (`NotifyOutcome`, own
+  try/catch, outside the agent lock). `CapBot.csproj` +2 Compile entries.
+- `CrewExperienceRegistry.SnapshotOf` (additive defensive-copy readback;
+  the one-way-lock-order read the learning layer uses).
+- `tests/AdaptiveLearningTests.cs` (LEARN01–LEARN10, ~122 assertions) +
+  suite registration (24 domain files, 15 suites).
+- `docs/ADAPTIVE_LEARNING.md` — the P25 contract + data-posture
+  documentation (constraint trail, decision semantics, bounded knobs,
+  MUST-NOT list, config/multiplayer posture, LEARN01–LEARN10 inventory,
+  verification results).
+
+### Fixed
+- `tests/run_tests.ps1`: repo path repaired for the moved workspace
+  (stale `D:\Vortex Downloads & Mods\...` → `D:\Projects\...`).
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2397 failed=0` (suite now 24 domain files, 15
+  suites).
+- Reflection (`verify_build_p25.ps1`): 69/0 — static class + nested
+  `LearningRecord` + bridge; members/properties/record fields/consts
+  probed; IL ownership scans (zero forbidden refs: lifecycle mutators,
+  scheduler/recovery/executor/claims/validator/dispatcher, Photon, scene
+  scans, capability RPCs; reads = CrewExperienceRegistry.SnapshotOf,
+  writes = CrewPersonalityRegistry.SetPersonality only);
+  `CrewAgentRegistry.ClearTask` IL references
+  `AdaptiveLearningDirector.NotifyOutcome`; `CapBotLog.LEARNING` const;
+  Harmony patch classes == 11; P24 surfaces intact.
+
 ## [Phase 24 — Adjustment observer (bounded outcome readback)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

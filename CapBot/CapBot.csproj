@@ -156,6 +156,8 @@
     <Compile Include="Core\Planning\MissionWorkLogBridge.cs" />
     <Compile Include="Core\Adjustment\AdjustmentDirector.cs" />
     <Compile Include="Core\Adjustment\AdjustmentLogBridge.cs" />
+    <Compile Include="Core\Learning\AdaptiveLearningDirector.cs" />
+    <Compile Include="Core\Learning\LearningLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />
