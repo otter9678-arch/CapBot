@@ -13,18 +13,18 @@ namespace CapBot.Networking
         public float LastCuriosity;
         public float LastLoyalty;
 
-        public NetworkState(CapBot bot)
+        public NetworkState(CaptainBot bot)
         {
             Capture(bot);
         }
 
-        public void Capture(CapBot bot)
+        public void Capture(CaptainBot bot)
         {
             LastRole = bot.Role;
             LastLevel = bot.Level;
             LastXP = bot.XP;
 
-            var p = Personality.PersonalityManager.Get(bot);
+            Personality.BotPersonality p = Personality.PersonalityManager.Get(bot);
             LastAggression = p.Aggression;
             LastCaution = p.Caution;
             LastCuriosity = p.Curiosity;

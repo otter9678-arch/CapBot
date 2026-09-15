@@ -1,6 +1,4 @@
 ﻿using CapBot.AI;
-using CapBot.Talents;
-using System;
 using UnityEngine;
 
 namespace CapBot.UI.IMGUI
@@ -13,21 +11,21 @@ namespace CapBot.UI.IMGUI
 
         protected override void DrawWindow(int id)
         {
-            CapBot bot = AIRegistry.GetLocalBot();
+            CaptainBot bot = AIRegistry.GetLocalBot();
             if (bot == null)
             {
-                GUILayout.Label("No local bot.");
+                GUILayout.Label("No CapBot on this ship.");
                 GUI.DragWindow();
                 return;
             }
 
-            TalentTree tree = bot.TalentManager.Tree;
+            Talents.TalentTree tree = bot.TalentManager.Tree;
 
             GUILayout.Label($"Bot: {bot.Player.GetPlayerName()}");
             GUILayout.Label($"Level: {bot.Level}");
             GUILayout.Space(10);
 
-            foreach (var t in tree.Talents)
+            foreach (Talents.Talent t in tree.Talents)
             {
                 GUILayout.BeginHorizontal();
                 GUILayout.Label($"Tier {t.Tier}: {t.Name}");

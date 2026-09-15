@@ -1,39 +1,40 @@
-﻿using CapBot.AI;
-using UnityEngine;
+﻿using System.Collections.Generic;
+using CapBot.AI;
 
 namespace CapBot.Loadouts
 {
     public static class LoadoutManager
     {
-        private static readonly System.Collections.Generic.Dictionary<int, BotLoadout> Loadouts =
-            new System.Collections.Generic.Dictionary<int, BotLoadout>();
+        private static readonly Dictionary<int, BotLoadout> Loadouts =
+            new Dictionary<int, BotLoadout>();
 
-        public static BotLoadout GetLoadout(CapBot bot)
+        public static BotLoadout GetLoadout(CaptainBot bot)
         {
             int id = bot.Player.GetPlayerID();
 
-            if (!Loadouts.ContainsKey(id))
-            {
-                Loadouts[id] = CreateLoadout(bot.Role);
-            }
+            if (!Loadouts.TryGetValue(id, out BotLoadout loadout) || loadout == null)
+                Loadouts[id] = loadout = CreateLoadout(bot.Role);
 
-            return Loadouts[id];
+            return loadout;
         }
 
-        private static BotLoadout CreateLoadout(CapBotRole role)
+        public static BotLoadout CreateLoadout(CapBotRole role)
         {
+            BotLoadout loadout;
             switch (role)
             {
-                case CapBotRole.Engineer: return new EngineerLoadout();
-                case CapBotRole.Weapons: return new WeaponsLoadout();
-                case CapBotRole.Science: return new ScienceLoadout();
-                case CapBotRole.Pilot: return new PilotLoadout();
-                default: return new WeaponsLoadout();
+                case CapBotRole.Engineer: loadout = new EngineerLoadout(); break;
+                case CapBotRole.Weapons: loadout = new WeaponsLoadout(); break;
+                case CapBotRole.Science: loadout = new ScienceLoadout(); break;
+                case CapBotRole.Pilot: loadout = new PilotLoadout(); break;
+                default: loadout = new WeaponsLoadout(); break;
             }
+            loadout.Initialize();
+            return loadout;
         }
 
         // Called when bot sees a pickup
-        public static bool ShouldPickUp(CapBot bot, string itemName)
+        public static bool ShouldPickUp(CaptainBot bot, string itemName)
         {
             BotLoadout loadout = GetLoadout(bot);
             return loadout.WantsItem(itemName);

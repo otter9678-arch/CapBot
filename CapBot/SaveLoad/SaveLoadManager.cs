@@ -3,7 +3,6 @@ using System.IO;
 using UnityEngine;
 using CapBot.AI;
 using CapBot.Personality;
-using CapBot.Talents;
 
 namespace CapBot.SaveLoad
 {
@@ -20,7 +19,7 @@ namespace CapBot.SaveLoad
             {
                 if (p != null && p.IsBot && p.TeamID == 0)
                 {
-                    CapBot bot = AIRegistry.Get(p);
+                    CaptainBot bot = AIRegistry.Get(p);
                     allData.Add(CreateSaveData(bot));
                 }
             }
@@ -36,6 +35,8 @@ namespace CapBot.SaveLoad
 
             string json = File.ReadAllText(SavePath);
             Wrapper wrapper = JsonUtility.FromJson<Wrapper>(json);
+            if (wrapper == null || wrapper.Bots == null)
+                return;
 
             foreach (BotSaveData data in wrapper.Bots)
             {
@@ -43,7 +44,7 @@ namespace CapBot.SaveLoad
                 {
                     if (p != null && p.GetPlayerID() == data.PlayerID)
                     {
-                        CapBot bot = AIRegistry.Get(p);
+                        CaptainBot bot = AIRegistry.Get(p);
                         ApplySaveData(bot, data);
                     }
                 }
@@ -53,7 +54,7 @@ namespace CapBot.SaveLoad
         // -----------------------------
         // CREATE SAVE DATA
         // -----------------------------
-        private static BotSaveData CreateSaveData(CapBot bot)
+        private static BotSaveData CreateSaveData(CaptainBot bot)
         {
             BotSaveData data = new BotSaveData();
 
@@ -65,14 +66,14 @@ namespace CapBot.SaveLoad
             data.XP = bot.XP;
 
             // Personality
-            var p = PersonalityManager.Get(bot);
+            Personality.BotPersonality p = PersonalityManager.Get(bot);
             data.Aggression = p.Aggression;
             data.Caution = p.Caution;
             data.Curiosity = p.Curiosity;
             data.Loyalty = p.Loyalty;
 
             // Talents
-            foreach (var t in bot.TalentManager.Tree.Talents)
+            foreach (Talents.Talent t in bot.TalentManager.Tree.Talents)
             {
                 if (t.IsUnlocked)
                     data.UnlockedTalents.Add(t.Name);
@@ -84,7 +85,7 @@ namespace CapBot.SaveLoad
         // -----------------------------
         // APPLY SAVE DATA
         // -----------------------------
-        private static void ApplySaveData(CapBot bot, BotSaveData data)
+        private static void ApplySaveData(CaptainBot bot, BotSaveData data)
         {
             bot.Role = data.Role;
 
@@ -92,14 +93,14 @@ namespace CapBot.SaveLoad
             bot.XP = data.XP;
 
             // Apply personality
-            var p = PersonalityManager.Get(bot);
+            Personality.BotPersonality p = PersonalityManager.Get(bot);
             p.Aggression = data.Aggression;
             p.Caution = data.Caution;
             p.Curiosity = data.Curiosity;
             p.Loyalty = data.Loyalty;
 
             // Apply talents
-            foreach (var t in bot.TalentManager.Tree.Talents)
+            foreach (Talents.Talent t in bot.TalentManager.Tree.Talents)
             {
                 if (data.UnlockedTalents.Contains(t.Name))
                     t.Unlock();

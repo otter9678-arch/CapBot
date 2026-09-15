@@ -1,5 +1,4 @@
-﻿using CapBot.UI.CommandWheel; // for CommandType
-using CapBot.UI.CommandWheel; // your existing CommandWheelManager
+﻿using CapBot.AI;
 using UnityEngine;
 
 namespace CapBot.UI.IMGUI
@@ -15,28 +14,28 @@ namespace CapBot.UI.IMGUI
             GUILayout.Label("Issue orders to all CapBots:");
 
             if (GUILayout.Button("Follow"))
-                CommandWheelManager.Execute(CommandWheelButton.CommandType.Follow);
+                CommandWheel.CommandWheelManager.Execute(CommandWheel.CommandWheelButton.CommandType.Follow);
 
             if (GUILayout.Button("Defend"))
-                CommandWheelManager.Execute(CommandWheelButton.CommandType.Defend);
+                CommandWheel.CommandWheelManager.Execute(CommandWheel.CommandWheelButton.CommandType.Defend);
 
             if (GUILayout.Button("Attack"))
-                CommandWheelManager.Execute(CommandWheelButton.CommandType.Attack);
+                CommandWheel.CommandWheelManager.Execute(CommandWheel.CommandWheelButton.CommandType.Attack);
 
             if (GUILayout.Button("Loot"))
-                CommandWheelManager.Execute(CommandWheelButton.CommandType.Loot);
+                CommandWheel.CommandWheelManager.Execute(CommandWheel.CommandWheelButton.CommandType.Loot);
 
             if (GUILayout.Button("Board"))
-                CommandWheelManager.Execute(CommandWheelButton.CommandType.Board);
+                CommandWheel.CommandWheelManager.Execute(CommandWheel.CommandWheelButton.CommandType.Board);
 
             if (GUILayout.Button("Return To Ship"))
-                CommandWheelManager.Execute(CommandWheelButton.CommandType.ReturnToShip);
+                CommandWheel.CommandWheelManager.Execute(CommandWheel.CommandWheelButton.CommandType.ReturnToShip);
 
             if (GUILayout.Button("Hold Position"))
-                CommandWheelManager.Execute(CommandWheelButton.CommandType.Hold);
+                CommandWheel.CommandWheelManager.Execute(CommandWheel.CommandWheelButton.CommandType.Hold);
 
             if (GUILayout.Button("Explore"))
-                CommandWheelManager.Execute(CommandWheelButton.CommandType.Explore);
+                CommandWheel.CommandWheelManager.Execute(CommandWheel.CommandWheelButton.CommandType.Explore);
 
             GUI.DragWindow();
         }

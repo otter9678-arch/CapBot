@@ -1,19 +1,34 @@
-﻿using CapBot.AI;
+﻿using System.Collections.Generic;
+using CapBot.AI;
 using CapBot.Personality;
-using Photon;
 using UnityEngine;
 
 namespace CapBot.Networking
 {
+    // Master → client meta-state sync over Photon RaiseEvent (event code 97).
+    // Static [PunRPC] methods can never be invoked by the game's RPC dispatch,
+    // which only resolves methods on PhotonView-attached behaviours.
     public static class NetworkSyncManager
     {
-        private static readonly System.Collections.Generic.Dictionary<int, NetworkState> States =
-            new System.Collections.Generic.Dictionary<int, NetworkState>();
+        private const byte EVENT_CODE = 97;
+
+        private static readonly Dictionary<int, NetworkState> States =
+            new Dictionary<int, NetworkState>();
 
         private static float _lastSync = 0f;
+        private static bool _eventHooked;
 
-        public static void Update()
+        public static void PollEvents()
         {
+            if (!_eventHooked)
+            {
+                PhotonNetwork.OnEventCall += OnPhotonEvent;
+                _eventHooked = true;
+            }
+
+            if (PLServer.Instance == null || !PhotonNetwork.isMasterClient)
+                return;
+
             if (Time.time - _lastSync < 0.25f) // 4 syncs per second
                 return;
 
@@ -23,20 +38,24 @@ namespace CapBot.Networking
             {
                 if (p != null && p.IsBot && p.TeamID == 0)
                 {
-                    CapBot bot = AIRegistry.Get(p);
+                    CaptainBot bot = AIRegistry.Get(p);
                     SyncBot(bot);
                 }
             }
         }
 
-        private static void SyncBot(CapBot bot)
+        public static void Reset()
+        {
+            States.Clear();
+        }
+
+        private static void SyncBot(CaptainBot bot)
         {
             int id = bot.Player.GetPlayerID();
 
-            if (!States.ContainsKey(id))
-                States[id] = new NetworkState(bot);
+            if (!States.TryGetValue(id, out NetworkState last))
+                States[id] = last = new NetworkState(bot);
 
-            NetworkState last = States[id];
             DeltaSyncPacket packet = new DeltaSyncPacket();
             packet.PlayerID = id;
 
@@ -65,7 +84,7 @@ namespace CapBot.Networking
             }
 
             // PERSONALITY
-            var p = PersonalityManager.Get(bot);
+            BotPersonality p = PersonalityManager.Get(bot);
             if (p.Aggression != last.LastAggression ||
                 p.Caution != last.LastCaution ||
                 p.Curiosity != last.LastCuriosity ||
@@ -90,24 +109,31 @@ namespace CapBot.Networking
                 !packet.PersonalityChanged)
                 return;
 
-            // Send delta packet
+            // Send delta packet (JSON keeps the payload Photon-serializable)
             string json = JsonUtility.ToJson(packet);
-            PLServer.Instance.photonView.RPC("CapBot_DeltaSync", PhotonTargets.Others, json);
+            PhotonNetwork.RaiseEvent(EVENT_CODE, json, true, new RaiseEventOptions
+            {
+                Receivers = ReceiverGroup.Others
+            });
         }
 
         // -----------------------------
-        // RPC RECEIVER
+        // EVENT RECEIVER
         // -----------------------------
-        [PunRPC]
-        public static void CapBot_DeltaSync(string json)
+        private static void OnPhotonEvent(byte eventCode, object content, int senderId)
         {
-            DeltaSyncPacket packet = JsonUtility.FromJson<DeltaSyncPacket>(json);
+            if (eventCode != EVENT_CODE || content == null)
+                return;
+
+            DeltaSyncPacket packet = JsonUtility.FromJson<DeltaSyncPacket>((string)content);
+            if (packet == null)
+                return;
 
             foreach (PLPlayer p in PLServer.Instance.AllPlayers)
             {
                 if (p != null && p.GetPlayerID() == packet.PlayerID)
                 {
-                    CapBot bot = AIRegistry.Get(p);
+                    CaptainBot bot = AIRegistry.Get(p);
 
                     if (packet.RoleChanged)
                         bot.Role = (CapBotRole)packet.NewRole;
@@ -120,7 +146,7 @@ namespace CapBot.Networking
 
                     if (packet.PersonalityChanged)
                     {
-                        var pers = PersonalityManager.Get(bot);
+                        BotPersonality pers = PersonalityManager.Get(bot);
                         pers.Aggression = packet.Aggression;
                         pers.Caution = packet.Caution;
                         pers.Curiosity = packet.Curiosity;

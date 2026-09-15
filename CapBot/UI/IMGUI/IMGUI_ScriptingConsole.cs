@@ -1,4 +1,4 @@
-﻿using System;
+﻿using CapBot.AI;
 using UnityEngine;
 
 namespace CapBot.UI.IMGUI
@@ -20,14 +20,40 @@ namespace CapBot.UI.IMGUI
             GUILayout.Label("Command:");
             input = GUILayout.TextField(input);
 
-            if (GUILayout.Button("Run"))
+            if (GUILayout.Button("Run") && !string.IsNullOrEmpty(input))
             {
                 output += "\n> " + input;
-                output += "\n" + UI.ScriptingConsole.AIScriptingInterpreter.Execute(input);
+                output += "\n" + ExecuteCommand(input);
                 input = "";
             }
 
             GUI.DragWindow();
+        }
+
+        // Minimal command interpreter: status + role switching.
+        private string ExecuteCommand(string cmd)
+        {
+            CapBot.AI.CaptainBot bot = CapBot.AI.AIRegistry.GetLocalBot();
+            if (bot == null)
+                return "No CapBot on this ship.";
+
+            string[] parts = cmd.Trim().Split(' ');
+            switch (parts[0].ToLowerInvariant())
+            {
+                case "status":
+                    return $"Role={bot.Role} Level={bot.Level} XP={bot.XP} Behavior={bot.CurrentBehavior}";
+
+                case "role":
+                    if (parts.Length > 1 && System.Enum.TryParse(parts[1], true, out CapBotRole role))
+                    {
+                        bot.Role = role;
+                        return $"Role set to {role}";
+                    }
+                    return "Usage: role <Captain|Engineer|Weapons|Science|Pilot>";
+
+                default:
+                    return $"Unknown command '{parts[0]}'. Try: status, role";
+            }
         }
     }
 }

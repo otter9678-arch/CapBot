@@ -1,5 +1,4 @@
 ﻿using CapBot.AI;
-using System;
 using UnityEngine;
 
 namespace CapBot.UI.IMGUI
@@ -12,11 +11,18 @@ namespace CapBot.UI.IMGUI
 
         protected override void DrawWindow(int id)
         {
+            if (PLServer.Instance == null)
+            {
+                GUILayout.Label("Not in a game.");
+                GUI.DragWindow();
+                return;
+            }
+
             foreach (PLPlayer p in PLServer.Instance.AllPlayers)
             {
                 if (p != null && p.IsBot && p.TeamID == 0)
                 {
-                    CapBot bot = AIRegistry.Get(p);
+                    CaptainBot bot = AIRegistry.Get(p);
 
                     GUILayout.BeginHorizontal();
                     GUILayout.Label($"{p.GetPlayerName()} ({bot.Role})  Lvl {bot.Level}");
@@ -26,9 +32,6 @@ namespace CapBot.UI.IMGUI
 
                     if (GUILayout.Button("Debug"))
                         IMGUI_DebugConsole.Instance.Toggle();
-
-                    if (GUILayout.Button("Kick"))
-                        PLServer.Instance.KickPlayer(p.GetPlayerID());
 
                     GUILayout.EndHorizontal();
                 }

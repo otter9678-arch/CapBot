@@ -2,28 +2,41 @@
 
 namespace CapBot.AI
 {
-    public class CapBot
+    // Per-bot meta state: role, XP, talents, personality, behavior weights.
+    public class CaptainBot
     {
         public PLPlayer Player { get; private set; }
         public CapBotRole Role { get; set; }
+        public string CurrentBehavior = "Idle";
+
+        public int Level = 1;
+        public int XP;
 
         public float LastActionTime;
         public float LastOrderTime;
         public float LastMapUpdate;
         public float LastBlindJump;
 
-        public CapBot(PLPlayer player)
+        public Talents.TalentManager TalentManager;
+        public Dialogue.VoiceProfile Voice;
+        public Loadouts.BotLoadout Loadout;
+
+        public BehaviorWeights Weights = new BehaviorWeights();
+
+        public CaptainBot(PLPlayer player)
         {
             Player = player;
             Role = CapBotRole.Captain;
 
-            LastActionTime = Time.time;
-            LastOrderTime = Time.time;
-            LastMapUpdate = Time.time;
-            LastBlindJump = Time.time;
+            float now = Time.time;
+            LastActionTime = now;
+            LastOrderTime = now;
+            LastMapUpdate = now;
+            LastBlindJump = now;
+
+            TalentManager = new Talents.TalentManager(Talents.TalentLoadout.CreateForRole(Role));
+            Voice = Dialogue.VoiceProfile.ForRole(Role);
+            Loadout = Loadouts.LoadoutManager.CreateLoadout(Role);
         }
-
-        public BehaviorWeights.BehaviorWeights Weights = new BehaviorWeights.BehaviorWeights();
-
     }
 }

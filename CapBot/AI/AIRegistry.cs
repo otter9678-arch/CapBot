@@ -4,25 +4,36 @@ namespace CapBot.AI
 {
     public static class AIRegistry
     {
-        private static readonly Dictionary<int, CapBot> Bots = new Dictionary<int, CapBot>();
+        private static readonly Dictionary<int, CaptainBot> Bots = new Dictionary<int, CaptainBot>();
 
-        public static CapBot Get(PLPlayer player)
+        public static CaptainBot Get(PLPlayer player)
         {
-            if (!Bots.ContainsKey(player.GetPlayerID()))
-                Bots[player.GetPlayerID()] = new CapBot(player);
+            if (player == null) return null;
 
-            return Bots[player.GetPlayerID()];
+            int id = player.GetPlayerID();
+            CaptainBot bot;
+            if (!Bots.TryGetValue(id, out bot) || bot.Player != player)
+                Bots[id] = bot = new CaptainBot(player);
+
+            return bot;
         }
-    }
-}
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace CapBot.AI
-{
-    internal class AIRegistry
-    {
+        // The bot flying with us in the captain seat (local perspective).
+        public static CaptainBot GetLocalBot()
+        {
+            if (PLNetworkManager.Instance == null || PLNetworkManager.Instance.LocalPlayer == null)
+                return null;
+
+            PLPlayer local = PLNetworkManager.Instance.LocalPlayer;
+            PLShipInfo ship = local.StartingShip;
+            if (ship == null) return null;
+
+            foreach (PLPlayer p in PLServer.Instance.AllPlayers)
+            {
+                if (p != null && p.IsBot && p.TeamID == 0 && p.StartingShip == ship)
+                    return Get(p);
+            }
+            return null;
+        }
     }
 }

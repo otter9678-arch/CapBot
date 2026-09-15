@@ -19,7 +19,6 @@ namespace CapBot.Talents
             XP += amount;
 
             int needed = Level * 100;
-
             if (XP >= needed)
             {
                 XP -= needed;

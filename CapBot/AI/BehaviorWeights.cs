@@ -1,5 +1,7 @@
-﻿namespace CapBot.AI.BehaviorWeights
+namespace CapBot.AI
 {
+    // Serializable weights used by the behavior editor; applied as
+    // priority boosts on top of the legacy AI priorities.
     [System.Serializable]
     public class BehaviorWeights
     {

@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+﻿using System.Collections.Generic;
 
 namespace CapBot.Personality
 {
@@ -12,20 +12,20 @@ namespace CapBot.Personality
 
         public BotPersonality(float aggression, float caution, float curiosity, float loyalty)
         {
-            Aggression = Mathf.Clamp01(aggression);
-            Caution = Mathf.Clamp01(caution);
-            Curiosity = Mathf.Clamp01(curiosity);
-            Loyalty = Mathf.Clamp01(loyalty);
+            Aggression = UnityEngine.Mathf.Clamp01(aggression);
+            Caution = UnityEngine.Mathf.Clamp01(caution);
+            Curiosity = UnityEngine.Mathf.Clamp01(curiosity);
+            Loyalty = UnityEngine.Mathf.Clamp01(loyalty);
         }
 
         // Random variation for uniqueness
         public static BotPersonality RandomizeAround(BotPersonality baseP)
         {
             return new BotPersonality(
-                baseP.Aggression + Random.Range(-0.1f, 0.1f),
-                baseP.Caution + Random.Range(-0.1f, 0.1f),
-                baseP.Curiosity + Random.Range(-0.1f, 0.1f),
-                baseP.Loyalty + Random.Range(-0.1f, 0.1f)
+                baseP.Aggression + UnityEngine.Random.Range(-0.1f, 0.1f),
+                baseP.Caution + UnityEngine.Random.Range(-0.1f, 0.1f),
+                baseP.Curiosity + UnityEngine.Random.Range(-0.1f, 0.1f),
+                baseP.Loyalty + UnityEngine.Random.Range(-0.1f, 0.1f)
             );
         }
     }

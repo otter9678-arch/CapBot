@@ -1,6 +1,6 @@
-﻿using UnityEngine;
-using CapBot.AI;
+﻿using CapBot.AI;
 using CapBot.Personality;
+using UnityEngine;
 
 namespace CapBot.Dialogue
 {
@@ -8,26 +8,27 @@ namespace CapBot.Dialogue
     {
         private static float _lastLineTime = 0f;
 
-        public static void Play(CapBot bot, VoiceLine line)
+        public static void Play(CaptainBot bot, VoiceLine line)
         {
             if (Time.time - _lastLineTime < 2f)
                 return; // prevent spam
 
             _lastLineTime = Time.time;
 
-            // Text output (console or UI)
-            Debug.Log($"[CapBot] {bot.Player.GetPlayerName()}: {line.Text}");
+            // Text output via game chat notification
+            PulsarModLoader.Utilities.Messaging.Notification(
+                $"{bot.Player.GetPlayerName()}: {line.Text}");
 
             // Audio output
-            if (line.Clip != null)
+            if (line.Clip != null && bot.Player.GetPawn() != null)
             {
                 AudioSource.PlayClipAtPoint(line.Clip, bot.Player.GetPawn().transform.position);
             }
         }
 
-        public static void PlayRandom(CapBot bot, System.Collections.Generic.List<VoiceLine> list)
+        public static void PlayRandom(CaptainBot bot, System.Collections.Generic.List<VoiceLine> list)
         {
-            if (list.Count == 0)
+            if (list == null || list.Count == 0)
                 return;
 
             // Personality weighting

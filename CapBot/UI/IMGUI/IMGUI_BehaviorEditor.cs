@@ -1,5 +1,4 @@
 ﻿using CapBot.AI;
-using System;
 using UnityEngine;
 
 namespace CapBot.UI.IMGUI
@@ -12,15 +11,15 @@ namespace CapBot.UI.IMGUI
 
         protected override void DrawWindow(int id)
         {
-            CapBot bot = AIRegistry.GetLocalBot();
+            CaptainBot bot = AIRegistry.GetLocalBot();
             if (bot == null)
             {
-                GUILayout.Label("No local bot.");
+                GUILayout.Label("No CapBot on this ship.");
                 GUI.DragWindow();
                 return;
             }
 
-            var w = bot.Weights;
+            BehaviorWeights w = bot.Weights;
 
             GUILayout.Label("Behavior Weights");
 
