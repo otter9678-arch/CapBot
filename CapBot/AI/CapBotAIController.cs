@@ -1,9 +1,21 @@
-﻿using UnityEngine;
+﻿using CapBot.Dialogue;
+using UnityEngine;
 
 namespace CapBot.AI
 {
     public static class CapBotAIController
     {
+        // Called from the meta-layer ticker each frame.
+        public static void PollBots()
+        {
+            if (PLServer.Instance == null) return;
+
+            foreach (PLPlayer p in PLServer.Instance.AllPlayers)
+            {
+                if (p != null) UpdateCaptainAI(p);
+            }
+        }
+
         // Legacy Patch.cs owns the in-game decision loop; this controller only
         // tracks which behavior is active for UI/debug/personality purposes.
         public static void UpdateCaptainAI(PLPlayer botPlayer)
@@ -51,10 +63,27 @@ namespace CapBot.AI
                 }
             }
 
-            bot.CurrentBehavior = behavior;
+            if (bot.CurrentBehavior != behavior)
+            {
+                bot.CurrentBehavior = behavior;
+                OnBehaviorChanged(bot, behavior);
+            }
+        }
 
-            if (botPlayer.StartingShip != null && botPlayer.StartingShip.InWarp)
-                LevelingSystem.AddXP(bot, XPEvents.WARP_JUMP / 60);
+        private static void OnBehaviorChanged(CaptainBot bot, string behavior)
+        {
+            switch (behavior)
+            {
+                case "Combat":
+                case "WarpGuardian":
+                    DialogueTriggers.OnCombatStart(bot);
+                    break;
+
+                case "Planet":
+                case "Colony":
+                    DialogueTriggers.OnExplore(bot);
+                    break;
+            }
         }
 
         private static bool shipHasHostiles(PLShipInfo ship)

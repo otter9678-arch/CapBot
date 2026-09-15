@@ -1,5 +1,4 @@
-﻿using CapBot.AI;
-using UnityEngine;
+﻿using System.Collections.Generic;
 
 namespace CapBot.AI
 {
@@ -14,51 +13,48 @@ namespace CapBot.AI
         public const int USE_PROGRAM = 10;
         public const int PILOT_MANEUVER = 8;
 
-        private static PLShipInfo _lastShip;
+        private static readonly Dictionary<PLShipInfo, bool> ShipInWarp = new Dictionary<PLShipInfo, bool>();
         private static int _lastMissionsEnded;
 
         public static void PollGameEvents()
         {
             if (PLServer.Instance == null || !PhotonNetwork.isMasterClient)
             {
-                _lastShip = null;
-                _lastMissionsEnded = 0;
+                Reset();
                 return;
             }
+
+            // Computed once per frame so every crew bot receives the same award;
+            // a rising count means missions completed since the last poll.
+            int ended = CountEndedMissions();
+            int missionDelta = ended > _lastMissionsEnded ? ended - _lastMissionsEnded : 0;
+            _lastMissionsEnded = ended;
 
             foreach (PLPlayer p in PLServer.Instance.AllPlayers)
             {
                 if (p == null || !p.IsBot || p.TeamID != 0) continue;
 
-                CaptainBot bot = AIRegistry.Get(p);
+                if (p.StartingShip != null && ShipCompletedWarp(p.StartingShip))
+                    LevelingSystem.AddXP(AIRegistry.Get(p), WARP_JUMP);
 
-                // Warp XP: award once per completed warp for the ship's bots.
-                PLShipInfo ship = p.StartingShip;
-                if (ship != null && ship != _lastShip)
-                {
-                    if (_lastShip != null)
-                        LevelingSystem.AddXP(bot, WARP_JUMP);
-                    _lastShip = ship;
-                }
-
-                // Mission XP: award when the crew's active mission count drops
-                // (a mission ended) while this bot is alive.
-                int ended = CountEndedMissions();
-                if (ended > _lastMissionsEnded)
-                {
-                    LevelingSystem.AddXP(bot, COMPLETE_MISSION * (ended - _lastMissionsEnded));
-                    _lastMissionsEnded = ended;
-                }
-                else if (ended < _lastMissionsEnded)
-                {
-                    _lastMissionsEnded = ended;
-                }
+                if (missionDelta > 0)
+                    LevelingSystem.AddXP(AIRegistry.Get(p), COMPLETE_MISSION * missionDelta);
             }
+        }
+
+        // A warp counts once when the ship leaves warp state; the first sighting
+        // of a ship only establishes the baseline so pre-existing warps don't award.
+        private static bool ShipCompletedWarp(PLShipInfo ship)
+        {
+            bool inWarp = ship.InWarp;
+            bool wasTracked = ShipInWarp.TryGetValue(ship, out bool wasInWarp);
+            ShipInWarp[ship] = inWarp;
+            return wasTracked && wasInWarp && !inWarp;
         }
 
         public static void Reset()
         {
-            _lastShip = null;
+            ShipInWarp.Clear();
             _lastMissionsEnded = 0;
         }
 

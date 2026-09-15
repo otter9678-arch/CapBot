@@ -25,6 +25,8 @@ namespace CapBot
             EnsureHost();
             NetworkSyncManager.PollEvents();
             XPEvents.PollGameEvents();
+            CapBot.AI.CapBotAIController.PollBots();
+            SaveLoad.SaveLoadManager.Poll();
         }
     }
 
@@ -35,6 +37,9 @@ namespace CapBot
         {
             NetworkSyncManager.Reset();
             XPEvents.Reset();
+            AI.AIRegistry.Reset();
+            Personality.PersonalityManager.Reset();
+            SaveLoad.SaveLoadManager.Reset();
         }
     }
 

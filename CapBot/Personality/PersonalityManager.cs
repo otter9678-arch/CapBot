@@ -55,5 +55,12 @@ namespace CapBot.Personality
         public static float Caution(CaptainBot bot) => Get(bot).Caution;
         public static float Curiosity(CaptainBot bot) => Get(bot).Curiosity;
         public static float Loyalty(CaptainBot bot) => Get(bot).Loyalty;
+
+        // Per-session state: personalities are keyed by player IDs that get
+        // reassigned each session.
+        public static void Reset()
+        {
+            Personalities.Clear();
+        }
     }
 }

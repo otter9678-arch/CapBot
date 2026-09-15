@@ -35,5 +35,12 @@ namespace CapBot.AI
             }
             return null;
         }
+
+        // Per-session state: bots are tied to PLPlayer instances that are
+        // recreated when a new game starts.
+        public static void Reset()
+        {
+            Bots.Clear();
+        }
     }
 }
