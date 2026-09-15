@@ -19,11 +19,12 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
+    <Optimize>true</Optimize>
+    <OutputPath>..\</OutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -51,12 +52,18 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\PULSARLostColony\PULSAR_LostColony_Data\Managed\Behave.Unity.Runtime.dll</HintPath>
     </Reference>
+    <Reference Include="BouncyCastle.Crypto, Version=1.9.0.0, Culture=neutral, PublicKeyToken=0e99375e54769942, processorArchitecture=MSIL">
+      <HintPath>..\packages\Portable.BouncyCastle.1.9.0\lib\net40\BouncyCastle.Crypto.dll</HintPath>
+    </Reference>
     <Reference Include="com.rlabrecque.steamworks.net, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\PULSARLostColony\PULSAR_LostColony_Data\Managed\com.rlabrecque.steamworks.net.dll</HintPath>
     </Reference>
     <Reference Include="CrewAILibraryBuild">
       <HintPath>..\..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\PULSARLostColony\PULSAR_LostColony_Data\Managed\CrewAILibraryBuild.dll</HintPath>
+    </Reference>
+    <Reference Include="Photon3Unity3D">
+      <HintPath>F:\Steam\steamapps\common\PULSARLostColony\PULSAR_LostColony_Data\Managed\Photon3Unity3D.dll</HintPath>
     </Reference>
     <Reference Include="PulsarModLoader, Version=0.11.0.24, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
@@ -78,18 +85,84 @@
     </Reference>
     <Reference Include="UnityEngine.UI, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\PULSARLostColony\PULSAR_LostColony_Data\Managed\UnityEngine.UI.dll</HintPath>
+      <HintPath>F:\Steam\steamapps\common\PULSARLostColony\PULSAR_LostColony_Data\Managed\UnityEngine.UI.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AI\AIRegistry.cs" />
+    <Compile Include="AI\AIUtils.cs" />
+    <Compile Include="AI\BehaviorProfiles.cs" />
+    <Compile Include="AI\Behaviors\BurrowBehavior\Vector3.cs" />
+    <Compile Include="AI\Behaviors\BurrowBehavior\Vector3Helpers.cs" />
+    <Compile Include="AI\Behaviors\ColonyBehavior.cs" />
+    <Compile Include="AI\Behaviors\CombatBehavior\CombatBehavior.cs" />
+    <Compile Include="AI\Behaviors\IdleBehavior\IdleBehavior.cs" />
+    <Compile Include="AI\Behaviors\PlanetBehavior\PlanetBehavior.cs" />
+    <Compile Include="AI\Behaviors\RaceBehavior.cs" />
+    <Compile Include="AI\Behaviors\ShipManagementBehavior\ShipManagementBehavior.cs" />
+    <Compile Include="AI\Behaviors\WarpGuardianBehavior.cs" />
+    <Compile Include="AI\Behaviors\WastedWingBehavior\WastedWingBehavior.cs" />
+    <Compile Include="AI\BotInventory.cs" />
+    <Compile Include="AI\CapBot.cs" />
+    <Compile Include="AI\CapBotAIController.cs" />
+    <Compile Include="AI\CapBotBehavior.cs" />
+    <Compile Include="AI\CapBotRole.cs" />
+    <Compile Include="Dialogue\DialogueManager.cs" />
+    <Compile Include="Dialogue\DialogueTriggers.cs" />
+    <Compile Include="Dialogue\VoiceLine.cs" />
+    <Compile Include="Dialogue\VoiceProfile.cs" />
+    <Compile Include="Leveling\LevelingSystem.cs" />
+    <Compile Include="Leveling\XPEvents.cs" />
+    <Compile Include="Loadouts\EngineerLoadout.cs" />
+    <Compile Include="Loadouts\BotLoadout.cs" />
+    <Compile Include="Loadouts\LoadoutManager.cs" />
+    <Compile Include="Loadouts\PilotLoadout.cs" />
+    <Compile Include="Loadouts\ScienceLoadout.cs" />
+    <Compile Include="Loadouts\WeaponsLoadout.cs" />
     <Compile Include="Mod.cs" />
+    <Compile Include="Networking\DeltaSync.cs" />
+    <Compile Include="Networking\DeltaSyncPacket.cs" />
+    <Compile Include="Networking\NetworkState.cs" />
+    <Compile Include="Networking\NetworkSyncManager.cs" />
+    <Compile Include="Networking\RPCHandlers.cs" />
     <Compile Include="NonCaptainMenu.cs" />
-    <Compile Include="Patch.cs" />
+    <Compile Include="..\..\New Mods\Patch.cs">
+      <Link>Patch.cs</Link>
+    </Compile>
+    <Compile Include="Personality\BotPersonality.cs" />
+    <Compile Include="Personality\PersonalityManager.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="SaveLoad\BotSaveData.cs" />
+    <Compile Include="SaveLoad\SaveData.cs" />
+    <Compile Include="SaveLoad\SaveLoadManager.cs" />
+    <Compile Include="SaveLoad\SaveManager.cs" />
+    <Compile Include="Talents\EngineerTalents.cs" />
+    <Compile Include="Talents\PilotTalents.cs" />
+    <Compile Include="Talents\ScienceTalents.cs" />
+    <Compile Include="Talents\Talent.cs" />
+    <Compile Include="Talents\TalentManager.cs" />
+    <Compile Include="Talents\TalentTree.cs" />
+    <Compile Include="Talents\WeaponsTalents.cs" />
+    <Compile Include="UI\BehaviorEditor\BehaviorWeightEditorUI.cs" />
+    <Compile Include="UI\BehaviorEditor\BehaviorWeightManager.cs" />
+    <Compile Include="UI\BehaviorEditor\BehaviorWeightManagerUI.cs" />
+    <Compile Include="UI\BehaviorEditor\BehaviorWeights.cs" />
+    <Compile Include="UI\BehaviorEditor\BehaviorWeightSlider.cs" />
+    <Compile Include="UI\CrewManagement\CrewManagementManager.cs" />
+    <Compile Include="UI\CrewManagement\CrewManagementUI.cs" />
+    <Compile Include="UI\CrewManagement\CrewMemberEntryUI.cs" />
+    <Compile Include="UI\IMGUI\IMGUIBase.cs" />
+    <Compile Include="UI\IMGUI\IMGUI_BehaviorEditor.cs" />
+    <Compile Include="UI\IMGUI\IMGUI_CommandWheel.cs" />
+    <Compile Include="UI\IMGUI\IMGUI_CrewManagement.cs" />
+    <Compile Include="UI\IMGUI\IMGUI_DebugConsole.cs" />
+    <Compile Include="UI\IMGUI\IMGUI_ScriptingConsole.cs" />
+    <Compile Include="UI\IMGUI\IMGUI_TalentTree.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>SET PLUGIN_DIR="C:\Program Files (x86)\Steam\steamapps\common\PULSARLostColony\Mods\"
@@ -97,7 +170,10 @@
 IF EXIST %25PLUGIN_DIR%25 (
     ECHO Copying DLLs to Plugins directory...
     XCOPY /Y /F "$(TargetPath)" %25PLUGIN_DIR%25
-)</PostBuildEvent>
+copy "$(TargetPath)" "F:\Steam\steamapps\common\PULSARLostColony\Mods
+
+)
+</PostBuildEvent>
   </PropertyGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
