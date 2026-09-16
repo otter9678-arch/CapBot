@@ -19,5 +19,9 @@ namespace CapBot.SaveLoad
         public float Loyalty;
 
         public List<string> UnlockedTalents = new List<string>();
+
+        // Runtime-only: which PLPlayer consumed this record during load.
+        [NonSerialized]
+        public PLPlayer ClaimedBy;
     }
 }

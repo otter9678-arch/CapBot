@@ -16,6 +16,8 @@ namespace CapBot.SaveLoad
 
         private static bool _loadAttempted;
         private static float _nextAutosave;
+        private static List<BotSaveData> _pendingSaves;
+        private static HashSet<PLPlayer> _loadedBots = new HashSet<PLPlayer>();
 
         // Called from the meta-layer ticker. The game writes its own encrypted
         // save on exit with no hookable completion point, so bot meta-progression
@@ -24,8 +26,7 @@ namespace CapBot.SaveLoad
         {
             if (PLServer.Instance == null || !PhotonNetwork.isMasterClient)
             {
-                _loadAttempted = false;
-                _nextAutosave = 0f;
+                Reset();
                 return;
             }
 
@@ -43,6 +44,8 @@ namespace CapBot.SaveLoad
                 _nextAutosave = Time.time + AUTOSAVE_INTERVAL;
                 return;
             }
+
+            ApplyPendingSaves(crewBots);
 
             if (Time.time >= _nextAutosave)
             {
@@ -68,6 +71,8 @@ namespace CapBot.SaveLoad
         {
             _loadAttempted = false;
             _nextAutosave = 0f;
+            _pendingSaves = null;
+            _loadedBots.Clear();
         }
 
         // JSON is written/parsed by hand: both JsonUtility (null-list skip,
@@ -199,26 +204,71 @@ namespace CapBot.SaveLoad
                 if (savedBots == null || savedBots.Count == 0)
                     return;
 
-                // PlayerIDs are reassigned each session, so match by crew order
-                // first (deterministic for the single-captain case) and fall
-                // back to an ID match for larger crews.
-                for (int i = 0; i < crewBots.Count && i < savedBots.Count; i++)
-                {
-                    BotSaveData data = savedBots[i];
-                    if (data == null) continue;
-
-                    PLPlayer p = crewBots[i];
-                    if (p.GetPlayerID() == data.PlayerID || CountMatches(savedBots, data.PlayerID) == 1)
-                    {
-                        ApplySaveData(AIRegistry.Get(p), data);
-                        Debug.Log("[CapBot] Loaded save data for bot " + p.GetPlayerName());
-                    }
-                }
+                // Bots join one at a time over several frames, so stage the
+                // parsed data and let Poll apply it as each bot shows up.
+                _pendingSaves = savedBots;
+                _loadedBots.Clear();
+                ApplyPendingSaves(crewBots);
             }
             catch (System.Exception e)
             {
                 Debug.LogWarning("[CapBot] Load failed: " + e.Message);
             }
+        }
+
+        // Matches staged save data to bots that have appeared since load.
+        // PlayerIDs are reassigned each session, so prefer an exact ID match
+        // when it is unique, then fall back to consuming unclaimed records.
+        private static void ApplyPendingSaves(List<PLPlayer> crewBots)
+        {
+            if (_pendingSaves == null || _pendingSaves.Count == 0)
+                return;
+
+            for (int i = crewBots.Count - 1; i >= 0; i--)
+            {
+                PLPlayer p = crewBots[i];
+                if (p == null || _loadedBots.Contains(p))
+                    continue;
+
+                BotSaveData data = FindSaveData(_pendingSaves, p);
+                if (data == null)
+                    continue;
+
+                ApplySaveData(AIRegistry.Get(p), data);
+                _loadedBots.Add(p);
+                data.ClaimedBy = p;
+                Debug.Log("[CapBot] Loaded save data for bot " + p.GetPlayerName());
+            }
+
+            if (_loadedBots.Count >= _pendingSaves.Count)
+                _pendingSaves = null;
+        }
+
+        private static BotSaveData FindSaveData(List<BotSaveData> savedBots, PLPlayer p)
+        {
+            int id = p.GetPlayerID();
+            int matches = 0;
+            BotSaveData idMatch = null;
+            foreach (BotSaveData d in savedBots)
+            {
+                if (d != null && d.PlayerID == id)
+                {
+                    matches++;
+                    idMatch = d;
+                }
+            }
+
+            if (matches == 1)
+                return idMatch;
+
+            // Ambiguous or unmatched: consume the first record no bot has
+            // claimed yet.
+            foreach (BotSaveData d in savedBots)
+            {
+                if (d != null && d.ClaimedBy == null)
+                    return d;
+            }
+            return null;
         }
 
         // Minimal reader for the exact shape written above. Tolerates
@@ -307,16 +357,6 @@ namespace CapBot.SaveLoad
             if (raw.StartsWith("[")) raw = raw.Substring(1);
             if (raw.EndsWith("]")) raw = raw.Substring(0, raw.Length - 1);
             return raw.Length == 0 ? new string[0] : raw.Split(',');
-        }
-
-        private static int CountMatches(List<BotSaveData> savedBots, int playerID)
-        {
-            int count = 0;
-            foreach (BotSaveData d in savedBots)
-            {
-                if (d != null && d.PlayerID == playerID) count++;
-            }
-            return count;
         }
 
         private static List<PLPlayer> GetCrewBots()
