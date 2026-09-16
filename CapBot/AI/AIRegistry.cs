@@ -36,6 +36,20 @@ namespace CapBot.AI
             return null;
         }
 
+        // Patch.cs reports the branch it actually took this frame; the F8
+        // console and dialogue triggers read this instead of guessing from
+        // the sector.
+        public static void ReportActivity(PLPlayer player, string activity)
+        {
+            if (player == null || string.IsNullOrEmpty(activity)) return;
+
+            CaptainBot bot = Get(player);
+            if (bot.CurrentBehavior == activity) return;
+
+            bot.CurrentBehavior = activity;
+            CapBotAIController.OnActivityChanged(bot, activity);
+        }
+
         // Per-session state: bots are tied to PLPlayer instances that are
         // recreated when a new game starts.
         public static void Reset()

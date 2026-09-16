@@ -72,18 +72,21 @@ namespace CapBot
             {
                 __instance.StartingShip.AttemptToSitInCaptainsChair(-1);
             }
-            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.TOPSEC)//Inside the colony 
+            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.TOPSEC)//Inside the colony
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "Colony");
                 AtColony(__instance);
                 return;
             }
-            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.LCWBATTLE)//In the warp guardian battle 
+            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.LCWBATTLE)//In the warp guardian battle
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "WarpGuardian");
                 WarpGuardianBattle(__instance);
                 return;
             }
             if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.WASTEDWING)//In the wasted wing
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "WastedWing");
                 WastedWing(__instance);
                 return;
             }
@@ -98,6 +101,7 @@ namespace CapBot
             //Get Missions from main hubs/stations
             if (PLServer.GetCurrentSector() != null && (PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.COLONIAL_HUB || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.WD_START || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.AOG_HUB || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.CORNELIA_HUB || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.CYPHER_LAB || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.FLUFFY_FACTORY_01))
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "GetMission");
                 GetMissionFromHub(__instance, out bool Halt);
                 if (Halt) return;
             }
@@ -125,6 +129,7 @@ namespace CapBot
                 }
                 if (screensCaptured >= num2 / 2 && CaptainScreenCaptured)//Claim the ship
                 {
+                    CapBot.AI.AIRegistry.ReportActivity(__instance, "ClaimShip");
                     foreach (PLUIScreen pluiscreen in targetEnemy.MyScreenBase.AllScreens)
                     {
                         if ((pluiscreen as PLCaptainScreen) != null)
@@ -161,6 +166,7 @@ namespace CapBot
             //Repair procedures on repair station
             if (__instance.StartingShip.MyFlightAI.cachedRepairDepotList.Count > 0 && __instance.StartingShip.MyStats.HullCurrent / __instance.StartingShip.MyStats.HullMax < 0.99f)
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "Repairing");
                 if (PLServer.Instance.CaptainsOrdersID != 9 && Time.time - LastOrder > 1f)
                 {
                     LastOrder = Time.time;
@@ -184,6 +190,7 @@ namespace CapBot
             //Asks to use the warp gate
             else if (__instance.StartingShip.MyFlightAI.cachedWarpStationList.Count > 0 && __instance.StartingShip.MyFlightAI.cachedWarpStationList[0].IsAligned)
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "WarpGate");
                 if (PLServer.Instance.CaptainsOrdersID != 8 && Time.time - LastOrder > 1f)
                 {
                     LastOrder = Time.time;
@@ -194,6 +201,7 @@ namespace CapBot
             //Repel any intruders
             else if (__instance.StartingShip != null && HasIntruders)
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "RepelIntruders");
                 if (PLServer.Instance.CaptainsOrdersID != 6 && Time.time - LastOrder > 1f)
                 {
                     LastOrder = Time.time;
@@ -204,6 +212,7 @@ namespace CapBot
             //Board Enemies
             else if (__instance.StartingShip.TargetShip != null && __instance.StartingShip.TargetShip != __instance.StartingShip && __instance.StartingShip.TargetShip is PLShipInfo && __instance.StartingShip.TargetShip.TeamID > 0 && (!__instance.StartingShip.TargetShip.IsQuantumShieldActive || __instance.MyCurrentTLI == __instance.StartingShip.TargetShip.MyTLI))
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "Boarding");
                 if (PLServer.Instance.CaptainsOrdersID != 6 && Time.time - LastOrder > 1f)
                 {
                     LastOrder = Time.time;
@@ -214,6 +223,7 @@ namespace CapBot
             //Kill enemy ships if not currently boarding
             else if (((__instance.StartingShip.TargetShip != null && __instance.StartingShip.TargetShip != __instance.StartingShip) || __instance.StartingShip.TargetSpaceTarget != null) && !__instance.StartingShip.TargetShip.IsAbandoned())
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "Combat");
                 if (PLServer.Instance.CaptainsOrdersID != 4 && Time.time - LastOrder > 1f)
                 {
                     LastOrder = Time.time;
@@ -222,8 +232,9 @@ namespace CapBot
                 __instance.StartingShip.AlertLevel = 2;
             }
             //Complete Mission in current planet/station
-            else if (PLServer.GetCurrentSector().MySPI.HasPlanet && HasActiveMissionInCurrentSector()) 
+            else if (PLServer.GetCurrentSector().MySPI.HasPlanet && HasActiveMissionInCurrentSector())
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "PlanetMission");
                 if (PLServer.Instance.CaptainsOrdersID != 13 && Time.time - LastOrder > 1f)
                 {
                     LastOrder = Time.time;
@@ -238,6 +249,7 @@ namespace CapBot
             //Explore planet
             else if (PLServer.GetCurrentSector().MySPI.HasPlanet && __instance.StartingShip != null && (!PLEncounterManager.Instance.GetCPEI().MyPersistantData.MiscPersistantData.ContainsKey("CypherLoss") && !PLEncounterManager.Instance.GetCPEI().MyPersistantData.MiscPersistantData.ContainsKey("CypherWon")) && CurrentSectorHasCypher())
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "PlanetExplore");
                 if (PLServer.Instance.CaptainsOrdersID != 12 && Time.time - LastOrder > 1f)
                 {
                     LastOrder = Time.time;
@@ -252,6 +264,7 @@ namespace CapBot
             //Align the ship
             else if (PLStarmap.Instance.CurrentShipPath.Count > 0 && (__instance.StartingShip.MyFlightAI.cachedWarpStationList.Count == 0 || (!__instance.StartingShip.MyFlightAI.cachedWarpStationList[0].IsAligned && __instance.StartingShip.MyFlightAI.cachedWarpStationList[0].TargetedWarpSectorID == -1)))
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "Aligning");
                 if (PLServer.Instance.CaptainsOrdersID != 10 && Time.time - LastOrder > 1f)
                 {
                     LastOrder = Time.time;
@@ -262,6 +275,7 @@ namespace CapBot
             //Just be at attention
             else
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "Attention");
                 if (PLServer.Instance.CaptainsOrdersID != 1 && Time.time - LastOrder > 1f)
                 {
                     LastOrder = Time.time;
@@ -281,14 +295,16 @@ namespace CapBot
                 HandleComms(__instance);
             }
             //Special behaviours based on current system
-            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.WD_MISSIONCHAIN_WEAPONS_DEMO && !PLServer.Instance.HasCompletedMissionWithID(59682)) //In the W.D. Weapons testing mission 
+            if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.WD_MISSIONCHAIN_WEAPONS_DEMO && !PLServer.Instance.HasCompletedMissionWithID(59682)) //In the W.D. Weapons testing mission
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "WDWeapons");
                 AtWDWeapons(__instance);
                 return;
             }
             //In the burrow
             else if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.DESERT_HUB && !PLServer.Instance.IsFragmentCollected(1))
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "Burrow");
                 Burrow(__instance);
                 LastAction = Time.time;
                 return;
@@ -296,12 +312,14 @@ namespace CapBot
             //In any of the races
             else if (PLServer.GetCurrentSector() != null && (PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.RACING_SECTOR || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.RACING_SECTOR_2 || PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.RACING_SECTOR_3))
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "Race");
                 AtRaces(__instance);
                 return;
             }
             //Get fragment from grey hunstman
             else if (PLServer.GetCurrentSector() != null && PLServer.GetCurrentSector().VisualIndication == ESectorVisualIndication.GREY_HUNTSMAN_HQ && PLServer.Instance.HasActiveMissionWithID(104869) && !PLServer.Instance.GetMissionWithID(104869).Ended && !PLServer.Instance.IsFragmentCollected(7))
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "FragmentHunt");
                 __instance.MyBot.AI_TargetPos = new Vector3(217, 111, -108);
                 __instance.MyBot.AI_TargetPos_Raw = __instance.MyBot.AI_TargetPos;
                 foreach (PLTeleportationLocationInstance teleport in Object.FindObjectsOfType(typeof(PLTeleportationLocationInstance)))
@@ -351,6 +369,7 @@ namespace CapBot
             //Blind jump in emergency
             if ((__instance.StartingShip.HostileShips.Count > 1 || (__instance.StartingShip.TargetShip != null && __instance.StartingShip.TargetShip.GetCombatLevel() > __instance.StartingShip.GetCombatLevel())) && __instance.StartingShip.MyStats.HullCurrent / __instance.StartingShip.MyStats.HullMax < 0.2f && !__instance.StartingShip.InWarp && Time.time - LastBlindJump > 60)
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "BlindJump");
                 __instance.MyBot.AI_TargetPos = (__instance.StartingShip.Spawners[4] as GameObject).transform.position;
                 __instance.MyBot.AI_TargetPos_Raw = __instance.MyBot.AI_TargetPos;
                 __instance.MyBot.AI_TargetTLI = __instance.StartingShip.MyTLI;
@@ -371,8 +390,9 @@ namespace CapBot
                 LastAction = Time.time;
             }
             //Sit in chair if no action in the last 20 seconds
-            if (__instance.StartingShip != null && __instance.StartingShip.MyStats.GetShipComponent<PLCaptainsChair>(ESlotType.E_COMP_CAPTAINS_CHAIR, false) != null && Time.time - LastAction > 20f) 
+            if (__instance.StartingShip != null && __instance.StartingShip.MyStats.GetShipComponent<PLCaptainsChair>(ESlotType.E_COMP_CAPTAINS_CHAIR, false) != null && Time.time - LastAction > 20f)
             {
+                CapBot.AI.AIRegistry.ReportActivity(__instance, "Chair");
                 __instance.MyBot.AI_TargetPos = __instance.StartingShip.CaptainsChairPivot.position;
                 __instance.MyBot.AI_TargetPos_Raw = __instance.MyBot.AI_TargetPos;
                 __instance.MyBot.AI_TargetTLI = __instance.StartingShip.MyTLI;
