@@ -129,7 +129,8 @@ namespace CapBot.SaveLoad
         // -----------------------------
         private static void ApplySaveData(CaptainBot bot, BotSaveData data)
         {
-            bot.Role = data.Role;
+            // Role stays class-derived (CapBot ctor); older saves recorded
+            // Role:0 for every bot and would overwrite the correct mapping.
             bot.Level = data.Level;
             bot.XP = data.XP;
 
