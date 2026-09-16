@@ -25,6 +25,9 @@ namespace CapBot.AI
 
             CaptainBot bot = AIRegistry.Get(botPlayer);
             AIUtils.UpdateBotState(bot);
+            BotSelfManager.Poll(botPlayer);
+            BotSelfManager.ManageNearbyPickups(bot);
+            BotSelfManager.PollResearch(bot);
 
             PLSectorInfo sector = PLServer.GetCurrentSector();
             string behavior = "ShipManagement";

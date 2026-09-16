@@ -103,6 +103,7 @@
     <Compile Include="AI\AIRegistry.cs" />
     <Compile Include="AI\AIUtils.cs" />
     <Compile Include="AI\BehaviorWeights.cs" />
+    <Compile Include="AI\BotSelfManager.cs" />
     <Compile Include="AI\CapBot.cs" />
     <Compile Include="AI\CapBotAIController.cs" />
     <Compile Include="AI\CapBotRole.cs" />

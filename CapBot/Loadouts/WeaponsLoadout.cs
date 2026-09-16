@@ -12,6 +12,7 @@
             PreferredTools.Add("Grenade");
 
             PreferredUtility.Add("Shield Booster");
+            PreferredUtility.Add("Research Material");
         }
     }
 }

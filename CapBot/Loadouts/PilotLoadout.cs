@@ -10,6 +10,7 @@
             PreferredTools.Add("Flight Manual");
 
             PreferredUtility.Add("Oxygen Canister");
+            PreferredUtility.Add("Research Material");
         }
     }
 }

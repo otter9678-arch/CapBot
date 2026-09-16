@@ -10,6 +10,7 @@
 
             PreferredUtility.Add("Medkit");
             PreferredUtility.Add("Stimulant");
+            PreferredUtility.Add("Research Material");
         }
     }
 }

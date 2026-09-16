@@ -26,7 +26,7 @@ namespace CapBot.AI
         public CaptainBot(PLPlayer player)
         {
             Player = player;
-            Role = CapBotRole.Captain;
+            Role = RoleFromClassID(player.GetClassID());
 
             float now = Time.time;
             LastActionTime = now;
@@ -37,6 +37,20 @@ namespace CapBot.AI
             TalentManager = new Talents.TalentManager(Talents.TalentLoadout.CreateForRole(Role));
             Voice = Dialogue.VoiceProfile.ForRole(Role);
             Loadout = Loadouts.LoadoutManager.CreateLoadout(Role);
+        }
+
+        // Game class IDs verified from Assembly-CSharp: 0=Captain, 1=Pilot,
+        // 2=Scientist, 3=Weapons Specialist, 4=Engineer.
+        private static CapBotRole RoleFromClassID(int classID)
+        {
+            switch (classID)
+            {
+                case 1: return CapBotRole.Pilot;
+                case 2: return CapBotRole.Science;
+                case 3: return CapBotRole.Weapons;
+                case 4: return CapBotRole.Engineer;
+                default: return CapBotRole.Captain;
+            }
         }
     }
 }

@@ -10,6 +10,7 @@
 
             PreferredUtility.Add("Wrench");
             PreferredUtility.Add("Toolkit");
+            PreferredUtility.Add("Research Material");
         }
     }
 }
