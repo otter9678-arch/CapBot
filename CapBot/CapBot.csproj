@@ -65,6 +65,9 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>C:\SteamLibrary\steamapps\common\PULSARLostColony\PULSAR_LostColony_Data\Managed\PulsarModLoader.dll</HintPath>
     </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>C:\SteamLibrary\steamapps\common\PULSARLostColony\Mods\Newtonsoft.Json.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />

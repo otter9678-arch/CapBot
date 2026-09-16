@@ -71,7 +71,13 @@ namespace CapBot.SaveLoad
                 foreach (PLPlayer p in crewBots)
                     allData.Add(CreateSaveData(AIRegistry.Get(p)));
 
-                string json = JsonUtility.ToJson(new Wrapper { Bots = allData }, true);
+                if (allData.Count == 0)
+                {
+                    Debug.LogWarning("[CapBot] Save skipped: no bot data produced");
+                    return;
+                }
+
+                string json = Newtonsoft.Json.JsonConvert.SerializeObject(allData, Newtonsoft.Json.Formatting.Indented);
                 File.WriteAllText(SavePath, json);
             }
             catch (System.Exception e)
@@ -88,22 +94,24 @@ namespace CapBot.SaveLoad
             try
             {
                 string json = File.ReadAllText(SavePath);
-                Wrapper wrapper = JsonUtility.FromJson<Wrapper>(json);
-                if (wrapper == null || wrapper.Bots == null)
+                List<BotSaveData> savedBots =
+                    Newtonsoft.Json.JsonConvert.DeserializeObject<List<BotSaveData>>(json);
+                if (savedBots == null || savedBots.Count == 0)
                     return;
 
                 // PlayerIDs are reassigned each session, so match by crew order
                 // first (deterministic for the single-captain case) and fall
                 // back to an ID match for larger crews.
-                for (int i = 0; i < crewBots.Count && i < wrapper.Bots.Count; i++)
+                for (int i = 0; i < crewBots.Count && i < savedBots.Count; i++)
                 {
-                    BotSaveData data = wrapper.Bots[i];
+                    BotSaveData data = savedBots[i];
                     if (data == null) continue;
 
                     PLPlayer p = crewBots[i];
-                    if (p.GetPlayerID() == data.PlayerID || CountMatches(wrapper, data.PlayerID) == 1)
+                    if (p.GetPlayerID() == data.PlayerID || CountMatches(savedBots, data.PlayerID) == 1)
                     {
                         ApplySaveData(AIRegistry.Get(p), data);
+                        Debug.Log("[CapBot] Loaded save data for bot " + p.GetPlayerName());
                     }
                 }
             }
@@ -113,10 +121,10 @@ namespace CapBot.SaveLoad
             }
         }
 
-        private static int CountMatches(Wrapper wrapper, int playerID)
+        private static int CountMatches(List<BotSaveData> savedBots, int playerID)
         {
             int count = 0;
-            foreach (BotSaveData d in wrapper.Bots)
+            foreach (BotSaveData d in savedBots)
             {
                 if (d != null && d.PlayerID == playerID) count++;
             }
@@ -191,13 +199,6 @@ namespace CapBot.SaveLoad
         {
             _loadAttempted = false;
             _nextAutosave = 0f;
-        }
-
-        // Wrapper for JSON array
-        [System.Serializable]
-        private class Wrapper
-        {
-            public List<BotSaveData> Bots;
         }
     }
 }
