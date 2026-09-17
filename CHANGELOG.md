@@ -3,6 +3,65 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 26 — Trait profile (trait consumer)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Learning/TraitProfileDirector.cs` — the deterministic read half
+  of the personality arc: the trait CONSUMER the P25 deferral trail
+  names. Reads the P25-matured traits as DATA via public readbacks only
+  (`CrewPersonalityRegistry.ArchetypeOf/AffinityToRole/Count`,
+  `AdaptiveLearningDirector.GetRecord`, `CrewAgentRegistry.AgentViews`,
+  shared 20 s snapshot gate) and emits bounded, human-readable
+  crew-composition signals, one-shot per record lifetime (the P24 record
+  mirror): `DOMINANT` (named archetype profile), `LOWAFFINITY`
+  (role-affinity < 40 on the agent's current role — surfaced, never a
+  task, never a reassignment), `MATURED` (P25 `AdjustCount > 0`),
+  `NOPERS` (session-global one-shot: active agents while the personality
+  registry has never held a record). Signal precedence matured >
+  lowAffinity > dominant; balanced/known-affinity/never-matured profiles
+  are tracked quiet. Cadence 5 s; snapshot fail-safes (missing/stale/
+  future/not-started ⇒ counted, fail-closed pass); baseline arm pass
+  observation-free; anti-churn re-report block 20 s (RecheckBlocks);
+  dup-suppressed silent refreshes; hygiene decay ActiveExpiryMs=30000
+  with bounded history (MaxHistory 16) and fresh re-arm; bounded records
+  (≤32) and emissions (≤4/pass). Performs NO writes of its own — no
+  SetPersonality, no DeriveFor, no task operation, no scheduler/
+  recovery/claims/executor/validator call (IL-verified). One-way lock
+  order: per-agent readbacks run OUTSIDE the director lock (P24
+  precedent); a fault on one agent's readback skips that agent only.
+  Never throws; every seam fault counted. No config toggle (the P18–P24
+  deterministic-director precedent). `NOPERS` honesty note: the arm-pass
+  readbacks derive-and-register personalities on demand, so NOPERS is
+  honest only for mid-session joiners (documented; TRAIT07).
+- `Core/Learning/TraitProfileLogBridge.cs` + `CapBotLog.TRAIT` — boot
+  attach of the new `TRAIT` log subsystem (additive).
+- `Mod.cs` P26 boot block (bridge + authority probe + world provider —
+  the world provider as a delegate literal, per the 14-wire precedent)
+  and the `WorldTick` Postfix P26 tick block (in place after the P24
+  block, own try/catch — it observes P25 writes already applied by the
+  funnel). **No new Harmony patch class** — the 11-class ceiling is
+  kept. `CapBot.csproj` +2 Compile entries.
+- `tests/TraitConsumerTests.cs` (TRAIT01–TRAIT11, 86 assertions) + suite
+  registration (25 domain files, 16 suites).
+- `docs/TRAIT_PROFILE.md` — the P26 contract documentation (constraint
+  trail, signal semantics, derive-on-demand interplay, bounded knobs,
+  MUST-NOT list, config/multiplayer posture, TRAIT01–TRAIT11 inventory,
+  verification results).
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2483 failed=0` (+86 over the P25 baseline of
+  2397).
+- Reflection (`verify_build_p26.ps1`): 83/0 — static class + nested
+  `TraitProfileRecord` + bridge; members/properties/record fields/consts
+  probed; IL ownership scans (zero forbidden refs incl.
+  SetPersonality/DeriveFor — the write-path proof — plus task
+  authoring/scheduler/recovery/executor/claims/validator/dispatcher,
+  Photon, scene scans, capability RPCs; all four sanctioned reads
+  present); `CapBotLog.TRAIT`; Mod boot IL references (methods AND
+  constructors) the bridge + authority probe; Harmony patch classes ==
+  11; P24/P25 surfaces intact.
+
 ## [Phase 25 — Adaptive learning (trait maturation)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

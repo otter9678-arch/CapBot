@@ -3028,6 +3028,21 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.ADJUSTMENT, "Adjustment observer tick failed", ex);
             }
+
+            // ---- Phase 26: trait profile consumer (bounded readback) ----
+            // Runs AFTER the P24 block so it observes P25 learning writes that
+            // have already been applied by the funnel (traits are DATA to this
+            // layer). Reads P11/P25 public readbacks; performs no writes, no
+            // task ops, no new Harmony patch class (11-class ceiling kept).
+            // Deny-by-default authority keeps non-authoritative clients silent.
+            try
+            {
+                CapBot.Core.Learning.TraitProfileDirector.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
+            }
+            catch (System.Exception ex)
+            {
+                CapBotLog.Error(CapBotLog.TRAIT, "Trait profile consumer tick failed", ex);
+            }
         }
     }
     [HarmonyPatch(typeof(PLBotController), "HandleMovement")]

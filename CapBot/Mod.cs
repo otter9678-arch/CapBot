@@ -295,6 +295,14 @@ namespace CapBot
             // precedent).
             CapBot.Core.Learning.LearningLogBridge.Ensure();
             CapBot.Core.Learning.AdaptiveLearningDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            // P26: trait profile consumer — the deterministic read half of the
+            // personality arc. Reads P11/P25 public readbacks; performs no
+            // writes of its own (traits remain P25's sole sanctioned write
+            // path); deny-by-default authority keeps clients inert. No new
+            // Harmony patch class (11-class ceiling kept).
+            CapBot.Core.Learning.TraitProfileLogBridge.Ensure();
+            CapBot.Core.Learning.TraitProfileDirector.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
+            CapBot.Core.Learning.TraitProfileDirector.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
             // Boot-time: apply any mod DLLs staged by a previous /updateall run.
             ModUpdater.ApplyStagedUpdates();
             // Optional always-on check (off by default; /updateall works regardless).

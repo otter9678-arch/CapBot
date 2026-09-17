@@ -158,6 +158,8 @@
     <Compile Include="Core\Adjustment\AdjustmentLogBridge.cs" />
     <Compile Include="Core\Learning\AdaptiveLearningDirector.cs" />
     <Compile Include="Core\Learning\LearningLogBridge.cs" />
+    <Compile Include="Core\Learning\TraitProfileDirector.cs" />
+    <Compile Include="Core\Learning\TraitProfileLogBridge.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="ModUpdater.cs" />
