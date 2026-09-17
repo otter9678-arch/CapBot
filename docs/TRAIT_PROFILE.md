@@ -61,8 +61,7 @@ Boot wiring (Mod.cs): `TraitProfileLogBridge.Ensure()` +
   (`UnknownInputPasses` + `LastUncertainReason`).
 - No game reads (agents/snapshot arrive through seams), no wall-clock reads
   (`nowMs` is TaskClock semantics), no LINQ, no per-frame work, no LLM in
-  any deterministic path (the P21 CrewAdvisor reads the same registry
-  independently and is never consumed here).
+  any deterministic path (the mod is deterministic-only end to end).
 - Every collection is bounded; same inputs ⇒ same decisions.
 - One-way lock order: per-agent readbacks run OUTSIDE the director lock
   (the P24 precedent); the layer takes nobody's lock while holding its

@@ -200,43 +200,6 @@ namespace CapBot
             CapBot.Core.Validation.DecisionValidator.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
             CapBot.Core.Validation.DecisionValidator.SetNowMsProvider(delegate { return TaskClock.NowMs; });
             CapBot.Core.Validation.DecisionValidator.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
-            // ---- Phase 20: Ollama advisor (optional, sandboxed, RECOMMEND-ONLY) ----
-            // Ownership scope: asks a LOCAL Ollama server (loopback only — the
-            // host is hard-anchored to 127.0.0.1, only the port/model are
-            // configurable) for one advisory line about the crew picture and
-            // logs it. The advice is DATA ONLY: it never creates, queues,
-            // cancels or mutates any task, never feeds the P9/P14/P18
-            // deterministic decisions, and never reaches a capability or the
-            // executor. Off by default (Config.OllamaAdvisorEnabled=false);
-            // with the transport seam unset the advisor is inert by
-            // construction. HTTP runs on advisor worker threads (never the
-            // Unity main thread; requests are hard-timeout bounded and
-            // loopback-only — the ModUpdater C1 pattern is deliberately
-            // inverted). Deterministic rules always override the advisor.
-            CapBot.Core.Ollama.AdvisorLogBridge.Ensure();
-            CapBot.Core.Ollama.OllamaAdvisor.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
-            CapBot.Core.Ollama.OllamaAdvisor.SetNowMsProvider(delegate { return TaskClock.NowMs; });
-            CapBot.Core.Ollama.OllamaAdvisor.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
-            CapBot.Core.Ollama.OllamaAdvisor.SetTransport(new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value));
-            CapBot.Core.Ollama.OllamaAdvisor.ApplyConfig(
-                Config.OllamaAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
-            // ---- Phase 21: crew advisor (Qwen integration, RECOMMEND-ONLY) ----
-            // Crew-domain completion of the P20 advisor: reads the P10 crew
-            // agent hooks (Role/RoleName, LastTaskOutcome, LastKnownTLIName)
-            // through the additive AgentViews() readback and asks the SAME
-            // local server (loopback-only, shared port/model config) for one
-            // advisory line about the crew picture. The advice is DATA ONLY:
-            // it never assigns tasks (CrewAgentRegistry assignment APIs are
-            // untouched), never mutates any task pipeline state, never feeds
-            // the deterministic directors. Off by default
-            // (Config.QwenAdvisorEnabled=false); inert with no transport;
-            // deterministic rules always override the advisor.
-            CapBot.Core.Qwen.CrewAdvisorLogBridge.Ensure();
-            CapBot.Core.Qwen.CrewAdvisor.SetAuthorityProbe(ExecutionClaims.IsAuthoritative);
-            CapBot.Core.Qwen.CrewAdvisor.SetNowMsProvider(delegate { return TaskClock.NowMs; });
-            CapBot.Core.Qwen.CrewAdvisor.SetWorldProvider(delegate { return CapBot.Core.World.WorldStateService.Latest; });
-            CapBot.Core.Qwen.CrewAdvisor.SetTransport(new CapBot.Core.Ollama.OllamaHttpTransport(Config.OllamaPort.Value));
-            CapBot.Core.Qwen.CrewAdvisor.ApplyConfig(Config.QwenAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
             // ---- Phase 22: planning director (deterministic situation assessment) ----
             // Ownership scope: a bounded deterministic CONSUMER of the P6
             // snapshot that tracks planning situations as data (premise drift,

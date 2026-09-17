@@ -12,7 +12,7 @@ namespace CapBot.Core.Logging
     {
         public enum Level { Trace = 0, Debug, Info, Warning, Error, Critical }
 
-        // Subsystem tags (master plan PART 3). OLLAMA reserved for later phases.
+        // Subsystem tags (master plan PART 3).
         public const string CORE = "CORE";
         public const string CAPTAIN = "CAPTAIN";
         public const string CREW = "CREW";
@@ -30,8 +30,6 @@ namespace CapBot.Core.Logging
         public const string UI = "UI";
         public const string EMERGENCY = "EMERGENCY"; // Phase 9: emergency director subsystem (additive)
         public const string DECISION = "DECISION";   // Phase 19: decision validator subsystem (additive)
-        public const string OLLAMA = "OLLAMA";       // Phase 20: Ollama advisor subsystem (additive)
-        public const string QWEN = "QWEN";           // Phase 21: crew advisor subsystem (additive)
         public const string PLANNING = "PLANNING";   // Phase 22: planning director subsystem (additive)
         public const string MISSIONWORK = "MISSIONWORK"; // Phase 23: mission work director subsystem (additive)
         public const string ADJUSTMENT = "ADJUSTMENT"; // Phase 24: adjustment observer subsystem (additive)

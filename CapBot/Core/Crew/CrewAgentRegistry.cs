@@ -194,9 +194,9 @@ namespace CapBot.Core.Crew
         }
 
         // Phase 21 (additive readback): bounded point-in-time view of the
-        // registry for advisory consumers (CrewAdvisor). Copies the fields an
-        // advisor may read — never the live CrewAgent references (the
-        // registry mediates all mutation; advisors hold no registry handles).
+        // registry for read-only consumers. Copies the fields a consumer
+        // may read — never the live CrewAgent references (the
+        // registry mediates all mutation; consumers hold no registry handles).
         public sealed class AgentView
         {
             public string AgentId;

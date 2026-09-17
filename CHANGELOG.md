@@ -3,6 +3,52 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Settings/removal audit — LLM advisors removed (NO-LLM policy G-01)] — unreleased (built from Alpha 1.2.2 source)
+
+### Removed
+- **The entire advisor layer (P20 OllamaAdvisor + P21 CrewAdvisor) at the
+  owner's direction under the NO-LLM policy** (hub G-01: "no hidden AI
+  network calls", "no gameplay information sent to an AI service"): the
+  advisors were deny-by-default and loopback-only, but the runtime code
+  inside the shipped DLL was still a runtime-AI surface. Owner decision
+  2026-09-17: REMOVE.
+- `Core/Ollama/OllamaAdvisor.cs` (~806 lines) + `OllamaHttpTransport.cs`
+  (the only loopback network code) + `AdvisorLogBridge.cs` +
+  `Core/Qwen/CrewAdvisor.cs` + `CrewAdvisorLogBridge.cs` — deleted with
+  their directories.
+- `tests/OllamaAdvisorTests.cs` (OA01–OA13) + `tests/CrewAdvisorTests.cs`
+  (CA01–CA10) — deleted.
+- `docs/OLLAMA_ADVISOR.md` + `docs/CREW_ADVISOR.md` — deleted.
+- `Config.cs` — `OllamaAdvisorEnabled`, `OllamaModel`, `OllamaPort`,
+  `QwenAdvisorEnabled` SaveValues + the advisor menu block (toggle /
+  model cycler / port slider / crew-advisor toggle). Existing save files
+  keep the stale keys harmlessly (PML ignores keys with no reader).
+- `CapBotLog.cs` — `OLLAMA` + `QWEN` subsystem tags.
+- csproj — 5 Compile lines + the `System.Net.Http` reference (it existed
+  solely for the advisor transport; ModUpdater uses `System.Net`
+  WebClient). The shipped DLL now has NO HTTP networking surface beyond
+  ModUpdater's owner-toggled updater (default off).
+
+### Changed
+- `Mod.cs` boot wiring — P20/P21 seam/transport/ApplyConfig blocks removed.
+- `Patch.cs` WorldTick Postfix — P20/P21 guarded tick blocks removed
+  (still 11 Harmony patch classes).
+- `CrewAgentRegistry.AgentView/AgentViews()` readback retained — it serves
+  the P26 trait consumer; its comment no longer names the advisor.
+- Stale advisor references removed from comments/docs
+  (`TraitProfileDirector.cs`, `docs/TRAIT_PROFILE.md`).
+- Test harness: 24 domain files, 15 suites (was 26/17); TestMain sums
+  f1..f24.
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2542 failed=0` unchanged — the advisor suites'
+  assertions were removed WITH their code; every other suite untouched.
+- Release-package audit (G-01 checklist): zero AI libraries / SDKs /
+  inference code / AI API clients / model files / AI service URLs in the
+  source tree; zero `System.Net.Http` references; no config requires an
+  AI service; the mod runs fully offline.
+
 ## [Phase 28 — Crew-state persistence (PML save pipeline)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

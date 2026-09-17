@@ -11,8 +11,7 @@ namespace CapBot.Core.Learning
     // traits through the sole sanctioned write path, and this director READS
     // them — deterministically, as DATA — turning trait values into bounded,
     // human-readable crew-composition signals. It is the deterministic read
-    // half of the personality arc; the P21 CrewAdvisor (LLM path) reads the
-    // same registry independently and is never consumed by this layer.
+    // half of the personality arc.
     //
     // Design basis note: no master-plan document exists in the workspace
     // defining Phase 26 numerically (verified: the only "consumer phase" text

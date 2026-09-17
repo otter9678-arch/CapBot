@@ -73,7 +73,6 @@
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Data" />
-    <Reference Include="System.Net.Http" />
     <Reference Include="System.Xml" />
     <Reference Include="UnityEngine">
       <HintPath>$(PulsarManaged)\UnityEngine.dll</HintPath>
@@ -145,11 +144,6 @@
     <Compile Include="Core\Captain\CaptainLogBridge.cs" />
     <Compile Include="Core\Validation\DecisionValidator.cs" />
     <Compile Include="Core\Validation\DecisionLogBridge.cs" />
-    <Compile Include="Core\Ollama\OllamaAdvisor.cs" />
-    <Compile Include="Core\Ollama\OllamaHttpTransport.cs" />
-    <Compile Include="Core\Ollama\AdvisorLogBridge.cs" />
-    <Compile Include="Core\Qwen\CrewAdvisor.cs" />
-    <Compile Include="Core\Qwen\CrewAdvisorLogBridge.cs" />
     <Compile Include="Core\Planning\PlanningDirector.cs" />
     <Compile Include="Core\Planning\PlanningLogBridge.cs" />
     <Compile Include="Core\Planning\MissionWorkDirector.cs" />

@@ -2939,35 +2939,6 @@ namespace CapBot
             {
                 CapBotLog.Error(CapBotLog.CAPTAIN, "Captain director reconcile failed", ex);
             }
-            // ---- Phase 20: Ollama advisor (recommend-only diagnostics) ----
-            // Consumes completed worker-thread responses and may dispatch a
-            // new loopback request (single-flight). Diagnostics only: advice
-            // is logged, never applied. Config-gated off by default; the
-            // advisor is inert with no transport or disabled config.
-            try
-            {
-                CapBot.Core.Ollama.OllamaAdvisor.ApplyConfig(
-                    Config.OllamaAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
-                CapBot.Core.Ollama.OllamaAdvisor.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
-            }
-            catch (System.Exception ex)
-            {
-                CapBotLog.Error(CapBotLog.OLLAMA, "Ollama advisor tick failed", ex);
-            }
-            // ---- Phase 21: crew advisor (Qwen integration, recommend-only) ----
-            // Same shape as the P20 block: consume + dispatch, single-flight,
-            // advice is logged only. Config-gated off by default; inert with
-            // no transport or disabled config; deterministic rules override.
-            try
-            {
-                CapBot.Core.Qwen.CrewAdvisor.ApplyConfig(
-                    Config.QwenAdvisorEnabled, Config.OllamaPort.Value, Config.OllamaModel.Value);
-                CapBot.Core.Qwen.CrewAdvisor.Evaluate(CapBot.Core.Tasks.TaskClock.NowMs);
-            }
-            catch (System.Exception ex)
-            {
-                CapBotLog.Error(CapBotLog.QWEN, "Crew advisor tick failed", ex);
-            }
             // ---- Phase 22: planning director (deterministic situation assessment) ----
             // Bounded snapshot assessment: premise-drift detection + the
             // calm-gated mission-work episode as DATA ONLY. No task is

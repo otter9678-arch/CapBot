@@ -50,8 +50,6 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'CapBot\Core\Combat\CombatDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Captain\CaptainDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Validation\DecisionValidator.cs') `
-  (Join-Path $repo 'CapBot\Core\Ollama\OllamaAdvisor.cs') `
-  (Join-Path $repo 'CapBot\Core\Qwen\CrewAdvisor.cs') `
   (Join-Path $repo 'CapBot\Core\Planning\PlanningDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Planning\MissionWorkDirector.cs') `
   (Join-Path $repo 'CapBot\Core\Adjustment\AdjustmentDirector.cs') `
@@ -76,8 +74,6 @@ $exe = Join-Path $outDir 'TaskLifecycleTests.exe'
   (Join-Path $repo 'tests\CombatTests.cs') `
   (Join-Path $repo 'tests\CaptainTests.cs') `
   (Join-Path $repo 'tests\DecisionValidatorTests.cs') `
-  (Join-Path $repo 'tests\OllamaAdvisorTests.cs') `
-  (Join-Path $repo 'tests\CrewAdvisorTests.cs') `
   (Join-Path $repo 'tests\PlanningDirectorTests.cs') `
   (Join-Path $repo 'tests\MissionWorkDirectorTests.cs') `
   (Join-Path $repo 'tests\AdjustmentDirectorTests.cs') `
