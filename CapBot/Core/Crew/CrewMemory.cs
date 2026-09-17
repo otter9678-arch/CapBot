@@ -122,6 +122,33 @@ namespace CapBot.Core.Crew
             public long Recalls;
             public long Evictions;
             public long Refused;
+            public long Restores;              // Phase 28: validated save/load restores
+        }
+
+        // Phase 28: read-only data row for the save codec (one bounded fact).
+        public sealed class MemoryRow
+        {
+            public readonly string AgentId;
+            public readonly MemoryKind Kind;
+            public readonly long TaskId;
+            public readonly string Text;
+            public readonly string Outcome;
+            public readonly int CreatedTimeMs;
+            public readonly int LastSeenMs;
+            public readonly long UpdateCount;
+
+            public MemoryRow(string agentId, MemoryKind kind, long taskId, string text,
+                string outcome, int createdTimeMs, int lastSeenMs, long updateCount)
+            {
+                AgentId = agentId;
+                Kind = kind;
+                TaskId = taskId;
+                Text = text;
+                Outcome = outcome;
+                CreatedTimeMs = createdTimeMs;
+                LastSeenMs = lastSeenMs;
+                UpdateCount = updateCount;
+            }
         }
 
         private static readonly RegistryState S = new RegistryState();
@@ -146,6 +173,7 @@ namespace CapBot.Core.Crew
         public static long RecallCount { get { lock (m_Lock) return S.Recalls; } }
         public static long EvictionCount { get { lock (m_Lock) return S.Evictions; } }
         public static long RefusedCount { get { lock (m_Lock) return S.Refused; } }
+        public static long RestoreCount { get { lock (m_Lock) return S.Restores; } }
 
         public static int MemoryCountOf(string agentId)
         {
@@ -418,6 +446,118 @@ namespace CapBot.Core.Crew
 
         // ---- lifecycle (future-phase integration point) --------------------------
 
+        // Phase 28: bounded row snapshot for the save codec (all agents, ordinal
+        // AgentId order, rows in ring order; read-only data rows).
+        public static List<MemoryRow> RowsForSave()
+        {
+            List<MemoryRow> rows = new List<MemoryRow>();
+            lock (m_Lock)
+            {
+                foreach (KeyValuePair<string, AgentMemory> kv in S.Agents)
+                {
+                    for (int i = 0; i < kv.Value.Entries.Count; i++)
+                    {
+                        CrewMemoryEntry e = kv.Value.Entries[i];
+                        rows.Add(new MemoryRow(e.AgentId, e.Kind, e.TaskId, e.Text, e.Outcome,
+                            e.CreatedTimeMs, e.LastSeenMs, e.UpdateCount));
+                    }
+                }
+            }
+            rows.Sort(delegate (MemoryRow a, MemoryRow b)
+            {
+                int c = string.CompareOrdinal(a.AgentId, b.AgentId);
+                if (c != 0) return c;
+                return a.CreatedTimeMs.CompareTo(b.CreatedTimeMs);
+            });
+            return rows;
+        }
+
+        // Phase 28: validated restore hook (save/load). Rebuilds one memory row
+        // with full integrity validation — never fabricates:
+        //   - agent id shape, kind vocabulary, task-outcome payload vocabulary,
+        //     text-length rule, and per-agent ring bound (MaxMemoriesPerAgent)
+        //   - upsert by key matches the runtime write path (a duplicate row
+        //     replaces in place — deterministic)
+        //   - timestamps pass through as-is (TaskClock semantics; cross-session
+        //     wall-clock meaning is session-scoped by design)
+        // Returns true when the entry was restored.
+        public static bool RestoreMemoryEntry(string agentId, MemoryKind kind, long taskId,
+            string text, string outcome, int createdTimeMs, int lastSeenMs, long updateCount)
+        {
+            if (!PersonalityFactory.IsValidAgentId(agentId) || updateCount < 0)
+            {
+                lock (m_Lock) S.Refused++;
+                return false;
+            }
+            bool payloadOk = kind == MemoryKind.Location ? (text != null && text.Length > 0 && text.Length <= MaxTextLen)
+                : kind == MemoryKind.TaskOutcome ? (taskId > 0 && IsKnownOutcome(outcome))
+                : kind == MemoryKind.CrewEvent ? IsValidText(text)
+                : false;
+            if (!payloadOk)
+            {
+                lock (m_Lock) S.Refused++;
+                return false;
+            }
+            lock (m_Lock)
+            {
+                AgentMemory am;
+                if (!S.Agents.TryGetValue(agentId, out am))
+                {
+                    if (S.Agents.Count >= MaxAgents)
+                    {
+                        S.Refused++;
+                        return false;
+                    }
+                    am = new AgentMemory();
+                    S.Agents[agentId] = am;
+                    S.AgentsCreated++;
+                }
+                // Ring insert with the runtime eviction rule (new distinct fact
+                // into a full ring evicts oldest by LastSeenMs) — the restore is
+                // exactly a late write, never a size violation.
+                int found = -1;
+                for (int i = 0; i < am.Entries.Count; i++)
+                {
+                    CrewMemoryEntry e = am.Entries[i];
+                    if (e.Kind != kind) continue;
+                    if (kind == MemoryKind.TaskOutcome) { if (e.TaskId != taskId) continue; }
+                    else if (!string.Equals(e.Text, text, StringComparison.Ordinal)) continue;
+                    found = i;
+                    break;
+                }
+                if (found >= 0)
+                {
+                    // Duplicate row: replace it wholesale (an immutable-shaped
+                    // entry with the persisted stamps — never a size change).
+                    CrewMemoryEntry replacement = new CrewMemoryEntry(agentId, kind, taskId, text, outcome, createdTimeMs);
+                    replacement.LastSeenMs = lastSeenMs;
+                    replacement.UpdateCount = updateCount;
+                    am.Entries[found] = replacement;
+                }
+                else
+                {
+                    if (am.Entries.Count >= MaxMemoriesPerAgent)
+                    {
+                        int oldest = 0;
+                        for (int i = 1; i < am.Entries.Count; i++)
+                        {
+                            if (am.Entries[i].LastSeenMs < am.Entries[oldest].LastSeenMs) oldest = i;
+                        }
+                        am.Entries.RemoveAt(oldest);
+                        am.Dropped++;
+                        S.Evictions++;
+                    }
+                    CrewMemoryEntry entry = new CrewMemoryEntry(agentId, kind, taskId, text, outcome, createdTimeMs);
+                    entry.LastSeenMs = lastSeenMs;
+                    entry.UpdateCount = updateCount;
+                    am.Entries.Add(entry);
+                }
+                S.Restores++;
+            }
+            Emit("MemoryRestored " + agentId + " kind=" + kind.ToString());
+            return true;
+        }
+
         // Forgets ALL memory for one agent (agent-removal lifecycle hook; the
         // P10 registry removal pass is a later-phase consumer). Deterministic.
         public static bool ForgetAgent(string agentId)
@@ -504,6 +644,7 @@ namespace CapBot.Core.Crew
                 S.Recalls = 0;
                 S.Evictions = 0;
                 S.Refused = 0;
+                S.Restores = 0;
                 m_OnDecision = null;
                 m_NowMsProvider = null;
             }

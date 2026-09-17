@@ -3,6 +3,64 @@
 All notable changes to CapBot are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Phase 28 — Crew-state persistence (PML save pipeline)] — unreleased (built from Alpha 1.2.2 source)
+
+### Added
+- `Core/Persistence/CrewSaveCodec.cs` — the deterministic, bounded byte
+  codec for the Phase 12 experience records, Phase 13 memory rings, and
+  the NON-DERIVED Phase 11 personalities (the P25 matured/explicit half).
+  Closes the P25 documented contract gap: matured personalities now
+  survive save/load. Derived personalities are never persisted (they are
+  a pure function of the stable AgentId — `PersonalityFactory.Derive` —
+  and re-derive identically on demand); a derived row found in a blob is
+  skipped defensively on restore. Three self-describing blocks (CBXP /
+  CBME / CBPE, [magic][schema-version] headers) in a length-prefixed
+  envelope; empty blocks are omitted entirely. Tolerant load: null/
+  empty/garbage/truncated input restores what it can and never throws.
+  Restore paths are the registries' own validated restore hooks — never
+  a direct static mutation, never a fabricated record: experience
+  restore enforces the counter-sum invariant AND the exact XP accrual
+  invariant (XP must equal 10*completed + 2*other — a mismatched blob is
+  corrupt, refused, never fabricated); Level is RECOMPUTED from XP.
+  Same registry state ⇒ byte-identical blob (ordinal AgentId order,
+  fixed-width fields, static schema version 1). Pure-domain file: no
+  game/PML/Photon references, no wall-clock reads, no LINQ.
+- `Core/Persistence/CrewSave.cs` — the game-build transport: a
+  `PMLSaveData` subclass ("CapBotCrewState", VersionID = schema 1). PML
+  auto-discovers every non-abstract PMLSaveData subclass in the mod
+  assembly at mod-load time and calls SaveData()/LoadData() from the
+  game's own save-file IO (PML's own transpilers hook
+  `PLSaveGameIO.SaveToFile/LoadFromFile` — decompile-verified against
+  the shipped PulsarModLoader.dll). **No Mod.cs wiring, no new Harmony
+  patch class** — the 11-class ceiling is untouched. Never throws; a
+  save failure logs and returns an empty blob.
+- Additive registry hooks: `CrewExperienceRegistry.SnapshotsForSave` +
+  `RestoreRecord` (+ RestoreCount), `CrewMemorySystem.RowsForSave` +
+  `RestoreMemoryEntry` (+ MemoryRow, RestoreCount; duplicate restore
+  rows replace in place; the 9th distinct fact follows the runtime
+  eviction rule), `CrewPersonalityRegistry.AllForSave`.
+- **Contract fix (P11):** `CrewPersonalityRegistry.SetPersonality` now
+  enforces the documented deterministic full-registry refusal at
+  MaxPersonalities=32 (was silently growing past the bound — found by
+  SAVE07).
+- `tests/CrewSaveTests.cs` (SAVE01–SAVE11, 59 assertions) + suite
+  registration (26 domain files, 17 suites).
+
+### Verified
+- Build: MSBuild Release 0 warnings / 0 errors.
+- Tests: `TOTAL passed=2542 failed=0` (+59 over the P26 baseline of
+  2483).
+- Reflection (`verify_build_p28.ps1`): 67/0 — codec surface + consts;
+  CrewSave PMLSaveData derivation + parameterless ctor +
+  Activator.CreateInstance (the PML discovery path, proven) +
+  Identifier "CapBotCrewState" + VersionID 1; 8 codec methods; 6
+  registry hooks + MemoryRow; IL ownership scans (zero forbidden refs
+  across codec AND CrewSave: task authoring, scheduler/recovery/
+  executor/claims/validator/dispatcher, LLM advisors, Photon, scene
+  scans, order RPCs); all six sanctioned read/write hooks present in
+  IL; CapBotLog.PERSISTENCE; Harmony patch classes == 11; P24/P25/P26
+  surfaces intact.
+
 ## [Phase 26 — Trait profile (trait consumer)] — unreleased (built from Alpha 1.2.2 source)
 
 ### Added

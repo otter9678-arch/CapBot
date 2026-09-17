@@ -324,6 +324,14 @@ namespace CapBot.Core.Crew
             lock (m_Lock)
             {
                 bool replaced = S.Personalities.ContainsKey(agentId);
+                if (!replaced && S.Personalities.Count >= MaxPersonalities)
+                {
+                    // Deterministic full-registry refusal (the P11 documented
+                    // contract — never a size violation, never a live-record shed).
+                    Emit("PersonalityRefused " + agentId + " (registry full)");
+                    S.Refused++;
+                    return false;
+                }
                 S.Personalities[agentId] = personality;
                 if (replaced) S.Replaced++; else S.Assigned++;
                 Emit("PersonalityAssigned " + agentId
@@ -406,6 +414,26 @@ namespace CapBot.Core.Crew
             CrewPersonality p = Get(agentId);
             if (p == null) p = DeriveFor(agentId, nowMs);
             return p == null ? null : p.Archetype;
+        }
+
+        // Phase 28: read-only snapshot list for the save codec (the records are
+        // immutable; the list is a fresh copy, ordinal AgentId order). The codec
+        // filters non-derived records itself — this returns ALL records.
+        public static List<CrewPersonality> AllForSave()
+        {
+            List<CrewPersonality> result = new List<CrewPersonality>();
+            lock (m_Lock)
+            {
+                foreach (KeyValuePair<string, CrewPersonality> kv in S.Personalities)
+                {
+                    result.Add(kv.Value);
+                }
+            }
+            result.Sort(delegate (CrewPersonality a, CrewPersonality b)
+            {
+                return string.CompareOrdinal(a.AgentId, b.AgentId);
+            });
+            return result;
         }
 
         // One bounded diagnostic line per record (deterministic order).

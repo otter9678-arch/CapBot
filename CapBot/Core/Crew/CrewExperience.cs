@@ -136,6 +136,7 @@ namespace CapBot.Core.Crew
             public long RecordsCreated;
             public long Accruals;
             public long Refused;
+            public long Restores;              // Phase 28: validated save/load restores
         }
 
         private static readonly RegistryState S = new RegistryState();
@@ -159,6 +160,7 @@ namespace CapBot.Core.Crew
         public static long RecordCount { get { lock (m_Lock) return S.RecordsCreated; } }
         public static long AccrualCount { get { lock (m_Lock) return S.Accruals; } }
         public static long RefusedCount { get { lock (m_Lock) return S.Refused; } }
+        public static long RestoreCount { get { lock (m_Lock) return S.Restores; } }
 
         // Points for an outcome in the Phase 10 static vocabulary; -1 for
         // unknown/empty outcomes (refused, never fabricated).
@@ -258,6 +260,109 @@ namespace CapBot.Core.Crew
             }
         }
 
+        // Phase 28: bounded snapshot list for the save codec (defensive copies,
+        // ordinal AgentId order — the SnapshotOf contract, one row each).
+        public static List<CrewExperienceRecord> SnapshotsForSave()
+        {
+            List<CrewExperienceRecord> result = new List<CrewExperienceRecord>();
+            lock (m_Lock)
+            {
+                foreach (KeyValuePair<string, CrewExperienceRecord> kv in S.Records)
+                {
+                    CrewExperienceRecord r = kv.Value;
+                    CrewExperienceRecord copy = new CrewExperienceRecord(r.AgentId, r.CreatedTimeMs);
+                    copy.TasksCompleted = r.TasksCompleted;
+                    copy.TasksCancelled = r.TasksCancelled;
+                    copy.TasksExpired = r.TasksExpired;
+                    copy.TasksVanished = r.TasksVanished;
+                    copy.TasksFailed = r.TasksFailed;
+                    copy.TotalOutcomes = r.TotalOutcomes;
+                    copy.ExperiencePoints = r.ExperiencePoints;
+                    copy.Level = r.Level;
+                    copy.LastOutcome = r.LastOutcome;
+                    copy.LastResultMs = r.LastResultMs;
+                    copy.UpdateCount = r.UpdateCount;
+                    result.Add(copy);
+                }
+            }
+            result.Sort(delegate (CrewExperienceRecord a, CrewExperienceRecord b)
+            {
+                return string.CompareOrdinal(a.AgentId, b.AgentId);
+            });
+            return result;
+        }
+
+        // Phase 28: validated restore hook (save/load). Rebuilds a record from
+        // persisted counters with FULL integrity validation — never fabricates:
+        //   - agent id shape + outcome vocabulary validated
+        //   - counters >= 0; the five outcome counters must sum to TotalOutcomes
+        //   - XP must equal the exact accrual invariant
+        //     (10*completed + 2*other) — a mismatched blob is corrupt
+        //   - Level is RECOMPUTED from XP (never trusted from the blob)
+        //   - registry bound respected (deterministic refusal when full,
+        //     replacement allowed + counted)
+        // Returns true when the record was restored.
+        public static bool RestoreRecord(string agentId, int createdTimeMs,
+            long tasksCompleted, long tasksCancelled, long tasksExpired,
+            long tasksVanished, long tasksFailed, long totalOutcomes,
+            long experiencePoints, string lastOutcome, int lastResultMs)
+        {
+            if (!PersonalityFactory.IsValidAgentId(agentId)) { lock (m_Lock) S.Refused++; return false; }
+            if (tasksCompleted < 0 || tasksCancelled < 0 || tasksExpired < 0
+                || tasksVanished < 0 || tasksFailed < 0 || totalOutcomes < 0
+                || tasksCompleted + tasksCancelled + tasksExpired + tasksVanished + tasksFailed != totalOutcomes)
+            {
+                lock (m_Lock) S.Refused++;
+                return false;
+            }
+            if (!XpMatchesOutcomes(tasksCompleted, tasksCancelled, tasksExpired, tasksVanished, tasksFailed, experiencePoints))
+            {
+                lock (m_Lock) S.Refused++;
+                return false;
+            }
+            if (lastOutcome != null && PointsForOutcome(lastOutcome) < 0)
+            {
+                lock (m_Lock) S.Refused++;
+                return false;
+            }
+            CrewExperienceRecord record = new CrewExperienceRecord(agentId, createdTimeMs);
+            record.TasksCompleted = tasksCompleted;
+            record.TasksCancelled = tasksCancelled;
+            record.TasksExpired = tasksExpired;
+            record.TasksVanished = tasksVanished;
+            record.TasksFailed = tasksFailed;
+            record.TotalOutcomes = totalOutcomes;
+            record.ExperiencePoints = experiencePoints;
+            record.Level = ExperienceLevels.LevelForXp(experiencePoints);
+            record.LastOutcome = lastOutcome;
+            record.LastResultMs = lastResultMs;
+            lock (m_Lock)
+            {
+                if (!S.Records.ContainsKey(agentId) && S.Records.Count >= MaxRecords)
+                {
+                    Emit("ExperienceRestoreRefused " + agentId + " (registry full)");
+                    S.Refused++;
+                    return false;
+                }
+                S.Records[agentId] = record;
+                S.Restores++;
+            }
+            Emit("ExperienceRestored " + agentId
+                + " lvl=" + record.Level.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " xp=" + record.ExperiencePoints.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        // Phase 28: exact accrual-invariant check (XP must equal the recorded
+        // outcome mix; any drift means the blob is corrupt — refuse, never
+        // fabricate). Static pure function.
+        private static bool XpMatchesOutcomes(long completed, long cancelled, long expired, long vanished, long failed, long xp)
+        {
+            long expected = completed * PointsCompleted
+                + (cancelled + expired + vanished + failed) * PointsOther;
+            return xp == expected;
+        }
+
         // Removes an experience record (future-phase lifecycle integration).
         public static bool Remove(string agentId)
         {
@@ -306,6 +411,7 @@ namespace CapBot.Core.Crew
                 S.RecordsCreated = 0;
                 S.Accruals = 0;
                 S.Refused = 0;
+                S.Restores = 0;
                 m_OnDecision = null;
             }
         }
