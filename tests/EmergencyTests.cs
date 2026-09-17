@@ -13,7 +13,9 @@
 // rejection (17), preemption (18), preempted-recoverable (19), no infinite
 // loops (20), bounded history (21), Quality-Improver-safe hostility (22),
 // master-only (23), repeated evaluation without duplicate actions (24),
-// fail-safe on missing state (25) — plus per-rule detection coverage.
+// fail-safe on missing state (25), note-only coordination path (26),
+// note re-notify throttle (27), note-only no-churn across passes (28)
+// — plus per-rule detection coverage.
 using System;
 using System.Collections.Generic;
 using CapBot.Core.Tasks;
@@ -507,16 +509,23 @@ namespace CapBot.TaskTests
                 crew: new CrewMemberSnapshot[] { Bot(1, 0.4f) },
                 missions: new MissionSnapshot[] { Mission(502, 3, 2) }));
             Eval();
-            Check(EmergencyDirector.TasksCreated == 9, "S21 nine distinct emergencies in one pass");
+            Check(EmergencyDirector.TasksCreated == 7, "S21 seven task-capable emergencies in one pass");
+            Check(EmergencyDirector.NotesEmitted == 2 && EmergencyDirector.TasksCreated + EmergencyDirector.NotesEmitted == 9,
+                "S21 two coordination findings recorded note-only (7 tasks + 2 notes = 9 findings)");
             Check(EmergencyDirector.ActiveCount == EmergencyDirector.MaxActiveEmergencies,
                 "S21 single-pass burst: active set bounded at MaxActiveEmergencies");
             Check(EmergencyDirector.HistoryCount == 1, "S21 overflow shed into bounded history");
             List<CapBotTask> live = TaskRegistry.LiveSnapshot();
             for (int i = 0; i < live.Count; i++) live[i].TryCancel("test cleanup");
             EmergencyDirector.ReconcileTasks(s_Clock.NowMs);
-            Check(EmergencyDirector.ActiveCount == 0, "S21 reconcile resolved actives whose tasks reached terminal");
-            Check(EmergencyDirector.HistoryCount == 9 && EmergencyDirector.HistoryCount <= EmergencyDirector.MaxHistory,
-                "S21 history stays bounded after mass resolution");
+            Check(EmergencyDirector.ActiveCount == 2 && EmergencyDirector.HistoryCount == 7,
+                "S21 reconcile resolved the 6 tracked task-backed actives (the shed record's task is untracked); both note-only records remain (reconcile owns TaskId>0 only)");
+            // Note-only records decay via the expiry path, not reconcile:
+            Advance(EmergencyDirector.ActiveExpiryMs + 1000);
+            Publish(Snap(s_Clock.NowMs));                     // quiet snapshot: no re-detection refresh
+            Eval();
+            Check(EmergencyDirector.ActiveCount == 0 && EmergencyDirector.HistoryCount == 9,
+                "S21 note-only records decayed via expiry; history stays bounded after mass resolution");
 
             // ================================================================
             // S22 (mandated 22): Quality-Improver-safe hostility — detection
@@ -589,6 +598,83 @@ namespace CapBot.TaskTests
             Publish(Snap(s_Clock.NowMs, gameStarted: false, hull: 0.24f));
             Check(Eval() == 0, "S25 game-not-started snapshot -> fail-safe");
             Check(EmergencyDirector.ActiveCount == 0 && TaskRegistry.LiveCount == 0, "S25 no state mutated on any failure path");
+
+            // ================================================================
+            // S26: coordination-only findings are note-only — the ACTIVE
+            // record exists, but NO lifecycle task is ever created (the
+            // executor fails capability-less tasks by design; a task here
+            // only churns create -> fail -> reconcile -> re-detect).
+            // ================================================================
+            FreshSetup();
+            Publish(Snap(s_Clock.NowMs, navMetrics: true, moved: 0.2f, seeking: 8f,
+                missions: new MissionSnapshot[] { Mission(502, 3, 2) }));
+            Check(Eval() == 0, "S26 coordination-only pass creates zero emergency tasks");
+            Check(EmergencyDirector.ActiveCount == 2 && EmergencyDirector.EmergenciesDetected == 0
+                && EmergencyDirector.TasksCreated == 0, "S26 both coordination findings recorded note-only (no detection/task counters)");
+            CapBotTask stray = FindEmergencyTask(null);
+            Check(stray == null, "S26 no capability-less EMERGENCY task exists in the registry");
+            CapBotTask anyEmergency = null;
+            List<CapBotTask> s26Live = TaskRegistry.LiveSnapshot();
+            for (int i = 0; i < s26Live.Count; i++)
+            {
+                if (s26Live[i].TaskType == "EMERGENCY") anyEmergency = s26Live[i];
+            }
+            Check(anyEmergency == null && TaskRegistry.LiveCount == 0, "S26 registry has no EMERGENCY task of any kind");
+            Check(CountLines("EmergencyNoted") == 2, "S26 one EmergencyNoted line per coordination finding");
+            Check(CountLines("EmergencyTaskCreated") == 0 && CountLines("EmergencyTaskRefused") == 0,
+                "S26 no task lifecycle lines for coordination findings");
+            Check(HasLineContaining("EID:OBJECTIVECRITICAL:") && HasLineContaining("EID:NAVIGATIONFAILURE:"),
+                "S26 notes carry the deterministic emergency ids");
+            // the note-only record still resolves cleanly via expiry (no task to reconcile)
+            Advance(EmergencyDirector.ActiveExpiryMs + 1000);
+            Publish(Snap(s_Clock.NowMs));                     // quiet snapshot: no re-detection refresh
+            Eval();
+            Check(EmergencyDirector.ActiveCount == 0, "S26 note-only records decay via the expiry path");
+            Check(EmergencyDirector.HistoryCount == 2, "S26 decayed note-only records enter bounded history");
+            Check(HasLineContaining("note-only record (no task)"), "S26 resolve line reflects the note-only record");
+
+            // ================================================================
+            // S27: EmergencyNoted re-notify throttle — a persisting
+            // coordination-only condition re-notifies at most once per
+            // ReNotifyThrottleMs, never per pass.
+            // ================================================================
+            FreshSetup();
+            Publish(Snap(s_Clock.NowMs, missions: new MissionSnapshot[] { Mission(502, 3, 2) }));
+            Eval();
+            Check(CountLines("EmergencyNoted") == 1, "S27 first sight emits exactly one note");
+            for (int i = 0; i < 10; i++)                      // 10 passes over ~50 s: all inside the throttle
+            {
+                Advance(EmergencyDirector.MinRecheckMs);
+                Publish(Snap(s_Clock.NowMs, missions: new MissionSnapshot[] { Mission(502, 3, 2) }));
+                Eval();
+            }
+            Check(CountLines("EmergencyNoted") == 1, "S27 no re-notify inside the throttle window (10 passes / ~50 s)");
+            Advance(EmergencyDirector.ReNotifyThrottleMs);    // now ~110 s since the first note
+            Publish(Snap(s_Clock.NowMs, missions: new MissionSnapshot[] { Mission(502, 3, 2) }));
+            Eval();
+            Check(CountLines("EmergencyNoted") == 2, "S27 one bounded re-notify after the throttle window");
+            Check(EmergencyDirector.TasksCreated == 0 && EmergencyDirector.NotesEmitted == 2,
+                "S27 counter agrees with the emitted notes; still zero tasks");
+
+            // ================================================================
+            // S28: no churn across 20 passes — the live-proven runtime defect
+            // shape (ObjectiveCritical re-detection loop) is bounded: one
+            // record, one note, zero tasks, no scheduler/executor activity.
+            // ================================================================
+            FreshSetup();
+            for (int i = 0; i < 20; i++)
+            {
+                Publish(Snap(s_Clock.NowMs, missions: new MissionSnapshot[] { Mission(502, 3, 2) }));
+                EmergencyDirector.Evaluate(s_Clock.NowMs);
+                EmergencyDirector.ReconcileTasks(s_Clock.NowMs);
+                Advance(EmergencyDirector.MinRecheckMs);
+            }
+            Check(EmergencyDirector.TasksCreated == 0, "S28 zero tasks across 20 passes (the churn is gone)");
+            Check(EmergencyDirector.ActiveCount == 1 && EmergencyDirector.DuplicatesSuppressed == 19,
+                "S28 one persisting record, every re-detection deduplicated");
+            Check(CountLines("EmergencyTaskCreated") == 0, "S28 no EmergencyTaskCreated for the coordination finding");
+            Check(CountLines("Refuse owner busy") == 0 && CountLines("Preempted") == 0,
+                "S28 no scheduler activity (no 'Refuse owner busy', no preemption)");
 
             // ================================================================
             // Per-rule detection coverage (all nine implemented rules)

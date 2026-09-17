@@ -23,6 +23,9 @@ namespace CapBot.Core.Emergency
     //     -> (scheduler grants it -> P8 executor claims/validates/executes
     //        exactly as for every other task — the director never executes)
     //     -> lifecycle resolution feeds P3 recovery on failure.
+    //     -> coordination-only findings (empty RequiredCapability: Navigation-
+    //        Failure, ObjectiveCritical) stop at the ACTIVE record — note-only,
+    //        no task, no churn (see ProcessFinding).
     //
     // HARD BOUNDARIES:
     //   - Never executes a capability, never RPCs, never mutates gameplay.
@@ -52,6 +55,13 @@ namespace CapBot.Core.Emergency
         public const int RecoveryHoldMs = 10000;       // minimum time in Recovery before Normal
         public const int MaxStaleSnapshotMs = 20000;   // fail-safe: no decisions on older snapshots
 
+        // Coordination-only findings (empty RequiredCapability) are recorded
+        // note-only: the ACTIVE record IS the outcome — the executor fails
+        // capability-less tasks by design, so a task here only churns
+        // (create -> fail -> reconcile -> re-detect -> repeat). Re-notification
+        // is throttled to at most one EmergencyNoted line per minute.
+        public const int ReNotifyThrottleMs = 60000;
+
         // Task vocabulary (static; the same task types the executor dispatches
         // via registered capabilities; "" capability = coordination-only).
         private const string TaskTypeEmergency = "EMERGENCY";
@@ -70,6 +80,7 @@ namespace CapBot.Core.Emergency
             public long DuplicatesSuppressed;
             public long StaleRejections;
             public long TransitionsRejected;
+            public long NotesEmitted;
             public string LastUncertainReason;
         }
 
@@ -104,6 +115,7 @@ namespace CapBot.Core.Emergency
         public static long DuplicatesSuppressed { get { lock (m_Lock) return S.DuplicatesSuppressed; } }
         public static long StaleRejections { get { lock (m_Lock) return S.StaleRejections; } }
         public static long TransitionsRejected { get { lock (m_Lock) return S.TransitionsRejected; } }
+        public static long NotesEmitted { get { lock (m_Lock) return S.NotesEmitted; } }
 
         public static List<string> ActiveLines()
         {
@@ -218,6 +230,8 @@ namespace CapBot.Core.Emergency
         // ---- finding processing (dedup + task creation) ----------------------------
         private static void ProcessFinding(EmergencyDecision finding, int nowMs, ref bool created)
         {
+            bool coordinationOnly = string.IsNullOrEmpty(finding.RequiredCapability);
+
             lock (m_Lock)
             {
                 ActiveEmergency active;
@@ -226,6 +240,20 @@ namespace CapBot.Core.Emergency
                     // Same underlying emergency: refresh, never re-create.
                     S.DuplicatesSuppressed++;
                     active.LastSeenMs = nowMs;
+                    if (coordinationOnly)
+                    {
+                        // Note-only path: still no task; re-notify at most
+                        // once per minute so the operator sees a persisting
+                        // condition without log churn.
+                        if (unchecked(nowMs - active.TaskCreatedMs) >= ReNotifyThrottleMs)
+                        {
+                            active.TaskCreatedMs = nowMs;
+                            S.NotesEmitted++;
+                            Emit("EmergencyNoted " + finding.EmergencyId
+                                + " (coordination-only: no capability wired; no task created; re-notify <= 1/min)");
+                        }
+                        return;
+                    }
                     if (finding.Severity > active.Severity)
                     {
                         // Escalation of a live emergency: escalate severity and
@@ -241,7 +269,8 @@ namespace CapBot.Core.Emergency
 
                 if (S.Active.Count >= MaxActiveEmergencies)
                 {
-                    // Bounded set full: shed the OLDEST emergency deterministically.
+                    // Bounded set full: shed the OLDEST emergency deterministically
+                    // (applies to task-backed AND note-only records alike).
                     string oldest = null;
                     int oldestSeen = int.MaxValue;
                     foreach (KeyValuePair<string, ActiveEmergency> kv in S.Active)
@@ -249,6 +278,20 @@ namespace CapBot.Core.Emergency
                         if (kv.Value.LastSeenMs < oldestSeen) { oldestSeen = kv.Value.LastSeenMs; oldest = kv.Key; }
                     }
                     if (oldest != null) ResolveActive(oldest, "shed: active set full");
+                }
+
+                if (coordinationOnly)
+                {
+                    // Coordination-only: the ACTIVE record IS the outcome. A
+                    // lifecycle task would be failed by the executor (no
+                    // capability bound) and re-created forever. First sight
+                    // emits the note; later refreshes re-notify at most once
+                    // per minute (TaskCreatedMs doubles as LastNotedMs).
+                    Emit("EmergencyNoted " + finding.EmergencyId
+                        + " (coordination-only: no capability wired; no task created; re-notify <= 1/min)");
+                    S.NotesEmitted++;
+                    S.Active[finding.EmergencyId] = new ActiveEmergency(finding.EmergencyId, finding.EmergencyType, 0, nowMs, finding.Severity);
+                    return;
                 }
 
                 // NEW emergency: create the task through the P2 lifecycle.
@@ -280,7 +323,10 @@ namespace CapBot.Core.Emergency
                 S.Active.Remove(emergencyId);
                 S.HistoryIds.Enqueue(emergencyId);
                 while (S.HistoryIds.Count > MaxHistory) S.HistoryIds.Dequeue();
-                Emit("EmergencyResolved " + emergencyId + " reason=" + reason + " (task #" + removed.TaskId + " untouched — lifecycle/recovery own it)");
+                string detail = removed.TaskId > 0
+                    ? "task #" + removed.TaskId + " untouched — lifecycle/recovery own it"
+                    : "note-only record (no task)";
+                Emit("EmergencyResolved " + emergencyId + " reason=" + reason + " (" + detail + ")");
             }
         }
 
@@ -455,7 +501,8 @@ namespace CapBot.Core.Emergency
         // Resolves active records whose emergency task reached a terminal state
         // (or whose task vanished from the registry), with a re-arm delay so a
         // persisting condition re-arms only after TaskRequeueBlockMs. Called by
-        // the driver after Evaluate (bounded, snapshot-free).
+        // the driver after Evaluate (bounded, snapshot-free). Note-only records
+        // (TaskId == 0) are skipped here: expiry (ActiveExpiryMs) owns them.
         public static void ReconcileTasks(int nowMs)
         {
             List<KeyValuePair<string, ActiveEmergency>> stale = null;
@@ -501,6 +548,7 @@ namespace CapBot.Core.Emergency
                 lines.Add("state=" + S.State + " active=" + S.Active.Count + " history=" + S.HistoryIds.Count);
                 lines.Add("evals=" + S.Evaluations + " detected=" + S.EmergenciesDetected
                     + " tasks=" + S.TasksCreated + " dups=" + S.DuplicatesSuppressed
+                    + " notes=" + S.NotesEmitted
                     + " stale=" + S.StaleRejections + " rejectedTransitions=" + S.TransitionsRejected);
             }
             return lines;
@@ -522,6 +570,7 @@ namespace CapBot.Core.Emergency
                 S.DuplicatesSuppressed = 0;
                 S.StaleRejections = 0;
                 S.TransitionsRejected = 0;
+                S.NotesEmitted = 0;
                 S.LastUncertainReason = null;
                 m_AuthorityProbe = null;
                 m_NowMsProvider = null;
