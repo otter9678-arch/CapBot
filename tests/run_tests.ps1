@@ -6,7 +6,7 @@
 # references) into a temp exe, runs it, reports the combined summary. Gates
 # on the TOTAL line containing failed=0.
 $ErrorActionPreference = 'Stop'
-$repo = 'D:\Projects\CapBot current Project\CapBot-Alpha-1.2.2-Vortex (1)\CapBot-repo'
+$repo = 'D:\Projects\Universal Qwen-code prompt for any project\Projects\CapBot current Project\CapBot-Alpha-1.2.2-Vortex (1)\CapBot-repo'
 $cscCandidates = @(
   'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\Roslyn\csc.exe',
   'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\Roslyn\csc.exe'
